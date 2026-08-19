@@ -19,7 +19,7 @@ import { get, writable } from "svelte/store";
 import { dueReminders } from "../domain/reminders";
 import { todayISO } from "../domain/dates";
 import type { WellnessKey } from "../domain/types";
-import { flushSave } from "./persistence";
+import { flushSave, showSaveError } from "./persistence";
 import {
   S,
   activeThing,
@@ -94,7 +94,13 @@ function checkpoint(now: number): void {
   if (!s.activeMainId || !s.startedAt) return;
   if (now - lastCheckpoint < CHECKPOINT_MS) return;
   lastCheckpoint = now;
-  void flushSave();
+  // Fire-and-forget: a failed checkpoint still shows a toast and the next
+  // tick or edit retries. `flushSave` now rejects on a real write failure
+  // instead of swallowing it, so this catch is required to avoid an
+  // unhandled-rejection warning. On a StaleWriteError, `flushSave` already
+  // reloaded the current state - the next checkpoint simply persists that,
+  // it does not re-apply any mutation.
+  void flushSave().catch((e) => showSaveError(e));
 }
 
 /** Last title pushed to the tray, so we only cross the IPC when it changes. */

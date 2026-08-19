@@ -65,9 +65,20 @@
   "bundle": {
     "active": true,
     "targets": ["app", "dmg", "nsis"],
-    "icon": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "copyright": "Copyright © 2026 Immanuel Savio",
+    "category": "Productivity",
+    "shortDescription": "A menu-bar time tracker for ADHD-friendly focus sessions.",
+    "longDescription": "Remi is a lightweight macOS/Windows menu-bar app for tracking focus time on tasks and steps, built with ADHD-friendly workflows in mind: quick task switching, break tracking, and daily rollover.",
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "-"
     }
   }
 }

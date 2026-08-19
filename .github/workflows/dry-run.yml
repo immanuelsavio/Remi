@@ -1,0 +1,88 @@
+name: macOS dry run
+
+# Manual, on-demand build for both macOS architectures. Builds, ad-hoc
+# signs, and validates real .app bundles and uploads them as workflow
+# artifacts for inspection - it NEVER creates or publishes a GitHub
+# Release. Use this to sanity-check a release before actually tagging one.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch_name: aarch64
+            runner: macos-14
+          - target: x86_64-apple-darwin
+            arch_name: x86_64
+            runner: macos-13
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - run: npm ci
+
+      - run: bash scripts/check-versions.sh
+
+      - name: Build (ad-hoc signed)
+        run: npx tauri build --target ${{ matrix.target }} --bundles app
+        env:
+          # "-" is ad-hoc signing: no paid Apple Developer ID, no
+          # notarization. See tauri.conf.json's bundle.macOS.signingIdentity.
+          APPLE_SIGNING_IDENTITY: "-"
+
+      - name: Locate built bundle
+        id: bundle
+        run: |
+          APP_PATH="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Remi.app"
+          if [[ ! -d "$APP_PATH" ]]; then
+            echo "Expected bundle not found at $APP_PATH" >&2
+            exit 1
+          fi
+          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Verify ad-hoc signature
+        run: codesign --verify --deep --strict "${{ steps.bundle.outputs.app_path }}"
+
+      - name: Verify architecture
+        run: |
+          BIN="${{ steps.bundle.outputs.app_path }}/Contents/MacOS/remi"
+          file "$BIN"
+          file "$BIN" | grep -q "${{ matrix.arch_name }}" || {
+            echo "Binary architecture does not match ${{ matrix.arch_name }}" >&2
+            exit 1
+          }
+
+      - name: Package archive
+        id: package
+        run: |
+          VERSION="$(node -pe "require('./package.json').version")"
+          ASSET_NAME="Remi-${VERSION}-macos-${{ matrix.arch_name }}.tar.gz"
+          tar -C "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -czf "$ASSET_NAME" Remi.app
+          shasum -a 256 "$ASSET_NAME" > "$ASSET_NAME.sha256"
+          echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.asset_name }}
+          path: |
+            ${{ steps.package.outputs.asset_name }}
+            ${{ steps.package.outputs.asset_name }}.sha256
+          retention-days: 14

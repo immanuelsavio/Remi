@@ -245,6 +245,20 @@ export interface State {
   /** Schema version, for future migrations. */
   v: number;
 
+  /**
+   * The revision last known to be on disk, for cross-window
+   * compare-and-swap saves (`_rev` in the persisted JSON - see
+   * `src-tauri/src/state_io.rs`'s `write_state_cas`).
+   *
+   * Each successful save bumps this by exactly one. A save whose `_rev`
+   * doesn't match what Rust currently has on disk means the OTHER window
+   * saved a newer revision first - Rust rejects it rather than silently
+   * overwriting, and the frontend reloads instead of losing that write.
+   * Never touched by domain logic directly; only `store/persistence.ts`
+   * reads and advances it.
+   */
+  _rev: number;
+
   phase: Phase;
   dayNum: number;
   /** The real calendar date this day represents (YYYY-MM-DD). */
