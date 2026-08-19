@@ -40,6 +40,84 @@ npm run release   # bundle a real .app / .dmg / .exe
 Look at your **menu bar**, not your Dock. Click the mark to open the
 popover.
 
+## macOS install and uninstall
+
+Remi is ad-hoc signed for now, not Apple-notarized. The installer verifies
+the downloaded release archive against the release's `checksums.txt` before
+extracting it, then removes the quarantine flag from the installed
+`Remi.app` bundle only. It does not disable Gatekeeper or change quarantine
+settings for anything else on your Mac.
+
+The repository must be public for the raw `curl` command and GitHub Release
+asset downloads to work without authentication.
+
+Safer inspect-first install:
+
+```bash
+curl -fsSLo remi-install.sh https://raw.githubusercontent.com/immanuelsavio/remi/main/install.sh
+less remi-install.sh
+bash remi-install.sh --launch
+```
+
+Direct install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/immanuelsavio/remi/main/install.sh | bash
+```
+
+By default this installs to `~/Applications/Remi.app`. Use `--system` for
+`/Applications/Remi.app`, `--version v0.1.0` for a specific release, and
+`--launch` to open Remi after installation. Re-running the installer upgrades
+the app in place and rolls back if the replacement copy fails.
+
+Uninstall the app while keeping your data:
+
+```bash
+curl -fsSLo remi-uninstall.sh https://raw.githubusercontent.com/immanuelsavio/remi/main/uninstall.sh
+bash remi-uninstall.sh
+```
+
+Use `--system` if Remi was installed to `/Applications`. To permanently
+delete Remi's settings and data as well, run:
+
+```bash
+bash remi-uninstall.sh --purge --yes
+```
+
+That purge is not reversible. A normal uninstall leaves `~/Remi` and
+`~/Library/Application Support/com.immanuelsavio.remi` in place so a later
+reinstall picks up where you left off.
+
+## Release checklist
+
+Before publishing a macOS release, make sure all version fields match:
+
+```bash
+bash scripts/check-versions.sh
+```
+
+Run the manual dry-run workflow first. It builds both Apple Silicon and
+Intel macOS app bundles, verifies ad-hoc signatures and architectures, and
+uploads artifacts without publishing a GitHub Release. GitHub only exposes a
+new `workflow_dispatch` workflow after the workflow file exists on the
+default branch, so the first dry run may need to happen after merging the
+workflow into `main`.
+
+```bash
+gh workflow run dry-run.yml --ref release/macos-distribution-readiness
+```
+
+When the dry run is good, tag the matching version. The release workflow
+reruns validation, builds both macOS architectures, creates
+`Remi-VERSION-macos-aarch64.tar.gz`,
+`Remi-VERSION-macos-x86_64.tar.gz`, and `checksums.txt`, then publishes the
+GitHub Release only after every job succeeds.
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Tests and verification
 
 ```bash
