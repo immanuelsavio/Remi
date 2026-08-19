@@ -13,6 +13,9 @@ const saved: Record<string, unknown>[] = [];
 /** Captures native notifications and tray titles. */
 const notified: { title: string; body: string }[] = [];
 const trayTitles: (string | null)[] = [];
+/** Every filename `write_text_file` was called with, so export naming
+ * (collision resistance) is actually testable. */
+const writtenFileNames: string[] = [];
 /** What `load_app_state` should hand back on the next boot. */
 let loadResult: { kind: string; state?: unknown; message?: string } = { kind: "fresh" };
 /** When set, the NEXT `save_app_state` call rejects with this message
@@ -49,7 +52,12 @@ vi.mock("@tauri-apps/api/core", () => ({
             return { stale: true, currentRev: mockCurrentRev };
           }
           mockCurrentRev++;
-          saved.push(payload);
+          // Mirror the real Rust behavior: the WRITTEN content is stamped
+          // with the NEW revision, not the one the caller sent - so
+          // reading it back (e.g. via load_app_state) reflects what's
+          // genuinely on disk now.
+          const written = { ...payload, _rev: mockCurrentRev };
+          saved.push(written);
           return { rev: mockCurrentRev };
         }
       case "quit_app":
@@ -64,6 +72,7 @@ vi.mock("@tauri-apps/api/core", () => ({
         trayTitles.push((args?.title as string | null) ?? null);
         return null;
       case "write_text_file":
+        writtenFileNames.push(String(args?.name));
         return `/tmp/${String(args?.name)}`;
       case "get_auto_update":
         return true;
@@ -99,6 +108,7 @@ import {
   dismissWelcomeBack,
   endDay,
   exportBackup,
+  exportLogs,
   extendBreak,
   flushSave,
   friction,
@@ -133,6 +143,7 @@ import {
   useRevive,
   welcomeBack,
 } from "./index";
+import { StaleWriteError } from "./persistence";
 import { get } from "svelte/store";
 
 /**
@@ -151,6 +162,7 @@ async function reset(): Promise<void> {
   quitAppCalls = 0;
   mockCurrentRev = 0;
   forceStaleOnce = false;
+  writtenFileNames.length = 0;
   dismissWelcomeBack();
   loadResult = { kind: "loaded", state: freshDay() };
   await boot();
@@ -1070,38 +1082,123 @@ describe("import, export and restore", () => {
 
   it("exports a backup through the write command", async () => {
     await exportBackup();
-    // The name is date-stamped so successive exports don't overwrite each other.
-    expect(saved.length).toBeGreaterThanOrEqual(0);
+    expect(writtenFileNames).toHaveLength(1);
+    expect(writtenFileNames[0]).toMatch(/^remi-backup-.*\.json$/);
   });
 
-  it("restores a backup through hydrate", () => {
+  it("two backup exports in quick succession get DIFFERENT filenames, never silently overwriting each other", async () => {
+    // The bug this guards: a filename derived from the CALENDAR DATE alone
+    // collides on the second export of the same day - write_text_file is
+    // a plain overwrite, so the first export would be silently destroyed.
+    await exportBackup();
+    await exportBackup();
+    expect(writtenFileNames).toHaveLength(2);
+    expect(writtenFileNames[0]).not.toBe(writtenFileNames[1]);
+  });
+
+  it("restores a backup through hydrate, and reports success", async () => {
     const backup = { ...freshDay(7), dateISO: todayISO(), awaitingStart: false, accent: "rose" };
-    restoreBackup(JSON.stringify(backup));
+    const result = await restoreBackup(JSON.stringify(backup));
+    expect(result.ok).toBe(true);
     expect(S().dayNum).toBe(7);
     expect(S().accent).toBe("rose");
   });
 
-  it("refuses a file that isn't JSON, without touching state", () => {
+  it("refuses a file that isn't JSON, without touching state", async () => {
     const before = S().dayNum;
-    restoreBackup("{{{ not json");
+    const result = await restoreBackup("{{{ not json");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("invalid-json");
     expect(S().dayNum).toBe(before);
   });
 
-  it("refuses an empty object instead of silently wiping to a fresh day", () => {
+  it("refuses an empty object instead of silently wiping to a fresh day", async () => {
     // The bug this guards: hydrate({}) legitimately returns freshDay(), so a
     // post-hydrate `dateISO` check can NEVER reject anything - it's always
     // truthy by construction. Validation must happen on the RAW input.
     const before = S().dayNum;
     S().mains.push(mkMain("must survive"));
-    restoreBackup("{}");
+    const result = await restoreBackup("{}");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("invalid-shape");
     expect(S().dayNum).toBe(before);
     expect(S().mains.some((m) => m.title === "must survive")).toBe(true);
   });
 
-  it("refuses an unrelated JSON object that isn't shaped like a backup", () => {
+  it("refuses an unrelated JSON object that isn't shaped like a backup", async () => {
     const before = S().dayNum;
-    restoreBackup(JSON.stringify({ foo: 1, bar: [1, 2, 3] }));
+    const result = await restoreBackup(JSON.stringify({ foo: 1, bar: [1, 2, 3] }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("invalid-shape");
     expect(S().dayNum).toBe(before);
+  });
+
+  it("rolls back to the EXACT pre-restore in-memory state when persistence fails", async () => {
+    // The bug this guards: applying the restore to in-memory state and
+    // only THEN finding out the write failed would leave the app showing
+    // content that was never actually saved - the next reload/crash would
+    // silently disagree with what the user just saw.
+    const beforeDayNum = S().dayNum;
+    const beforeMainsCount = S().mains.length;
+    const backup = { ...freshDay(42), dateISO: todayISO(), awaitingStart: false };
+
+    saveShouldFail = "disk full";
+    const result = await restoreBackup(JSON.stringify(backup));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("save-failed");
+    // In-memory state is back to EXACTLY what it was before the attempt -
+    // not the failed restore's content, not a blank day.
+    expect(S().dayNum).toBe(beforeDayNum);
+    expect(S().mains.length).toBe(beforeMainsCount);
+  });
+
+  it("does not persist a rejected restore attempt's content, even transiently", async () => {
+    saved.length = 0;
+    saveShouldFail = "disk full";
+    const backup = { ...freshDay(42), dateISO: todayISO(), awaitingStart: false };
+    await restoreBackup(JSON.stringify(backup));
+    expect(saved.some((s) => s.dayNum === 42)).toBe(false);
+  });
+
+  it("reports a StaleWriteError restore attempt distinctly, and reflects the reloaded (not the attempted) state", async () => {
+    const backup = { ...freshDay(42), dateISO: todayISO(), awaitingStart: false };
+    // Simulate another window's content already on "disk" for the reload
+    // flushSave performs internally on a stale rejection.
+    loadResult = { kind: "loaded", state: { ...freshDay(99), dateISO: todayISO() } };
+    forceStaleOnce = true;
+
+    const result = await restoreBackup(JSON.stringify(backup));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("stale");
+    // Neither the pre-restore state NOR the attempted restore (dayNum 42) -
+    // the OTHER window's reloaded content, exactly as flushSave leaves it.
+    expect(S().dayNum).toBe(99);
+  });
+
+  it("a restored state's save uses the CURRENT window's _rev, not the backup file's own stale one", async () => {
+    // The bug this would be: a backup exported long ago carries whatever
+    // _rev it had AT EXPORT TIME. Restoring it and sending that stale
+    // _rev straight to save_app_state would make the CAS check compare
+    // against ancient history instead of what's actually on disk now,
+    // causing spurious conflicts (or worse, a false-successful bypass if
+    // the numbers happened to coincide).
+    await flushSave(); // establish some real current revision
+    const currentRev = S()._rev;
+    const backupWithStaleRev = {
+      ...freshDay(7),
+      dateISO: todayISO(),
+      awaitingStart: false,
+      _rev: 999999,
+    };
+    saved.length = 0;
+    const result = await restoreBackup(JSON.stringify(backupWithStaleRev));
+    // Succeeded (not rejected as stale) - proves the CAS check compared
+    // against the WINDOW's current revision, not the backup's bogus
+    // 999999, which the mock would have rejected as a mismatch.
+    expect(result.ok).toBe(true);
+    expect(saved[0]._rev).toBe(currentRev + 1); // the mock's post-write stamp
+    expect(S()._rev).toBe(currentRev + 1);
   });
 });
 
@@ -1200,7 +1297,27 @@ describe("cross-window compare-and-swap", () => {
     // second one landing would silently discard whatever the first one
     // saved, with the second window never even knowing it happened.
     forceStaleOnce = true;
-    await expect(flushSave()).rejects.toThrow(/saved changes first/);
+    await expect(flushSave()).rejects.toThrow(/changed in another window/);
+  });
+
+  it("rejects a stale write with a DISTINCT error type, not a generic I/O error", async () => {
+    // A caller (or a future UI) needs to tell "someone else changed this,
+    // your edit needs redoing" apart from "disk full" / "permission
+    // denied" - they call for different messaging and different retry
+    // behavior. A string-message match alone is too fragile to build that
+    // distinction on.
+    forceStaleOnce = true;
+    let caught: unknown;
+    await flushSave().catch((e) => (caught = e));
+    expect(caught).toBeInstanceOf(StaleWriteError);
+  });
+
+  it("a plain I/O failure is NOT reported as a StaleWriteError", async () => {
+    saveShouldFail = "disk full";
+    let caught: unknown;
+    await flushSave().catch((e) => (caught = e));
+    expect(caught).toBeDefined();
+    expect(caught).not.toBeInstanceOf(StaleWriteError);
   });
 
   it("reloads from disk on a stale write, rather than leaving the user's edit floating unsaved with no explanation", async () => {
@@ -1229,6 +1346,85 @@ describe("cross-window compare-and-swap", () => {
     // revision, so the NEXT save succeeds using that fresh baseline.
     await flushSave();
     expect(S()._rev).toBeGreaterThan(0);
+  });
+
+  it("two windows saving from the same starting revision: exactly one succeeds, disk keeps the winner's state", async () => {
+    // Simulates the real scenario: both windows loaded the SAME revision,
+    // both try to save. The mock's mockCurrentRev tracks "what's on disk"
+    // exactly like Rust's write_state_cas does - the first save to reach
+    // it at the shared starting revision wins; the second, still carrying
+    // that same now-stale revision, is rejected.
+    const startingRev = S()._rev;
+
+    // "Window A" (this store) saves first and wins.
+    await flushSave();
+    expect(S()._rev).toBe(startingRev + 1);
+    const winnerPayload = saved[saved.length - 1];
+
+    // "Window B" would have sent the SAME starting revision - simulate its
+    // rejected attempt by forcing staleness on the next save call.
+    forceStaleOnce = true;
+    await expect(flushSave()).rejects.toBeInstanceOf(StaleWriteError);
+
+    // Disk (mockCurrentRev / `saved`) still reflects ONLY window A's
+    // write - the rejected attempt never landed.
+    expect(saved[saved.length - 1]).toBe(winnerPayload);
+    expect(mockCurrentRev).toBe(startingRev + 1);
+  });
+
+  it("a deliberate retry from the new revision after a conflict succeeds and advances disk state", async () => {
+    await flushSave(); // window A wins
+    const revAfterA = S()._rev;
+    // What the reload should pull back - the mock's own bookkeeping
+    // (`saved`) reflects exactly what "disk" now holds after window A's
+    // write, so use that as the reload's source instead of the stale
+    // default `loadResult` fixture.
+    loadResult = { kind: "loaded", state: saved[saved.length - 1] };
+
+    forceStaleOnce = true;
+    await flushSave().catch(() => {}); // window B's stale attempt, rejected + reloaded
+    expect(S()._rev).toBe(revAfterA); // reload adopted disk's actual revision
+
+    // Window B, now holding the CURRENT revision after its reload, makes
+    // a fresh edit and saves again - a deliberate retry, not automatic.
+    setFlag("trainerOn", true);
+    await flushSave();
+    expect(S()._rev).toBe(revAfterA + 1);
+    expect(saved[saved.length - 1].trainerOn).toBe(true);
+  });
+
+  it("timer/session time is not duplicated when a stale-write reload happens mid-session", async () => {
+    // The scenario: this window has a task running (startedAt set, time
+    // accruing). A save is attempted, rejected as stale, and flushSave's
+    // handler reloads from disk. The reloaded content (simulating what
+    // the OTHER window persisted) has its OWN accrued value for the same
+    // task. The reload must adopt that value outright - not add this
+    // window's live elapsed time on top of it, which would double-count
+    // whatever the other window already banked.
+    const [a] = ids();
+    startTask(a);
+    const startedAt = S().startedAt;
+    expect(startedAt).toBeGreaterThan(0);
+
+    // "The other window" banked 5 minutes into task `a` and saved it -
+    // that's what load_app_state will now return.
+    const otherWindowsState = { ...S(), activeMainId: null, startedAt: 0 };
+    otherWindowsState.mains = otherWindowsState.mains.map((m) =>
+      m.id === a ? { ...m, accrued: 300_000 } : m,
+    );
+    loadResult = { kind: "loaded", state: otherWindowsState };
+
+    forceStaleOnce = true;
+    await flushSave().catch(() => {});
+
+    const reloadedMain = S().mains.find((m) => m.id === a)!;
+    // Exactly the other window's 5 minutes - not that PLUS whatever this
+    // window's now-defunct live session would have added.
+    expect(reloadedMain.accrued).toBe(300_000);
+    // And the reload cleared this window's now-stale running session
+    // rather than leaving startedAt ticking against the new accrued value.
+    expect(S().activeMainId).toBeNull();
+    expect(S().startedAt).toBe(0);
   });
 });
 
@@ -1351,6 +1547,15 @@ describe("usage logging", () => {
     endDay();
     expect(S().loggingOptIn).toBe(true);
     expect(Object.keys(S().metrics.days).length).toBeGreaterThan(0);
+  });
+
+  it("two usage-log exports in quick succession get DIFFERENT filenames", async () => {
+    setFlag("loggingOptIn", true);
+    await exportLogs();
+    await exportLogs();
+    const usageNames = writtenFileNames.filter((n) => n.startsWith("remi-usage-"));
+    expect(usageNames).toHaveLength(2);
+    expect(usageNames[0]).not.toBe(usageNames[1]);
   });
 });
 
