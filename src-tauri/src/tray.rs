@@ -1,11 +1,10 @@
 //! TRAY - the menu-bar icon (drawn in code, no PNG on disk).
 
 use std::sync::Mutex;
-use std::time::Duration;
 
 use tauri::menu::{Menu, MenuEvent, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::windows::{show_dashboard, show_popover, toggle_popover};
 
@@ -71,14 +70,22 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id().as_ref() {
         MENU_OPEN => show_popover(app),
         MENU_DASHBOARD => show_dashboard(app),
-        MENU_QUIT => {
-            // Give the frontend's debounced save a moment to land: the
-            // webview may have a write queued that Rust hasn't been asked
-            // for yet.
-            std::thread::sleep(Duration::from_millis(200));
-            app.exit(0);
-        }
+        MENU_QUIT => request_quit(app),
         _ => {}
+    }
+}
+
+/// Do NOT sleep-then-exit here: a fixed delay is a guess against the
+/// frontend's debounce timer and can race a save that hasn't landed yet.
+/// Instead, ask the frontend (the popover, the effect owner) to flush its
+/// pending save and call `quit_app` itself once that's actually done - the
+/// same path the dashboard's Quit button already uses. If no window is
+/// alive to hear this (e.g. mid-startup crash), fall back to exiting
+/// directly so Quit is never a dead menu item.
+fn request_quit(app: &AppHandle) {
+    let emitted = app.emit("quit-requested", ()).is_ok();
+    if !emitted {
+        app.exit(0);
     }
 }
 

@@ -28,6 +28,7 @@ describe("trainer and interruption analysis", () => {
           {
             id: "1",
             dateISO: "2026-08-12",
+            interruptedId: "alpha-id",
             interruptedTitle: "Alpha",
             causeTitle: "Slack",
             atMs: 0,
@@ -38,6 +39,7 @@ describe("trainer and interruption analysis", () => {
           {
             id: "2",
             dateISO: "2026-08-12",
+            interruptedId: "alpha-id",
             interruptedTitle: "Alpha",
             causeTitle: "Slack",
             atMs: 0,
@@ -48,6 +50,7 @@ describe("trainer and interruption analysis", () => {
           {
             id: "3",
             dateISO: "2026-08-12",
+            interruptedId: "alpha-id",
             interruptedTitle: "Alpha",
             causeTitle: "Walk-up",
             atMs: 0,
@@ -75,6 +78,7 @@ describe("trainer and interruption analysis", () => {
           {
             id: "1",
             dateISO: "2026-08-12",
+            interruptedId: "a-id",
             interruptedTitle: "A",
             causeTitle: "B",
             atMs: 0,

@@ -3,7 +3,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { applyTheme } from "../domain/theme";
 import { forPersist } from "../domain/persistence-shape";
@@ -31,6 +31,15 @@ const WINDOW_ID = Math.random().toString(36).slice(2);
 let saving = false;
 let dirtyAgain = false;
 let revision = 0;
+/**
+ * When a save is already in flight, `flushSave()` cannot start a second
+ * write (that would interleave two `save_app_state` calls) - but a caller
+ * that needs to know the data is REALLY down before proceeding (quitting)
+ * must not just fire-and-forget either. This tracks the in-flight chain so
+ * a later caller can await "everything currently queued has landed",
+ * including any dirty re-write the in-flight save schedules on its way out.
+ */
+let inFlight: Promise<void> | null = null;
 
 /** Debounced so a burst of edits collapses into one write. */
 function scheduleSave(): void {
@@ -41,11 +50,12 @@ function scheduleSave(): void {
 registerSaveScheduler(scheduleSave);
 
 /**
- * Write now.
+ * Write now, and resolve once the write (and any write it queued while it
+ * was running) has actually landed - never before.
  *
- * If a save is already in flight, mark it dirty and re-schedule rather
- * than interleaving two writes: the loser would otherwise silently drop
- * its edit.
+ * If a save is already in flight, this does NOT start a second, interleaved
+ * write: it marks the in-flight one dirty (so it re-runs once) and awaits
+ * that same chain instead.
  */
 export async function flushSave(): Promise<void> {
   const existing = getSaveTimerHandle();
@@ -55,31 +65,39 @@ export async function flushSave(): Promise<void> {
   }
   if (saving) {
     dirtyAgain = true;
-    return;
+    // `inFlight` is guaranteed set whenever `saving` is true.
+    return inFlight ?? undefined;
   }
   saving = true;
-  try {
-    const now = Date.now();
-    const payload = forPersist(S(), now);
-    await invoke("save_app_state", { state: payload });
-    // Mirror the stamp we just persisted, so `bankOrphanSession` and the
-    // checkpoint both measure against the real last-save time.
-    state.update((s) => ({ ...s, savedAt: now }));
-    revision++;
+  const run = (async () => {
     try {
-      await emit("app-state-changed", { revision, from: WINDOW_ID });
-    } catch {
-      /* no event bus - the other window still refreshes on focus */
+      const now = Date.now();
+      const payload = forPersist(S(), now);
+      await invoke("save_app_state", { state: payload });
+      // Mirror the stamp we just persisted, so `bankOrphanSession` and the
+      // checkpoint both measure against the real last-save time.
+      state.update((s) => ({ ...s, savedAt: now }));
+      revision++;
+      try {
+        await emit("app-state-changed", { revision, from: WINDOW_ID });
+      } catch {
+        /* no event bus - the other window still refreshes on focus */
+      }
+    } catch (e) {
+      showToast(`Couldn't save: ${String(e)}`);
+    } finally {
+      saving = false;
+      if (dirtyAgain) {
+        dirtyAgain = false;
+        // Chain the re-write so awaiters of THIS call see it too, rather
+        // than resolving before the dirty edit is actually saved.
+        inFlight = flushSave();
+        await inFlight;
+      }
     }
-  } catch (e) {
-    showToast(`Couldn't save: ${String(e)}`);
-  } finally {
-    saving = false;
-    if (dirtyAgain) {
-      dirtyAgain = false;
-      scheduleSave();
-    }
-  }
+  })();
+  inFlight = run;
+  await run;
 }
 
 export function windowId(): string {
@@ -147,4 +165,32 @@ export async function boot(): Promise<void> {
 
 export function dismissWelcomeBack(): void {
   welcomeBack.set(null);
+}
+
+let unlistenQuitRequest: UnlistenFn | null = null;
+
+/**
+ * Listen for the tray menu's `quit-requested` event (see `tray.rs`'s
+ * `MENU_QUIT` handler) and drive the SAME flush-then-quit path the
+ * dashboard's Quit button uses, instead of Rust guessing a fixed delay
+ * against the frontend's debounce timer.
+ *
+ * Only the effect owner (the popover) should register this - it is always
+ * mounted, so the tray menu always has someone listening.
+ */
+export async function registerQuitListener(): Promise<void> {
+  try {
+    unlistenQuitRequest = await listen("quit-requested", () => {
+      void flushSave().finally(() => {
+        void invoke("quit_app").catch(() => {});
+      });
+    });
+  } catch {
+    /* no event bus - the tray handler falls back to exiting directly */
+  }
+}
+
+export function teardownQuitListener(): void {
+  unlistenQuitRequest?.();
+  unlistenQuitRequest = null;
 }

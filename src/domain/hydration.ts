@@ -24,6 +24,29 @@ import type {
   WellnessKey,
 } from "./types";
 
+/**
+ * Structural check that `raw` is plausibly a Remi state export, BEFORE
+ * calling `hydrate`.
+ *
+ * `hydrate()` always returns a valid `State` - including for `{}` or any
+ * other object, which spreads over `freshDay()` and comes out with a real
+ * `dateISO` by construction. A post-hydrate check (e.g. "does `dateISO`
+ * exist?") can therefore never reject anything: it is always true. Callers
+ * that let a user paste arbitrary text (like a backup restore) must
+ * validate the RAW, untrusted input against real structural markers that
+ * only a genuine Remi export would have.
+ */
+export function looksLikeRemiState(raw: unknown): raw is Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const r = raw as Record<string, unknown>;
+  return (
+    typeof r.v === "number" &&
+    typeof r.dayNum === "number" &&
+    typeof r.dateISO === "string" &&
+    Array.isArray(r.mains)
+  );
+}
+
 export function hydrate(raw: unknown): State {
   const base = freshDay();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
@@ -286,6 +309,9 @@ export function normalizeInterruption(e: Record<string, unknown>): InterruptionE
   return {
     id: typeof e.id === "string" ? e.id : nid(),
     dateISO: typeof e.dateISO === "string" ? e.dateISO : todayISO(),
+    // Absent on a file written before `interruptedId` existed - degrades to
+    // "no victim found by id", same outcome an unmatched title used to give.
+    interruptedId: typeof e.interruptedId === "string" ? e.interruptedId : "",
     interruptedTitle: typeof e.interruptedTitle === "string" ? e.interruptedTitle : "a task",
     causeTitle: typeof e.causeTitle === "string" ? e.causeTitle : "something else",
     atMs: Math.max(0, Number(e.atMs) || 0),

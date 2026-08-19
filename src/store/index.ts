@@ -28,7 +28,13 @@ export {
   type Toast,
 } from "./state";
 
-export { boot, dismissWelcomeBack, flushSave } from "./persistence";
+export {
+  boot,
+  dismissWelcomeBack,
+  flushSave,
+  registerQuitListener,
+  teardownQuitListener,
+} from "./persistence";
 export { initSync, reloadFromDisk, teardownSync } from "./sync";
 export {
   dismissWellness,

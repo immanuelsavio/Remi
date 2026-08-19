@@ -40,7 +40,10 @@ paranoia. Every value off disk is coerced, clamped or dropped:
 
 `settings.json` is a **separate file**, read-modify-written through a
 generic JSON map (`src-tauri/src/settings.rs`), never a typed struct — so
-unknown and forward-compat keys always survive a write.
+unknown and forward-compat keys always survive a write. It shares the same
+atomic-write contract as `state.json` (unique temp file, fsync, rename)
+and the same empty-file-is-malformed rule, so a crash mid-write can't
+truncate it and silently drop the custom `dataFolder` pointer.
 
 ## Legacy Dopamigo MVP → Remi migration
 

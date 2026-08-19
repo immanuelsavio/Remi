@@ -87,6 +87,7 @@
   let importText = "";
   let importPreview: ParsedImport | null = null;
   let restoreText = "";
+  let confirmRestore = false;
   // Settings
   let routinesText = "";
   let confirmWipe = false;
@@ -208,7 +209,7 @@
 
       <!-- ================= DATA ================= -->
     {:else if tab === "data"}
-      <Data {dataFolder} bind:importText bind:importPreview bind:restoreText />
+      <Data {dataFolder} bind:importText bind:importPreview bind:restoreText bind:confirmRestore />
 
       <!-- ================= SETTINGS ================= -->
     {:else}
