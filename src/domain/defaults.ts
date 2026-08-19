@@ -46,6 +46,7 @@ export function freshWellness(): Wellness {
 export function freshDay(dayNum = 1, carry: CarrySnapshot[] = []): State {
   return {
     v: 1,
+    _rev: 0,
     phase: "startday",
     dayNum,
     dateISO: todayISO(),

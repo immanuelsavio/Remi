@@ -102,3 +102,177 @@ data:
 - the marker prevents repeat work on a later boot
 - a failed migration (unwritable destination) leaves legacy data
   untouched and creates no partial Remi file
+
+## Quit is a real persistence barrier
+
+A save failure must never be allowed to quit silently. Two things make
+this true, both in `src/store/persistence.ts`:
+
+1. **`flushSave()` rejects on a real write failure** instead of catching
+   the error and resolving as if nothing happened. `savedAt` is only
+   mirrored into live state on success - a failed write must not make the
+   app believe it saved. If a save is already in flight and a mutation
+   arrives, the caller's promise resolves/rejects with the outcome of the
+   QUEUED rewrite too, not just the attempt that happened to be running
+   when they called - "everything currently pending" is the actual
+   contract, not "whatever was already going".
+2. **`requestQuit()` is the one shutdown sequence.** Both the dashboard's
+   Quit button and the tray menu's `quit-requested` event funnel through
+   it. It awaits `flushSave()` and only calls the `quit_app` command if
+   that succeeds; on failure it rejects and the app stays open, with a
+   toast showing the actual error, so the user can retry, export, or fix
+   whatever's wrong. A second Quit press while one is already in flight
+   observes the same in-progress attempt rather than starting a redundant
+   second shutdown.
+
+`window.addEventListener("beforeunload", ...)` (both windows) is
+explicitly NOT this barrier - a webview cannot reliably await async work
+before tearing down, so it is best-effort only, documented as such at the
+call site.
+
+### The tray-quit handshake
+
+`tray.rs`'s `MENU_QUIT` handler does not sleep-then-exit (a fixed delay is
+a guess against the frontend's debounce timer, and races a save that
+hasn't landed). It also does not trust `app.emit(...).is_ok()` as proof
+anyone received the event - that only means the emit call itself didn't
+error.
+
+Instead, `tray::QuitReadiness` is a real handshake flag. The frontend's
+`registerQuitListener()` calls the `quit_listener_ready` command once its
+`quit-requested` listener is actually registered (in `views/Popover.svelte`,
+as early in boot as safely possible). Until that ack lands, `request_quit`
+falls back to `app.exit(0)` directly - deliberately, because there is
+genuinely nobody who could ever respond, not as a race against one who
+might.
+
+## Cross-window compare-and-swap (partial mitigation, not a full redesign)
+
+Each webview holds an independent in-memory store (see
+`docs/architecture.md`). Without protection, a stale whole-state snapshot
+saved by one window (a popover reminder firing, a checkpoint) could
+silently overwrite a newer edit the other window already persisted - the
+second write wins, with no signal that anything was lost.
+
+`_rev` (`src/domain/types.ts`) is a revision counter carried inside the
+persisted state itself. `save_app_state` (`src-tauri/src/commands.rs`,
+`state_io::write_state_cas`) is a compare-and-swap: it only writes if the
+caller's `_rev` matches what's currently on disk, and bumps it by exactly
+one on success. A mismatch means the OTHER window saved a newer revision
+first - Rust rejects the write (`{ stale: true, currentRev }`) rather than
+applying it, and the frontend (`flushSave` in `store/persistence.ts`)
+reloads the current on-disk state instead of losing either side's data
+silently. The rejected caller sees a real error ("Another window saved
+changes first") rather than a false "saved" toast.
+
+This is race-free in practice because `commands::SAVE_LOCK` already
+serializes every `save_app_state` call across both windows (one process),
+so the compare-then-write here never interleaves with another write.
+
+**Decision: accepted as sufficient for this release, not a full
+single-writer or field-level-merge redesign.** A stale write is never
+silently applied over newer data - that guarantee is real and load-bearing.
+What it does NOT do is merge concurrent field-level edits: if window A
+renames a task while window B completes a different task in the same
+window of time, whichever save lands second under the SAME starting
+revision has its write rejected, reloads the winner's state, and **that
+window's action must be repeated** - the user redoes the rename (or
+whatever it was) after seeing the "changed in another window" message. No
+data is ever silently lost or duplicated; a user action occasionally needs
+repeating. A true single-writer or field-level-merge architecture would
+close even that gap; it is out of scope for this release.
+
+### `StaleWriteError` - a distinct type, not a generic I/O error
+
+`flushSave()` throws `StaleWriteError` (`src/store/persistence.ts`)
+specifically for a CAS rejection, never for a plain write failure (disk
+full, permission denied). Callers branch on `instanceof StaleWriteError`
+to react correctly:
+
+- The message is shown AS-IS (not wrapped in a generic "Couldn't save:
+  ..." prefix), and says plainly that Remi changed in another window, the
+  latest state was reloaded, and the user's last action may need
+  repeating.
+- **Nothing auto-retries a mutation after a stale rejection** - not the
+  debounced auto-save, not the periodic checkpoint, not quit, not
+  restore. A reload replaces this window's in-memory state with the
+  other window's persisted content; blindly retrying a timer/session
+  action against that swapped-in state risks applying it twice or against
+  the wrong task. The user decides whether and how to repeat their action.
+- `savedAt` is never updated for a rejected write, stale or otherwise - a
+  rejected save must never be indistinguishable from a real one.
+
+## Restore is a real barrier, with an exact rollback
+
+`restoreBackup()` (`src/store/import-export.ts`) does not report "Backup
+restored" until persistence actually succeeds:
+
+1. The raw pasted text is validated (`looksLikeRemiState`) BEFORE it ever
+   touches current state - an invalid or unrelated JSON object is
+   rejected with zero mutation.
+2. The exact current in-memory state (`before = S()`) is kept.
+3. The restored state is stamped with the CURRENT window's `_rev`, never
+   the backup file's own (possibly long-stale) revision - a backup
+   restored against the wrong baseline would either cause a spurious CAS
+   conflict or, worse, coincidentally match and silently bypass the
+   protection.
+4. The restore is applied in memory, then persisted through the same
+   `flushSave()` barrier as everything else.
+5. **On success**: "Backup restored" is shown, and only now.
+6. **On a `StaleWriteError`**: `flushSave` already reloaded the real
+   on-disk state (the other window's content) before rejecting - that
+   reload is left in place, NOT overwritten by rolling back to the
+   pre-restore snapshot, since the reloaded content is genuine persisted
+   data.
+7. **On any other failure** (disk full, permission denied): the EXACT
+   pre-restore in-memory state is restored (`state.set(before)`,
+   including theme), and disk is untouched - the failed write never
+   landed there in the first place.
+
+The UI (`components/dashboard/tabs/Data.svelte`) only clears the pasted
+text and confirmation step on a confirmed `{ ok: true }` result - a
+cancelled, invalid, conflicted, or failed restore leaves the pasted JSON
+and the confirmation UI exactly as the user left them, so they can see
+what they pasted and decide whether to retry.
+
+### Export filenames are collision-resistant
+
+Backup and usage-log exports (`exportBackup`, `exportLogs`) were
+originally named by calendar date alone
+(`remi-backup-2026-08-19.json`) - a second export on the same day would
+silently overwrite the first, since `write_text_file` is a plain
+`fs::write`. `domain/ids.ts`'s `exportSuffix()` appends a
+millisecond-timestamp-plus-random-tail suffix
+(`remi-backup-2026-08-19-abc123xy-f3a9c21b.json`), so two exports in the
+same process, even in the same millisecond, never collide.
+
+## Uninstall ("Remove everything") is honest about failure
+
+`reset_and_uninstall_app` (`src-tauri/src/commands.rs`) does not exit the
+process before a deletion failure can be communicated - `app.exit` tears
+the process down, and a Tauri command's `Result` racing that teardown is
+not a reliable way for the frontend to learn what happened. It checks
+every collected error FIRST:
+
+- **All clean → exit.** The only case that quits the app.
+- **Any failure → `UNINSTALLING` is reset, the app stays open**, and the
+  command returns `Err` with every failed path so the user can see the
+  complete error, fix the underlying problem (permissions, disk space),
+  and retry.
+
+A missing file/folder is success (nothing to remove), never a failure. A
+folder that EXISTS but genuinely can't be enumerated (a permission race, a
+volume unmounting mid-wipe) is a reported failure, not a silently skipped
+"nothing to check here" - individual `DirEntry` read errors inside a
+successfully-opened directory are reported the same way, never dropped
+via `.flatten()`.
+
+"Remove everything" deletes every artifact prefix Remi itself creates in
+the data folder (see `CLEANUP_PREFIXES` in `commands.rs`): `state.json`,
+`state.bak`, the recovery directory, `remi-backup-*.json` (manual
+exports), `remi-usage-*.json` (opt-in usage-log exports), and both
+`.state.json.tmp*` and `.settings.json.tmp*` stale atomic-write temp
+files. Anything else in the folder - a user's own file dropped into a
+custom `dataFolder` - is left untouched. "Wipe, keep history" removes only
+`settings.json`; `state.json`/`state.bak`/the recovery directory and any
+exports survive, so a reinstall can recover them.

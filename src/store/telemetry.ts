@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { buildLogs } from "../domain/usage-logs";
 import { todayISO } from "../domain/dates";
+import { exportSuffix } from "../domain/ids";
 import type { State } from "../domain/types";
 import { S, commit, showToast } from "./state";
 
@@ -115,7 +116,7 @@ export async function exportLogs(): Promise<void> {
   }
   try {
     const path = await invoke<string>("write_text_file", {
-      name: `remi-usage-${todayISO()}.json`,
+      name: `remi-usage-${todayISO()}-${exportSuffix()}.json`,
       contents: JSON.stringify(
         { ...buildLogs(S()), generatedAt: new Date().toISOString() },
         null,
