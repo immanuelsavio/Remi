@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { applyTheme } from "../domain/theme";
 import type { State, WellnessKey } from "../domain/types";
 import { resetTrayTitleCache } from "./clock";
-import { requestQuit } from "./persistence";
+import { requestQuit, StaleWriteError } from "./persistence";
 import { S, commit, showToast } from "./state";
 
 export function setMode(mode: State["mode"]): void {
@@ -121,7 +121,14 @@ export async function quitApp(): Promise<void> {
   try {
     await requestQuit();
   } catch (e) {
-    showToast(`Couldn't save before quitting: ${String(e)}. Remi stayed open.`);
+    if (e instanceof StaleWriteError) {
+      // Do NOT auto-retry: the reload already replaced this window's
+      // pending state with the other window's, so quitting again right
+      // away could quit without ever saving what THIS window had.
+      showToast(e.message);
+    } else {
+      showToast(`Couldn't save before quitting: ${String(e)}. Remi stayed open.`);
+    }
     throw e;
   }
 }

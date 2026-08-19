@@ -169,14 +169,82 @@ This is race-free in practice because `commands::SAVE_LOCK` already
 serializes every `save_app_state` call across both windows (one process),
 so the compare-then-write here never interleaves with another write.
 
-**What this does NOT do**, and is a known, documented gap rather than a
-full architectural fix: it protects against silently losing an ENTIRE
-save, but does not merge concurrent field-level edits (e.g. window A
+**Decision: accepted as sufficient for this release, not a full
+single-writer or field-level-merge redesign.** A stale write is never
+silently applied over newer data - that guarantee is real and load-bearing.
+What it does NOT do is merge concurrent field-level edits: if window A
 renames a task while window B completes a different task in the same
-window of time) - whichever save lands second under the SAME starting
-revision wins the CAS and the other reloads, so that window's edit must be
-manually redone after the reload. A true single-writer or field-level-merge
-architecture would close this gap; it is out of scope for this pass.
+window of time, whichever save lands second under the SAME starting
+revision has its write rejected, reloads the winner's state, and **that
+window's action must be repeated** - the user redoes the rename (or
+whatever it was) after seeing the "changed in another window" message. No
+data is ever silently lost or duplicated; a user action occasionally needs
+repeating. A true single-writer or field-level-merge architecture would
+close even that gap; it is out of scope for this release.
+
+### `StaleWriteError` - a distinct type, not a generic I/O error
+
+`flushSave()` throws `StaleWriteError` (`src/store/persistence.ts`)
+specifically for a CAS rejection, never for a plain write failure (disk
+full, permission denied). Callers branch on `instanceof StaleWriteError`
+to react correctly:
+
+- The message is shown AS-IS (not wrapped in a generic "Couldn't save:
+  ..." prefix), and says plainly that Remi changed in another window, the
+  latest state was reloaded, and the user's last action may need
+  repeating.
+- **Nothing auto-retries a mutation after a stale rejection** - not the
+  debounced auto-save, not the periodic checkpoint, not quit, not
+  restore. A reload replaces this window's in-memory state with the
+  other window's persisted content; blindly retrying a timer/session
+  action against that swapped-in state risks applying it twice or against
+  the wrong task. The user decides whether and how to repeat their action.
+- `savedAt` is never updated for a rejected write, stale or otherwise - a
+  rejected save must never be indistinguishable from a real one.
+
+## Restore is a real barrier, with an exact rollback
+
+`restoreBackup()` (`src/store/import-export.ts`) does not report "Backup
+restored" until persistence actually succeeds:
+
+1. The raw pasted text is validated (`looksLikeRemiState`) BEFORE it ever
+   touches current state - an invalid or unrelated JSON object is
+   rejected with zero mutation.
+2. The exact current in-memory state (`before = S()`) is kept.
+3. The restored state is stamped with the CURRENT window's `_rev`, never
+   the backup file's own (possibly long-stale) revision - a backup
+   restored against the wrong baseline would either cause a spurious CAS
+   conflict or, worse, coincidentally match and silently bypass the
+   protection.
+4. The restore is applied in memory, then persisted through the same
+   `flushSave()` barrier as everything else.
+5. **On success**: "Backup restored" is shown, and only now.
+6. **On a `StaleWriteError`**: `flushSave` already reloaded the real
+   on-disk state (the other window's content) before rejecting - that
+   reload is left in place, NOT overwritten by rolling back to the
+   pre-restore snapshot, since the reloaded content is genuine persisted
+   data.
+7. **On any other failure** (disk full, permission denied): the EXACT
+   pre-restore in-memory state is restored (`state.set(before)`,
+   including theme), and disk is untouched - the failed write never
+   landed there in the first place.
+
+The UI (`components/dashboard/tabs/Data.svelte`) only clears the pasted
+text and confirmation step on a confirmed `{ ok: true }` result - a
+cancelled, invalid, conflicted, or failed restore leaves the pasted JSON
+and the confirmation UI exactly as the user left them, so they can see
+what they pasted and decide whether to retry.
+
+### Export filenames are collision-resistant
+
+Backup and usage-log exports (`exportBackup`, `exportLogs`) were
+originally named by calendar date alone
+(`remi-backup-2026-08-19.json`) - a second export on the same day would
+silently overwrite the first, since `write_text_file` is a plain
+`fs::write`. `domain/ids.ts`'s `exportSuffix()` appends a
+millisecond-timestamp-plus-random-tail suffix
+(`remi-backup-2026-08-19-abc123xy-f3a9c21b.json`), so two exports in the
+same process, even in the same millisecond, never collide.
 
 ## Uninstall ("Remove everything") is honest about failure
 

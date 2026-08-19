@@ -25,6 +25,47 @@ import {
   welcomeBack,
 } from "./state";
 
+/**
+ * Thrown by `flushSave()` when Rust rejected the write because the OTHER
+ * window saved a newer revision first (compare-and-swap conflict) - see
+ * `state_io::write_state_cas` and `docs/data-durability.md`'s cross-window
+ * section.
+ *
+ * A DISTINCT type from a plain I/O failure (disk full, permission denied)
+ * on purpose: a caller needs to react differently - "someone else changed
+ * this, your action may need to be repeated" rather than "the disk write
+ * itself failed, retry the same thing". `currentRev` is the revision now
+ * actually on disk (already adopted into local state before this throws),
+ * so a genuine retry from here starts from a known-good baseline.
+ */
+export class StaleWriteError extends Error {
+  readonly currentRev: number;
+  constructor(currentRev: number) {
+    super(
+      "Remi changed in another window. The latest version was reloaded here - " +
+        "please repeat your last action if it didn't take effect.",
+    );
+    this.name = "StaleWriteError";
+    this.currentRev = currentRev;
+  }
+}
+
+/**
+ * Show the right message for a save failure: `StaleWriteError` already
+ * carries its own clear, complete explanation (state was reloaded, the
+ * action may need repeating) and must be shown AS-IS, not wrapped in a
+ * generic "Couldn't save: ..." prefix that would read as a plain I/O
+ * failure and invite a blind retry of a mutation that may have already
+ * partially applied against the reloaded state.
+ */
+export function showSaveError(e: unknown): void {
+  if (e instanceof StaleWriteError) {
+    showToast(e.message);
+  } else {
+    showToast(`Couldn't save: ${String(e)}`);
+  }
+}
+
 /** Identifies THIS window, so it can ignore the echo of its own save. */
 const WINDOW_ID = Math.random().toString(36).slice(2);
 
@@ -50,8 +91,11 @@ function scheduleSave(): void {
       // Fire-and-forget: a failure here still shows the user a toast (see
       // below) and the NEXT edit or checkpoint retries. Only callers that
       // need a real barrier (quit, restore) await flushSave() directly and
-      // handle its rejection themselves.
-      void flushSave().catch((e) => showToast(`Couldn't save: ${String(e)}`));
+      // handle its rejection themselves. On a StaleWriteError, flushSave
+      // already reloaded the current state before rejecting - the next
+      // debounced save simply persists that reloaded state plus whatever
+      // the user does next, it never re-applies a stale mutation.
+      void flushSave().catch((e) => showSaveError(e));
     }, 250),
   );
 }
@@ -119,9 +163,7 @@ export async function flushSave(): Promise<void> {
         } catch {
           /* leave the current snapshot in place */
         }
-        throw new Error(
-          "Another window saved changes first - reloaded the latest version. Please retry your edit.",
-        );
+        throw new StaleWriteError(res.currentRev ?? 0);
       }
       // Mirror the stamp AND the new revision we just persisted, so
       // `bankOrphanSession`/the checkpoint measure against the real
@@ -289,7 +331,16 @@ export async function registerQuitListener(): Promise<void> {
   try {
     unlistenQuitRequest = await listen("quit-requested", () => {
       void requestQuit().catch((e) => {
-        showToast(`Couldn't save before quitting: ${String(e)}. Remi stayed open.`);
+        if (e instanceof StaleWriteError) {
+          // Do NOT auto-retry the quit: the reload replaced this window's
+          // pending state with the other window's, so a silent retry
+          // could quit without ever saving what THIS window had. Stay
+          // open and let the user look, decide, and quit again on
+          // purpose.
+          showToast(e.message);
+        } else {
+          showToast(`Couldn't save before quitting: ${String(e)}. Remi stayed open.`);
+        }
       });
     });
     await invoke("quit_listener_ready");

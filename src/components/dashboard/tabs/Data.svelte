@@ -22,6 +22,9 @@
   export let importPreview: ParsedImport | null = null;
   export let restoreText = "";
   export let confirmRestore = false;
+  // Local, not lifted: purely a spinner/disable flag for the duration of
+  // one restore attempt, nothing to preserve across a tab switch.
+  let restoring = false;
 </script>
 
 <div class="wrap">
@@ -140,13 +143,22 @@
       <button class="btn" on:click={() => (confirmRestore = false)}>Cancel</button>
       <button
         class="btn danger-btn"
-        on:click={() => {
-          restoreBackup(restoreText);
-          restoreText = "";
-          confirmRestore = false;
+        disabled={restoring}
+        on:click={async () => {
+          restoring = true;
+          const result = await restoreBackup(restoreText);
+          restoring = false;
+          // Only clear the pasted text and confirmation on a CONFIRMED
+          // success - an invalid, stale, or failed restore leaves both in
+          // place so the user can see what they pasted and retry, rather
+          // than losing their input on a rejection.
+          if (result.ok) {
+            restoreText = "";
+            confirmRestore = false;
+          }
         }}
       >
-        Yes, replace today's state
+        {restoring ? "Restoring…" : "Yes, replace today's state"}
       </button>
     </div>
   {/if}
