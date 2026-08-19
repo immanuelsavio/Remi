@@ -1,0 +1,333 @@
+/**
+ * THE STORE core: the writable, snapshot readers, `commit`, and THE SESSION
+ * TRANSACTION.
+ *
+ * Every other store/* module imports from HERE, never from each other -
+ * that is what keeps this a star topology instead of a cycle. Anything that
+ * touches `sessionTx`, `bankActive`, or the day-rollover primitives lives in
+ * this one file because they are mutually referential and splitting them
+ * further would only relocate the coupling, not remove it.
+ *
+ * THE SESSION TRANSACTION is the one rule you cannot bend. Every mutation
+ * that can move, remove or replace the thing being timed goes through
+ * `sessionTx`:
+ *
+ *     bank the running session -> mutate -> repair dangling refs
+ *       -> maybe start the next session -> publish + save once
+ *
+ * Bypassing it is how live time gets silently lost or misattributed.
+ */
+
+import { writable, get, type Readable } from "svelte/store";
+import { daySnapshot, enrichSnapshot, carrySnapshot } from "../domain/tasks";
+import { freshDay } from "../domain/defaults";
+import { nid } from "../domain/ids";
+import { todayISO } from "../domain/dates";
+import type { DashTab, DayRecord, Main, State, Sub } from "../domain/types";
+
+export const state = writable<State>(freshDay());
+
+/** Read-only view for components. */
+export const app: Readable<State> = { subscribe: state.subscribe };
+
+/** A monotonically increasing tick so live timers re-render each second. */
+export const nowMs = writable<number>(Date.now());
+
+/** How the last load resolved, for the recovery banner/screen. */
+export const loadKind = writable<"fresh" | "loaded" | "recovered" | "damaged">("fresh");
+export const loadMessage = writable<string>("");
+export const damagedPaths = writable<string[]>([]);
+
+/** Which dashboard tab is showing (window-local, not persisted). */
+export const dashTab = writable<DashTab>("plan");
+
+export interface Toast {
+  msg: string;
+  actionLabel?: string;
+  action?: () => void;
+}
+export const toast = writable<Toast | null>(null);
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Set when the app reopens after a session was left running, so the
+ * popover can offer to pick that work back up.
+ *
+ * Purely an offer: the time was already banked honestly (only up to the
+ * last save) before this is set, so accepting or ignoring it cannot change
+ * any number.
+ */
+export const welcomeBack = writable<{
+  mainId: string;
+  subId: string | null;
+  title: string;
+} | null>(null);
+
+/** An offered Undo gets longer on screen, because it must be reachable. */
+export function showToast(msg: string, actionLabel?: string, action?: () => void): void {
+  toast.set({ msg, actionLabel, action });
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.set(null), actionLabel ? 6000 : 2800);
+}
+
+/** Snapshot of current state, for reads outside a subscription. */
+export function S(): State {
+  return get(state);
+}
+
+export function M(id: string | null): Main | null {
+  if (!id) return null;
+  return S().mains.find((m) => m.id === id) ?? null;
+}
+
+export function activeMain(): Main | null {
+  return M(S().activeMainId);
+}
+
+export function activeSub(): Sub | null {
+  const s = S();
+  if (!s.activeSubId) return null;
+  return activeMain()?.subs.find((x) => x.id === s.activeSubId) ?? null;
+}
+
+/** Whatever is being timed right now: a step if there is one, else the task. */
+export function activeThing(): Main | Sub | null {
+  return activeSub() ?? activeMain();
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+type SaveScheduler = () => void;
+let scheduleSaveImpl: SaveScheduler = () => {};
+
+/** Wired once by `store/persistence.ts` at module init, avoiding a cycle:
+ * `state.ts` needs to trigger a save, but the save implementation needs
+ * `S()`/`state` from here. */
+export function registerSaveScheduler(fn: SaveScheduler): void {
+  scheduleSaveImpl = fn;
+}
+
+function scheduleSave(): void {
+  scheduleSaveImpl();
+}
+
+/** Publish a mutation and schedule a save. The single write path. */
+export function commit(patch?: (s: State) => void): void {
+  state.update((s) => {
+    patch?.(s);
+    return s;
+  });
+  scheduleSave();
+}
+
+/** Replace the whole state (day boundaries) and schedule a save. */
+export function setState(next: State): void {
+  state.set(next);
+  scheduleSave();
+}
+
+// Exposed so save-debounce internals in persistence.ts can clear/reuse the
+// same timer handle without a second competing timer.
+export function getSaveTimerHandle(): ReturnType<typeof setTimeout> | null {
+  return saveTimer;
+}
+export function setSaveTimerHandle(t: ReturnType<typeof setTimeout> | null): void {
+  saveTimer = t;
+}
+
+/**
+ * Copy everything that must OUTLIVE a single day onto a freshly created
+ * state.
+ *
+ * Every new-day path (rollover, End Day, Restart Day) funnels through here,
+ * so a preference can never be silently reset by one path but preserved by
+ * another - the bug that quietly re-enabled notification toggles at each
+ * day boundary.
+ */
+export function copyDurablePreferences(old: State, next: State): void {
+  next.trainerOn = old.trainerOn;
+  next.avoidanceOn = old.avoidanceOn;
+  next.mode = old.mode;
+  next.accent = old.accent;
+  next.dayTargetMins = old.dayTargetMins;
+  next.pingMin = old.pingMin;
+  next.wellness = old.wellness;
+  next.standardDaily = old.standardDaily;
+  next.loggingOptIn = old.loggingOptIn;
+  next.notifyReminders = old.notifyReminders;
+  next.notifyBreakEnd = old.notifyBreakEnd;
+  next.welcomeBack = old.welcomeBack;
+  next.privateNotifications = old.privateNotifications;
+  next.trayTimer = old.trayTimer;
+  next.backlog = old.backlog;
+  next.estimateLog = old.estimateLog;
+  next.pto = old.pto;
+  next.life = old.life;
+  next.revived = old.revived;
+  next.history = old.history;
+  next.metrics = old.metrics;
+}
+
+/** Replace any record for the same date, then keep the list date-sorted. */
+export function mergeHistory(history: DayRecord[], snap: DayRecord): DayRecord[] {
+  return [...history.filter((h) => h.dateISO !== snap.dateISO), snap].sort((a, b) =>
+    a.dateISO < b.dateISO ? -1 : 1,
+  );
+}
+
+/** A new calendar day archives yesterday and seeds carried work + routines. */
+export function rolloverIfNewDay(s: State, todayOverride?: string): State {
+  const today = todayOverride ?? todayISO();
+  if (s.dateISO === today) return s;
+
+  // ALREADY ENDED: End Day built this state; it just hasn't been started
+  // yet. Rolling again would re-increment dayNum and rebuild carry from an
+  // empty `mains`, discarding everything the user marked "Tomorrow". Only
+  // re-date it.
+  if (s.awaitingStart) {
+    s.dateISO = today;
+    return s;
+  }
+
+  const snap = enrichSnapshot(s, daySnapshot(s, Date.now()));
+  const hadWork = snap.completed.length > 0 || snap.unfinished.length > 0;
+  const carry = s.mains.filter((m) => !m.done).map(carrySnapshot);
+
+  const next = freshDay(s.dayNum + 1, carry);
+  next.dateISO = today;
+  copyDurablePreferences(s, next);
+  next.history = hadWork ? mergeHistory(s.history, snap) : s.history;
+  return next;
+}
+
+/**
+ * If the app closed with a session running, bank the time up to the LAST
+ * SAVE rather than up to now - otherwise a machine left off overnight would
+ * credit hours of "work" nobody did.
+ */
+export function bankOrphanSession(
+  s: State,
+  onOrphan?: (info: { mainId: string; subId: string | null; title: string }) => void,
+): State {
+  if (!s.activeMainId || !s.startedAt) return s;
+  const m = s.mains.find((x) => x.id === s.activeMainId);
+  if (!m) {
+    s.activeMainId = null;
+    s.activeSubId = null;
+    s.startedAt = 0;
+    return s;
+  }
+  const target: Main | Sub =
+    (s.activeSubId ? m.subs.find((x) => x.id === s.activeSubId) : undefined) ?? m;
+  const savedAt = s.savedAt || s.startedAt; // fall back to zero credit
+  target.accrued += Math.max(0, savedAt - s.startedAt);
+  // Remember what was interrupted BEFORE clearing, so boot() can offer to
+  // resume it. An offer only - the banking above is already final.
+  onOrphan?.({ mainId: m.id, subId: s.activeSubId, title: target.title });
+  s.activeMainId = null;
+  s.activeSubId = null;
+  s.startedAt = 0;
+  if (s.phase === "active") s.phase = "today";
+  return s;
+}
+
+/** Bank the running session's time into whatever it belonged to. */
+export function bankActive(s: State, now: number): void {
+  if (!s.activeMainId || !s.startedAt) return;
+  const m = s.mains.find((x) => x.id === s.activeMainId);
+  if (!m) return;
+  const target: Main | Sub =
+    (s.activeSubId ? m.subs.find((x) => x.id === s.activeSubId) : undefined) ?? m;
+  target.accrued += Math.max(0, now - s.startedAt);
+}
+
+/** Drop active/return-stack references to things that no longer exist. */
+export function repairActiveRefs(s: State): void {
+  const m = s.activeMainId ? s.mains.find((x) => x.id === s.activeMainId) : null;
+  if (!m || m.done) {
+    s.activeMainId = null;
+    s.activeSubId = null;
+    s.startedAt = 0;
+    if (s.phase === "active") s.phase = "today";
+  } else if (s.activeSubId && !m.subs.some((x) => x.id === s.activeSubId)) {
+    // The step vanished (deleted or promoted): fall back to its parent task.
+    s.activeSubId = null;
+  }
+  s.returnStack = s.returnStack.filter((r) => {
+    const rm = s.mains.find((x) => x.id === r.mainId);
+    if (!rm || rm.done) return false;
+    return !r.subId || rm.subs.some((x) => x.id === r.subId);
+  });
+}
+
+export function beginSession(s: State, mainId: string, subId: string | null, now: number): void {
+  const m = s.mains.find((x) => x.id === mainId);
+  if (m && !m.firstStartedAt) m.firstStartedAt = now;
+  s.activeMainId = mainId;
+  s.activeSubId = subId;
+  s.startedAt = now;
+  s.subsOpen = false;
+  s.ciStage = 0; // a new episode restarts the bounded check-in sequence
+  s.phase = "active";
+}
+
+/** THE session transaction. See the file header; do not bypass it. */
+export function sessionTx(
+  mutate: (s: State, now: number) => { mainId: string; subId: string | null } | null | void,
+): void {
+  const now = Date.now();
+  commit((s) => {
+    bankActive(s, now);
+    const next = mutate(s, now) ?? null;
+    repairActiveRefs(s);
+    if (next) beginSession(s, next.mainId, next.subId, now);
+    else if (!s.activeMainId) {
+      s.startedAt = 0;
+      if (s.phase === "active") s.phase = "today";
+    }
+  });
+}
+
+/**
+ * Record that work was interrupted.
+ *
+ * Opens an interruption with a 0 duration; the return closes it and fills
+ * that in, which is what turns a click count into "interrupted 7 times for
+ * 3h 10m".
+ */
+export function openInterruption(
+  s: State,
+  interruptedTitle: string,
+  causeTitle: string,
+  via: "interrupt" | "switch" | "checkin",
+  now: number,
+): void {
+  // Close any already-open one first, or a single interruption could
+  // absorb the whole rest of the day.
+  closeOpenInterruption(s, now);
+  s.interruptions.push({
+    id: nid(),
+    dateISO: s.dateISO,
+    interruptedTitle,
+    causeTitle,
+    atMs: now,
+    durationMs: 0,
+    open: true,
+    via,
+  });
+}
+
+/** Close the open interruption and charge its time to the task it stole from. */
+export function closeOpenInterruption(s: State, now: number): void {
+  for (let i = s.interruptions.length - 1; i >= 0; i--) {
+    const ev = s.interruptions[i];
+    if (!ev.open) continue;
+    ev.open = false;
+    ev.durationMs = Math.max(0, now - ev.atMs);
+    const victim = s.mains.find((m) => m.title === ev.interruptedTitle);
+    if (victim) {
+      victim.interruptedCount = (victim.interruptedCount || 0) + 1;
+      victim.interruptedMs = (victim.interruptedMs || 0) + ev.durationMs;
+    }
+    return;
+  }
+}

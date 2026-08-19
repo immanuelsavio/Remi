@@ -1,0 +1,73 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Remi",
+  "version": "0.1.0",
+  "identifier": "com.immanuelsavio.remi",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5178",
+    "beforeDevCommand": {
+      "script": "npm run dev",
+      "cwd": ".."
+    },
+    "beforeBuildCommand": {
+      "script": "npm run build",
+      "cwd": ".."
+    }
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "popover",
+        "title": "Remi",
+        "visible": false,
+        "decorations": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "resizable": false,
+        "width": 380,
+        "height": 560
+      },
+      {
+        "label": "dashboard",
+        "title": "Remi",
+        "visible": false,
+        "decorations": true,
+        "resizable": true,
+        "width": 900,
+        "height": 640,
+        "minWidth": 640,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
+      "capabilities": [
+        {
+          "identifier": "default",
+          "description": "Window + notification permissions for both windows.",
+          "windows": ["popover", "dashboard"],
+          "permissions": [
+            "core:default",
+            "core:window:allow-show",
+            "core:window:allow-hide",
+            "core:window:allow-set-focus",
+            "core:window:allow-set-position",
+            "core:window:allow-set-always-on-top",
+            "notification:default"
+          ]
+        }
+      ]
+    },
+    "macOSPrivateApi": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "nsis"],
+    "icon": [],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}

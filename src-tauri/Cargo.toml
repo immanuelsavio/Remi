@@ -1,0 +1,45 @@
+#############################################################################
+# The Rust crate for Remi. main.rs, tauri.conf.json, build.rs and
+# src/ all live in this src-tauri/ folder, the conventional Tauri layout.
+#############################################################################
+
+[package]
+name = "remi"
+version = "0.1.0"
+edition = "2021"
+description = "Remi tray popover app"
+
+# ONE binary, no library target. Unit tests live beside the modules they
+# test, so a single bin target is enough.
+[[bin]]
+name = "remi"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+
+# Windows-only: a true single-step atomic file replace (MoveFileExW). The
+# naive remove-then-rename would leave a window where the live state file is
+# absent.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+# Dependencies deliberately not used:
+#   tauri-nspanel   - float the popover over ANOTHER app's fullscreen Space
+#   tauri-plugin-positioner + objc - manual anchoring covers this build
+#   semver, reqwest, zip - silent self-update
+#   rfd             - native "your data file is corrupt" dialog
+#   chrono, uuid    - Date/crypto-free helpers in the frontend cover it
+# The `image-png` tauri feature is gone too: the tray mark is drawn in code
+# (`tray_image`) rather than decoded from a PNG, so no binary asset is needed.
