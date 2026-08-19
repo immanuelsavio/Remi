@@ -21,8 +21,10 @@
     flushSave,
     initErrorCapture,
     initSync,
+    registerQuitListener,
     startClock,
     stopClock,
+    teardownQuitListener,
     teardownSync,
   } from "../store";
   import { computeStreaks, fmtEst, nowMs, todayTrackedMs } from "../view";
@@ -62,8 +64,11 @@
     initErrorCapture();
     await boot();
     await initSync();
-    // The popover owns background effects - see startClock's contract.
+    // The popover owns background effects - see startClock's contract. It's
+    // also the only window that hears the tray menu's quit-requested event
+    // (see registerQuitListener), since it's always mounted.
     startClock({ owner: true });
+    await registerQuitListener();
     ready = true;
     // Persist on the way out so nothing is lost if the process is killed.
     window.addEventListener("beforeunload", () => void flushSave());
@@ -72,6 +77,7 @@
   onDestroy(() => {
     stopClock();
     teardownSync();
+    teardownQuitListener();
   });
 
   $: s = $app;

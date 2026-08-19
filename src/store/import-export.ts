@@ -6,7 +6,7 @@ import { applyTheme } from "../domain/theme";
 import { mkMain, mkSub } from "../domain/defaults";
 import { todayISO } from "../domain/dates";
 import { nid } from "../domain/ids";
-import { hydrate } from "../domain/hydration";
+import { hydrate, looksLikeRemiState } from "../domain/hydration";
 import { forPersist } from "../domain/persistence-shape";
 import type { ParsedImport } from "../domain/imports";
 import { flushSave } from "./persistence";
@@ -54,7 +54,12 @@ export async function exportBackup(): Promise<void> {
 /**
  * Restore from a backup file's text.
  *
- * Goes through `hydrate`, so a hand-edited or foreign file can't inject a
+ * The RAW input is validated against real structural markers
+ * (`looksLikeRemiState`) before it ever reaches `hydrate` - hydrate always
+ * produces a valid `State` (that's its job), so a post-hydrate check can
+ * never reject anything and would let `{}` or any unrelated JSON object
+ * silently wipe the current day. Once validated, `hydrate` still coerces
+ * and clamps every field, so a hand-edited or foreign file can't inject a
  * shape the app can't run. The data folder is machine-local and
  * deliberately NOT restored - a backup made on another machine would point
  * at a path that may not exist here.
@@ -67,11 +72,11 @@ export function restoreBackup(text: string): void {
     showToast("That file isn't valid JSON");
     return;
   }
-  const next = hydrate(raw);
-  if (!next.dateISO) {
+  if (!looksLikeRemiState(raw)) {
     showToast("That file doesn't look like a Remi backup");
     return;
   }
+  const next = hydrate(raw);
   setState(rolloverIfNewDay(bankOrphanSession(next)));
   applyTheme(S().mode, S().accent);
   void flushSave();

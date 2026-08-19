@@ -83,6 +83,7 @@ import {
   reviveMain,
   setEstimate,
   setFlag,
+  setMainTitle,
   setNote,
   setRemind,
   startBreak,
@@ -253,14 +254,34 @@ describe("the session transaction", () => {
     expect(s.mains[1].id).toBe(promoted.id);
   });
 
-  it("promoting a NON-active step leaves the session alone", () => {
+  it("promoting a NON-active step leaves the active task running, uninterrupted", () => {
     const [a, b] = ids();
     addSub(a, "quiet step");
     startTask(b);
-    const before = S().startedAt;
     promoteSub(a, S().mains[0].subs[0].id);
     expect(S().activeMainId).toBe(b);
-    expect(S().startedAt).toBe(before);
+    // Still ticking - a sessionTx that leaves the same thing active must not
+    // stop the clock, only re-stamp it (see the next test for why).
+    expect(S().startedAt).toBeGreaterThan(0);
+  });
+
+  it("banks exactly the elapsed interval across two sessionTx calls, not twice", () => {
+    // The bug this guards: bankActive() adds `now - startedAt` into
+    // `accrued`, but if the active task/step survives a sessionTx
+    // unreplaced (no `next` from `mutate`, and `activeMainId` still set),
+    // `startedAt` must be re-stamped to `now` - otherwise the NEXT
+    // sessionTx banks the same already-banked interval a second time.
+    const [a, b] = ids();
+    startTask(a);
+    rewind(10_000);
+    completeMain(b); // sessionTx that leaves `a` active and unreplaced
+    rewind(10_000);
+    startTask(b); // sessionTx that finally banks `a` and switches away
+    const m = S().mains.find((x) => x.id === a)!;
+    // ~20s of real elapsed time, not ~30s (which double-counts the first
+    // 10s banked by the completeMain() transaction).
+    expect(m.accrued).toBeGreaterThanOrEqual(19_000);
+    expect(m.accrued).toBeLessThan(25_000);
   });
 });
 
@@ -363,6 +384,43 @@ describe("interruption evidence", () => {
     // Nothing valid to return to, so it asks rather than resuming a done task.
     expect(S().activeMainId).toBeNull();
     expect(S().overlay).toBe("done-choose");
+  });
+
+  it("attributes evidence to the RIGHT task when two tasks share a title", () => {
+    // The bug this guards: interruptions used to be matched by TITLE, so
+    // starting a duplicate-titled task while the original was interrupted
+    // would attribute (or steal) the evidence from the wrong one.
+    addMain("Report"); // a second task named the same as `a`... rename first
+    const [a] = ids();
+    setMainTitle(a, "Report"); // now `a` and the new task share a title
+    const dupeId = S().mains.find((m) => m.title === "Report" && m.id !== a)!.id;
+
+    startTask(a);
+    startNewMain("Someone stopped by", true);
+    expect(S().interruptions[0].interruptedId).toBe(a);
+
+    S().interruptions[0].atMs = Date.now() - 60_000;
+    startTask(a); // returns to `a` and closes the interruption
+
+    const s = S();
+    const victimA = s.mains.find((m) => m.id === a)!;
+    const notVictim = s.mains.find((m) => m.id === dupeId)!;
+    expect(victimA.interruptedCount).toBe(1);
+    expect(notVictim.interruptedCount).toBe(0); // the SAME-TITLED task is untouched
+  });
+
+  it("keeps attributing evidence correctly after the victim task is RENAMED mid-interruption", () => {
+    const [a] = ids();
+    startTask(a);
+    startNewMain("Someone stopped by", true);
+    // Rename the interrupted task WHILE the interruption is still open.
+    setMainTitle(a, "Renamed mid-flight");
+    S().interruptions[0].atMs = Date.now() - 30_000;
+
+    startTask(a);
+    const victim = S().mains.find((m) => m.id === a)!;
+    expect(victim.interruptedCount).toBe(1);
+    expect(victim.interruptedMs).toBeGreaterThanOrEqual(29_000);
   });
 });
 
@@ -874,6 +932,23 @@ describe("import, export and restore", () => {
     restoreBackup("{{{ not json");
     expect(S().dayNum).toBe(before);
   });
+
+  it("refuses an empty object instead of silently wiping to a fresh day", () => {
+    // The bug this guards: hydrate({}) legitimately returns freshDay(), so a
+    // post-hydrate `dateISO` check can NEVER reject anything - it's always
+    // truthy by construction. Validation must happen on the RAW input.
+    const before = S().dayNum;
+    S().mains.push(mkMain("must survive"));
+    restoreBackup("{}");
+    expect(S().dayNum).toBe(before);
+    expect(S().mains.some((m) => m.title === "must survive")).toBe(true);
+  });
+
+  it("refuses an unrelated JSON object that isn't shaped like a backup", () => {
+    const before = S().dayNum;
+    restoreBackup(JSON.stringify({ foo: 1, bar: [1, 2, 3] }));
+    expect(S().dayNum).toBe(before);
+  });
 });
 
 // ===========================================================================
@@ -899,6 +974,22 @@ describe("persistence", () => {
     setFlag("trainerOn", true);
     await flushSave();
     expect(saved[saved.length - 1].trainerOn).toBe(true);
+  });
+
+  it("awaits the FULL in-flight chain, including a save queued while one was already running", async () => {
+    // The bug this guards: calling flushSave() while a save is already in
+    // flight used to mark it dirty and return IMMEDIATELY, without waiting
+    // for that dirty re-write to actually land - so a caller like quitApp()
+    // could proceed to quit before the edit it cared about was persisted.
+    setFlag("trainerOn", true);
+    const first = flushSave(); // starts the write
+    setFlag("avoidanceOn", false); // mutates again WHILE the first is running
+    const second = flushSave(); // must not interleave - must await the same chain
+    await Promise.all([first, second]);
+    // Both edits are down by the time BOTH calls have resolved.
+    const last = saved[saved.length - 1];
+    expect(last.trainerOn).toBe(true);
+    expect(last.avoidanceOn).toBe(false);
   });
 });
 

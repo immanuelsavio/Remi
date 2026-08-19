@@ -279,10 +279,18 @@ export function sessionTx(
     bankActive(s, now);
     const next = mutate(s, now) ?? null;
     repairActiveRefs(s);
-    if (next) beginSession(s, next.mainId, next.subId, now);
-    else if (!s.activeMainId) {
+    if (next) {
+      beginSession(s, next.mainId, next.subId, now);
+    } else if (!s.activeMainId) {
       s.startedAt = 0;
       if (s.phase === "active") s.phase = "today";
+    } else {
+      // The active task/step SURVIVED this transaction unreplaced (e.g.
+      // completing a different task while this one keeps running).
+      // `bankActive` above already folded [startedAt, now) into `accrued`;
+      // re-stamp `startedAt` to `now` so that interval is never banked a
+      // second time by the next sessionTx.
+      s.startedAt = now;
     }
   });
 }
@@ -296,6 +304,7 @@ export function sessionTx(
  */
 export function openInterruption(
   s: State,
+  interruptedId: string,
   interruptedTitle: string,
   causeTitle: string,
   via: "interrupt" | "switch" | "checkin",
@@ -307,6 +316,7 @@ export function openInterruption(
   s.interruptions.push({
     id: nid(),
     dateISO: s.dateISO,
+    interruptedId,
     interruptedTitle,
     causeTitle,
     atMs: now,
@@ -323,7 +333,9 @@ export function closeOpenInterruption(s: State, now: number): void {
     if (!ev.open) continue;
     ev.open = false;
     ev.durationMs = Math.max(0, now - ev.atMs);
-    const victim = s.mains.find((m) => m.title === ev.interruptedTitle);
+    // Matched by id, not title: titles are not unique and a task can be
+    // renamed while it's the interrupted party.
+    const victim = s.mains.find((m) => m.id === ev.interruptedId);
     if (victim) {
       victim.interruptedCount = (victim.interruptedCount || 0) + 1;
       victim.interruptedMs = (victim.interruptedMs || 0) + ev.durationMs;

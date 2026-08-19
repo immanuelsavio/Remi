@@ -159,9 +159,18 @@ export interface InterruptionEvent {
   id: string;
   /** Local date it started (YYYY-MM-DD). */
   dateISO: string;
-  /** What was being worked on when it happened. */
+  /**
+   * The id of the task that was interrupted, used to attribute the closed
+   * duration and increment `interruptedCount`/`interruptedMs` on the RIGHT
+   * task. Titles are not unique and can be renamed mid-interruption; the id
+   * is the real identity. Empty string only for interruptions hydrated from
+   * a file written before this field existed (they degrade to "no victim
+   * found", same as an unmatched title used to).
+   */
+  interruptedId: string;
+  /** What was being worked on when it happened - display only. */
   interruptedTitle: string;
-  /** What pulled them away. */
+  /** What pulled them away - display only. */
   causeTitle: string;
   atMs: number;
   durationMs: number;

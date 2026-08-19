@@ -165,7 +165,7 @@ export function switchToMain(mainId: string, remember: boolean): void {
     if (remember && s.activeMainId) {
       const from = s.mains.find((x) => x.id === s.activeMainId);
       const to = s.mains.find((x) => x.id === mainId);
-      if (from) openInterruption(s, from.title, to?.title ?? "another task", via, now);
+      if (from) openInterruption(s, from.id, from.title, to?.title ?? "another task", via, now);
       s.returnStack.push({ mainId: s.activeMainId, subId: s.activeSubId });
     }
     s.overlay = null;
@@ -188,7 +188,8 @@ export function switchToSub(mainId: string, subId: string, remember: boolean): v
     if (remember && s.activeMainId && s.activeMainId !== mainId) {
       const from = s.mains.find((x) => x.id === s.activeMainId);
       const to = s.mains.find((x) => x.id === mainId);
-      if (from) openInterruption(s, from.title, to?.title ?? "another task", "switch", now);
+      if (from)
+        openInterruption(s, from.id, from.title, to?.title ?? "another task", "switch", now);
       s.returnStack.push({ mainId: s.activeMainId, subId: s.activeSubId });
     }
     s.overlay = null;
@@ -204,7 +205,7 @@ export function startNewMain(title: string, remember: boolean): void {
   sessionTx((s, now) => {
     if (remember && s.activeMainId) {
       const from = s.mains.find((x) => x.id === s.activeMainId);
-      if (from) openInterruption(s, from.title, t, "interrupt", now);
+      if (from) openInterruption(s, from.id, from.title, t, "interrupt", now);
       s.returnStack.push({ mainId: s.activeMainId, subId: s.activeSubId });
     }
     const m = mkMain(t);

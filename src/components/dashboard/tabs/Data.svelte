@@ -21,6 +21,7 @@
   export let importText = "";
   export let importPreview: ParsedImport | null = null;
   export let restoreText = "";
+  export let confirmRestore = false;
 </script>
 
 <div class="wrap">
@@ -122,17 +123,33 @@
     Paste the contents of an exported backup. This REPLACES today's state; the data folder itself is
     machine-local and is not restored.
   </p>
-  <textarea class="in" rows="4" placeholder="Paste backup JSON…" bind:value={restoreText}
+  <textarea
+    class="in"
+    rows="4"
+    placeholder="Paste backup JSON…"
+    bind:value={restoreText}
+    on:input={() => (confirmRestore = false)}
   ></textarea>
-  <button
-    class="btn"
-    on:click={() => {
-      restoreBackup(restoreText);
-      restoreText = "";
-    }}
-  >
-    Restore
-  </button>
+  {#if !confirmRestore}
+    <button class="btn" disabled={!restoreText.trim()} on:click={() => (confirmRestore = true)}>
+      Restore…
+    </button>
+  {:else}
+    <p class="muted small">This replaces everything currently tracked today. Are you sure?</p>
+    <div class="row">
+      <button class="btn" on:click={() => (confirmRestore = false)}>Cancel</button>
+      <button
+        class="btn danger-btn"
+        on:click={() => {
+          restoreBackup(restoreText);
+          restoreText = "";
+          confirmRestore = false;
+        }}
+      >
+        Yes, replace today's state
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>

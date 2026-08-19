@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_TARGET_MINS, ACCENTS } from "./types";
 import { freshDay } from "./defaults";
-import { hydrate } from "./hydration";
+import { hydrate, looksLikeRemiState } from "./hydration";
 
 describe("hydrate", () => {
   it("returns a fresh day for junk input", () => {
@@ -166,5 +166,33 @@ describe("hydrate", () => {
       expect(hex).toMatch(/^#[0-9a-f]{6}$/i);
     }
     expect(freshDay().dayTargetMins).toBe(DEFAULT_TARGET_MINS);
+  });
+});
+
+describe("looksLikeRemiState", () => {
+  it("rejects junk and non-object input", () => {
+    for (const junk of [null, undefined, 42, "nope", [], true, "{}"]) {
+      expect(looksLikeRemiState(junk)).toBe(false);
+    }
+  });
+
+  it("rejects an empty object - hydrate({}) would silently look like a fresh valid day", () => {
+    expect(looksLikeRemiState({})).toBe(false);
+  });
+
+  it("rejects an unrelated object that happens to be valid JSON", () => {
+    expect(looksLikeRemiState({ foo: 1, bar: [1, 2, 3] })).toBe(false);
+  });
+
+  it("accepts a real state export", () => {
+    expect(looksLikeRemiState(freshDay(3))).toBe(true);
+  });
+
+  it("rejects an object missing any one required marker", () => {
+    const base = freshDay(3) as unknown as Record<string, unknown>;
+    for (const key of ["v", "dayNum", "dateISO", "mains"]) {
+      const { [key]: _omit, ...rest } = base;
+      expect(looksLikeRemiState(rest)).toBe(false);
+    }
   });
 });
