@@ -167,13 +167,9 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
 
-    // Show the name until the first elapsed-time title replaces it: a tray
-    // item whose image fails to load renders zero-width and looks like the
-    // app never started, so text guarantees it is findable.
     if let Ok(mut g) = app.state::<TrayHandle>().0.lock() {
         *g = Some(tray);
     }
-    apply_tray_title(app, Some("Remi".into()));
     Ok(())
 }
 
