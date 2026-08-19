@@ -4,22 +4,30 @@ name: macOS dry run
 # signs, and validates real .app bundles and uploads them as workflow
 # artifacts for inspection - it NEVER creates or publishes a GitHub
 # Release. Use this to sanity-check a release before actually tagging one.
+#
+# Both targets are cross-compiled from a single arm64 (macos-14) runner:
+# GitHub has retired free/standard Intel macOS runners (macos-13 no longer
+# exists; the remaining x64 labels - macos-15-large, macos-14-large - are
+# paid per-minute "larger runners"). Rust's macOS toolchain can natively
+# cross-compile to x86_64-apple-darwin from an arm64 host, and `codesign`
+# can ad-hoc sign a foreign-arch binary just fine, so this needs no paid
+# runner. What this CANNOT do is actually RUN the x86_64 binary to verify
+# it launches - only that it builds, is correctly ad-hoc signed, and
+# `file` reports the right architecture.
 on:
   workflow_dispatch: {}
 
 jobs:
   build:
+    runs-on: macos-14
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: aarch64-apple-darwin
             arch_name: aarch64
-            runner: macos-14
           - target: x86_64-apple-darwin
             arch_name: x86_64
-            runner: macos-13
-    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +38,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
         with:
