@@ -98,13 +98,10 @@ bash scripts/check-versions.sh
 
 Run the manual dry-run workflow first. It builds both Apple Silicon and
 Intel macOS app bundles, verifies ad-hoc signatures and architectures, and
-uploads artifacts without publishing a GitHub Release. GitHub only exposes a
-new `workflow_dispatch` workflow after the workflow file exists on the
-default branch, so the first dry run may need to happen after merging the
-workflow into `main`.
+uploads artifacts without publishing a GitHub Release.
 
 ```bash
-gh workflow run dry-run.yml --ref release/macos-distribution-readiness
+gh workflow run dry-run.yml --ref main
 ```
 
 When the dry run is good, tag the matching version. The release workflow
