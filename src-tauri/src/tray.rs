@@ -1,5 +1,6 @@
 //! TRAY - the menu-bar icon (drawn in code, no PNG on disk).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use tauri::menu::{Menu, MenuEvent, MenuItem};
@@ -7,6 +8,29 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::windows::{show_dashboard, show_popover, toggle_popover};
+
+/// Set once the frontend (the popover, the effect owner) has successfully
+/// registered its `quit-requested` listener - see the frontend's
+/// `registerQuitListener()` and the `quit_listener_ready` command below.
+///
+/// This is the real quit HANDSHAKE: `app.emit(...).is_ok()` only proves the
+/// emit call itself didn't error, never that anyone received it. Without
+/// this flag, a crash or slow boot between process start and the listener
+/// registering would make Quit silently do nothing - the tray click would
+/// emit into the void forever. With it, Rust can tell the difference
+/// between "the frontend is listening, trust the handshake" and "nobody
+/// will ever hear this, fall back to exiting directly".
+#[derive(Default)]
+pub struct QuitReadiness(AtomicBool);
+
+impl QuitReadiness {
+    pub fn mark_ready(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+    pub fn is_ready(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
 
 /// The live tray icon, kept so the title can be updated as the clock runs.
 /// Stored rather than rebuilt: recreating a tray icon makes it flicker and
@@ -79,12 +103,28 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
 /// frontend's debounce timer and can race a save that hasn't landed yet.
 /// Instead, ask the frontend (the popover, the effect owner) to flush its
 /// pending save and call `quit_app` itself once that's actually done - the
-/// same path the dashboard's Quit button already uses. If no window is
-/// alive to hear this (e.g. mid-startup crash), fall back to exiting
-/// directly so Quit is never a dead menu item.
+/// same path the dashboard's Quit button already uses (`requestQuit` in
+/// `store/persistence.ts`).
+///
+/// This is a real HANDSHAKE, not a hopeful emit: `QuitReadiness` is only
+/// set once the frontend has confirmed (via the `quit_listener_ready`
+/// command) that its `quit-requested` listener is actually registered.
+/// `app.emit(...).is_ok()` alone proves nothing - it only means the emit
+/// call itself didn't error, not that anyone is listening.
+///
+/// If the frontend never reached that point (e.g. a crash during boot,
+/// before `registerQuitListener()` ran), there is genuinely nobody who
+/// will ever call `quit_app` - falling back to `app.exit(0)` directly is
+/// the deliberate, honest choice here, not a guess: it only fires when we
+/// KNOW no handshake partner exists, never as a race against one that
+/// does.
 fn request_quit(app: &AppHandle) {
-    let emitted = app.emit("quit-requested", ()).is_ok();
-    if !emitted {
+    let ready = app
+        .try_state::<QuitReadiness>()
+        .is_some_and(|r| r.is_ready());
+    if ready {
+        let _ = app.emit("quit-requested", ());
+    } else {
         app.exit(0);
     }
 }
@@ -140,6 +180,17 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quit_readiness_starts_false_and_latches_true_once_marked() {
+        let r = QuitReadiness::default();
+        assert!(!r.is_ready(), "must start false - no handshake yet");
+        r.mark_ready();
+        assert!(r.is_ready());
+        // Marking again is idempotent, not a toggle.
+        r.mark_ready();
+        assert!(r.is_ready());
+    }
 
     #[test]
     fn tray_image_is_a_transparent_template_mark() {

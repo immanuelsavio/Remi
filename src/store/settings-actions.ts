@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { applyTheme } from "../domain/theme";
 import type { State, WellnessKey } from "../domain/types";
 import { resetTrayTitleCache } from "./clock";
-import { flushSave } from "./persistence";
+import { requestQuit } from "./persistence";
 import { S, commit, showToast } from "./state";
 
 export function setMode(mode: State["mode"]): void {
@@ -109,8 +109,21 @@ export function openDataFolder(): void {
   void invoke("open_data_folder").catch((e) => showToast(String(e)));
 }
 
-export function quitApp(): void {
-  void flushSave().then(() => invoke("quit_app").catch(() => {}));
+/**
+ * Quit through the real persistence barrier (`requestQuit`): flushes first,
+ * and only actually quits if that succeeds. On failure the app stays open
+ * and shows why, so a caller that doesn't specifically need to observe the
+ * rejection (e.g. a plain `on:click`) still gets a visible error rather
+ * than a silent no-op or an unhandled rejection. Also re-thrown, for
+ * callers (tests, the tray listener) that DO want to observe it directly.
+ */
+export async function quitApp(): Promise<void> {
+  try {
+    await requestQuit();
+  } catch (e) {
+    showToast(`Couldn't save before quitting: ${String(e)}. Remi stayed open.`);
+    throw e;
+  }
 }
 
 export async function resetAndUninstall(keepHistory: boolean): Promise<void> {

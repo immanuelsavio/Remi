@@ -7,7 +7,7 @@
   <button class="link" on:click={() => setOverlay("backlog")}>Backlog</button>
   <span class="spacer"></span>
   <button class="link" on:click={() => setOverlay("endday")}>End day</button>
-  <button class="link" on:click={quitApp}>Quit</button>
+  <button class="link" on:click={() => void quitApp().catch(() => {})}>Quit</button>
 </div>
 
 <style>

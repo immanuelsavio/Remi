@@ -145,6 +145,63 @@ pub fn load_state(folder: &Path) -> LoadResult {
     }
 }
 
+/// Read the `_rev` field out of a state JSON value, defaulting to 0 for a
+/// file written before this field existed.
+fn rev_of(v: &serde_json::Value) -> u64 {
+    v.get("_rev").and_then(|r| r.as_u64()).unwrap_or(0)
+}
+
+/// Outcome of a compare-and-swap write attempt.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CasOutcome {
+    /// Written successfully; carries the new revision now on disk.
+    Written(u64),
+    /// The caller's `expected_rev` did not match what's currently on disk -
+    /// SOMEONE ELSE (the other window) wrote a newer revision first. The
+    /// write is rejected rather than silently overwriting their change;
+    /// carries the actual current revision so the caller can reload and
+    /// retry from a known-good baseline.
+    Stale { current_rev: u64 },
+}
+
+/// Compare-and-swap write: only persists `state` if the revision currently
+/// on disk matches `expected_rev` (or there is no file yet, for a first
+/// write). This is the cross-window lost-update guard: two windows each
+/// hold an independent in-memory store, and without this a stale whole-
+/// state snapshot saved by one window could silently clobber a newer edit
+/// the other window already persisted. `_rev` is stamped into the written
+/// JSON, bumped by exactly one from `expected_rev`.
+///
+/// Race-free in practice because every `save_app_state` call (both
+/// windows, one process) is serialized by `commands::SAVE_LOCK` - the
+/// read-compare-write here never interleaves with another write.
+pub fn write_state_cas(
+    folder: &Path,
+    state: &serde_json::Value,
+    expected_rev: u64,
+) -> Result<CasOutcome, String> {
+    let dest = state_path(folder);
+    let current_rev = match try_read(&dest) {
+        Ok(Some(existing)) => rev_of(&existing),
+        // No file yet, or the live file is malformed (the LOAD path is
+        // what surfaces malformed-file recovery to the user; a save
+        // shouldn't itself get stuck deciding what a broken file's
+        // revision "really" was) - treat as revision 0, matching a fresh
+        // frontend's starting expectation.
+        Ok(None) | Err(_) => 0,
+    };
+    if expected_rev != current_rev {
+        return Ok(CasOutcome::Stale { current_rev });
+    }
+    let next_rev = current_rev + 1;
+    let mut stamped = state.clone();
+    if let serde_json::Value::Object(map) = &mut stamped {
+        map.insert("_rev".into(), serde_json::json!(next_rev));
+    }
+    write_state(folder, &stamped)?;
+    Ok(CasOutcome::Written(next_rev))
+}
+
 /// Atomically persist the state (see the STATE I/O contract above).
 pub fn write_state(folder: &Path, state: &serde_json::Value) -> Result<(), String> {
     fs::create_dir_all(folder).map_err(|e| e.to_string())?;
@@ -341,5 +398,68 @@ mod tests {
             .filter(|n| n.contains(".tmp"))
             .collect();
         assert!(left.is_empty(), "temp files left behind: {left:?}");
+    }
+
+    #[test]
+    fn cas_first_write_at_revision_zero_succeeds_and_stamps_rev_one() {
+        let d = tempdir().unwrap();
+        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0).unwrap();
+        assert_eq!(outcome, CasOutcome::Written(1));
+        let on_disk = load_state(d.path()).state.unwrap();
+        assert_eq!(on_disk["_rev"], 1);
+    }
+
+    #[test]
+    fn cas_write_matching_the_current_revision_succeeds_and_advances_it() {
+        let d = tempdir().unwrap();
+        write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0).unwrap(); // rev -> 1
+        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":2}"#), 1).unwrap();
+        assert_eq!(outcome, CasOutcome::Written(2));
+    }
+
+    #[test]
+    fn cas_rejects_a_stale_write_instead_of_silently_overwriting() {
+        // The bug this guards: two independent windows, each with their
+        // own in-memory store, could both save a full-state snapshot -
+        // the second one landing would silently discard whatever the
+        // first one persisted, with no way to tell it happened.
+        let d = tempdir().unwrap();
+        write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0).unwrap(); // rev -> 1 (window A)
+        write_state_cas(d.path(), &v(r#"{"dayNum":2}"#), 1).unwrap(); // rev -> 2 (window A again)
+
+        // Window B still thinks the revision is 1 (its last known-good
+        // load) and tries to save its own edit on top of that stale view.
+        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":99}"#), 1).unwrap();
+        assert_eq!(outcome, CasOutcome::Stale { current_rev: 2 });
+
+        // Window A's dayNum:2 must be UNTOUCHED - not silently overwritten
+        // by window B's stale dayNum:99.
+        let on_disk = load_state(d.path()).state.unwrap();
+        assert_eq!(on_disk["dayNum"], 2);
+    }
+
+    #[test]
+    fn cas_retry_after_reloading_the_current_revision_succeeds() {
+        let d = tempdir().unwrap();
+        write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0).unwrap(); // rev -> 1
+
+        // A stale attempt is rejected...
+        let stale = write_state_cas(d.path(), &v(r#"{"dayNum":99}"#), 0).unwrap();
+        let CasOutcome::Stale { current_rev } = stale else {
+            panic!("expected Stale");
+        };
+
+        // ...but retrying with the ACTUAL current revision succeeds.
+        let retried = write_state_cas(d.path(), &v(r#"{"dayNum":99}"#), current_rev).unwrap();
+        assert_eq!(retried, CasOutcome::Written(current_rev + 1));
+        assert_eq!(load_state(d.path()).state.unwrap()["dayNum"], 99);
+    }
+
+    #[test]
+    fn cas_treats_a_missing_file_as_revision_zero() {
+        let d = tempdir().unwrap();
+        // No prior write at all - the file doesn't exist yet.
+        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0).unwrap();
+        assert_eq!(outcome, CasOutcome::Written(1));
     }
 }

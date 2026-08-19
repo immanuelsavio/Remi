@@ -94,7 +94,11 @@ function checkpoint(now: number): void {
   if (!s.activeMainId || !s.startedAt) return;
   if (now - lastCheckpoint < CHECKPOINT_MS) return;
   lastCheckpoint = now;
-  void flushSave();
+  // Fire-and-forget: a failed checkpoint still shows a toast and the next
+  // tick or edit retries. `flushSave` now rejects on a real write failure
+  // instead of swallowing it, so this catch is required to avoid an
+  // unhandled-rejection warning.
+  void flushSave().catch((e) => showToast(`Couldn't save: ${String(e)}`));
 }
 
 /** Last title pushed to the tray, so we only cross the IPC when it changes. */

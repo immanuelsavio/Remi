@@ -100,7 +100,8 @@ src-tauri/
     state_io.rs             the durability contract: atomic writes, .bak recovery
     settings.rs              generic JSON settings.json read-modify-write
     migration.rs             one-time legacy Dopamigo MVP -> Remi data migration
-    commands.rs               the 15 IPC commands the frontend calls
+    commands.rs               the 16 IPC commands the frontend calls
+                               (the original 15, plus quit_listener_ready)
     tray.rs                   menu-bar icon + tray menu/event handling
     windows.rs                popover/dashboard positioning and lifecycle
 ```
