@@ -3,37 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dopamigo</title>
+    <title>Remi</title>
   </head>
   <body>
     <div id="app"></div>
 
-    <!--
-      Both windows load this SAME bundle; the window LABEL decides which root
-      component mounts. In the full repo this logic lives in a separate
-      `main.ts`; inlining it here removes a file, and Vite still processes the
-      module (imports are bundled normally).
-
-      `getCurrentWindow().label` is a synchronous property in @tauri-apps/api v2.
-      The try/catch means the bundle still renders under a plain `vite dev` in a
-      browser, where the Tauri API is absent - handy for styling work.
-    -->
-    <script type="module">
-      import "/src/global.css";
-      import { getCurrentWindow } from "@tauri-apps/api/window";
-      import Popover from "/src/Popover.svelte";
-      import Dashboard from "/src/Dashboard.svelte";
-
-      let label = "popover";
-      try {
-        label = getCurrentWindow().label;
-      } catch {
-        /* not inside Tauri - keep the popover view */
-      }
-
-      new (label === "dashboard" ? Dashboard : Popover)({
-        target: document.getElementById("app"),
-      });
-    </script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
