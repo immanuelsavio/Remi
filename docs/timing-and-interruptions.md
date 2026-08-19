@@ -71,6 +71,28 @@ an active step; promoting an active step without losing unbanked live
 time; switching between tasks and steps; completing or reviving tasks;
 starting and ending breaks. See `src/store/store.test.ts`.
 
+**`sessionTx` only re-stamps `startedAt` for a session that was GENUINELY
+running.** `activeMainId` being set is not proof of that: during a break
+(and equally during recovery or the awaiting-start screen) `activeMainId`
+is deliberately kept — so the break can resume the same work — while
+`startedAt` is `0`, because nothing is actually accruing. `sessionTx`
+captures `wasRunning = s.startedAt > 0` _before_ `bankActive` runs, and
+only re-stamps `startedAt = now` if that was true. A dashboard action
+against a _different_ task while the popover shows the break screen must
+never restart the paused task's clock — it doesn't, because `wasRunning`
+was already false going in.
+
+**Active-step deletion: the worked interval is banked into the step,
+then the step (and its accrued time) is deleted with it — the parent
+starts a genuinely fresh clock, it does not inherit the step's time.**
+`bankActive` runs before the step is removed from `m.subs`, so the time
+already worked is folded into `sub.accrued` first — same honest treatment
+a completed step's time gets. The step object (accrued time included) is
+then discarded along with the rest of the step, and the running session
+falls back to the parent task with `startedAt` re-stamped to `now`: the
+parent is not credited with time it didn't work, and the interval already
+banked into the (now-deleted) step is never double-counted onto it.
+
 ## Interruption evidence
 
 An interruption is a **record per occurrence**, not a counter — because

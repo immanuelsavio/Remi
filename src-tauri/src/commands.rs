@@ -1,18 +1,19 @@
-//! COMMANDS - the IPC surface the Svelte frontend calls. 15 commands,
-//! unchanged names and payload shapes from the transport packet.
+//! COMMANDS - the IPC surface the Svelte frontend calls. 16 commands: the
+//! original 15 from the transport packet, plus `quit_listener_ready` (the
+//! real quit-handshake ack - see `tray::QuitReadiness`).
 
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::migration::take_pending_message;
 use crate::paths::{backup_path, data_folder, recovery_dir, settings_path, state_path};
 use crate::settings::{patch_settings, read_settings};
-use crate::state_io::{load_state, write_state, LoadResult};
-use crate::tray::apply_tray_title;
+use crate::state_io::{load_state, write_state_cas, CasOutcome, LoadResult};
+use crate::tray::{apply_tray_title, QuitReadiness};
 use crate::windows::show_dashboard;
 
 /// Serializes saves across BOTH webviews. Each window has its own JS `saving`
@@ -39,13 +40,30 @@ pub async fn load_app_state() -> Result<LoadResult, String> {
     Ok(result)
 }
 
+/// Compare-and-swap save. The frontend includes `_rev` (the revision it
+/// last loaded/saved) inside `state` itself - Rust never needed a typed
+/// schema for state before, and doesn't need one now to carry this one
+/// extra field. Returns `{ "rev": N }` on success (the NEW revision, to
+/// remember for the next save), or `{ "stale": true, "currentRev": N }` if
+/// someone else (the other window) saved a newer revision first - the
+/// write is REJECTED, never silently applied over their change. See
+/// `state_io::write_state_cas` and `docs/data-durability.md`'s
+/// cross-window section.
 #[tauri::command]
-pub async fn save_app_state(state: serde_json::Value) -> Result<(), String> {
+pub async fn save_app_state(state: serde_json::Value) -> Result<serde_json::Value, String> {
     if UNINSTALLING.load(Ordering::SeqCst) {
-        return Ok(()); // going away; not an error the UI should shout about
+        // Going away; not an error the UI should shout about. `rev: 0` is
+        // a harmless placeholder - nothing further will be saved anyway.
+        return Ok(serde_json::json!({ "rev": 0 }));
     }
+    let expected_rev = state.get("_rev").and_then(|r| r.as_u64()).unwrap_or(0);
     let _guard = SAVE_LOCK.lock().map_err(|e| e.to_string())?;
-    write_state(&data_folder(), &state)
+    match write_state_cas(&data_folder(), &state, expected_rev)? {
+        CasOutcome::Written(rev) => Ok(serde_json::json!({ "rev": rev })),
+        CasOutcome::Stale { current_rev } => {
+            Ok(serde_json::json!({ "stale": true, "currentRev": current_rev }))
+        }
+    }
 }
 
 #[tauri::command]
@@ -164,6 +182,20 @@ pub async fn quit_app(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// The frontend calls this once its `quit-requested` listener is actually
+/// registered (see `registerQuitListener()` in `store/persistence.ts`).
+/// This is the real half of the quit HANDSHAKE: until this fires, the tray
+/// menu's Quit falls back to exiting directly rather than emitting into a
+/// void nobody is listening to yet. See `tray::QuitReadiness` and
+/// `tray::request_quit`.
+#[tauri::command]
+pub async fn quit_listener_ready(app: AppHandle) -> Result<(), String> {
+    if let Some(r) = app.try_state::<QuitReadiness>() {
+        r.mark_ready();
+    }
+    Ok(())
+}
+
 /// Delete a file, treating "it never existed" as success (not every install
 /// has a `.bak` yet) but collecting any REAL failure (permission denied,
 /// I/O error) into `errors` instead of discarding it.
@@ -184,10 +216,28 @@ fn try_remove_dir(path: &std::path::Path, errors: &mut Vec<String>) {
     }
 }
 
+/// Every stale/exported artifact prefix Remi itself creates inside the
+/// data folder, beyond `state.json` / `state.bak` / the recovery dir,
+/// which get their own named removal. Kept as one list so "remove
+/// everything" and any future audit of what Remi writes stay in sync.
+///
+/// - `remi-backup-*.json` - manual JSON backup exports (`exportBackup`)
+/// - `remi-usage-*.json` - opt-in usage-log exports (`exportLogs`)
+/// - `.state.json.tmp*` - `state_io::write_state`'s atomic-write temp files
+/// - `.settings.json.tmp*` - `settings::write_settings_at`'s temp files
+///   (the file-name-derived prefix, since `settings_path()` always points
+///   at a file literally named `settings.json`)
+const CLEANUP_PREFIXES: &[&str] = &[
+    "remi-backup-",
+    "remi-usage-",
+    ".state.json.tmp",
+    ".settings.json.tmp",
+];
+
 /// The uninstall logic, parameterized over the data folder and settings
 /// path so it is fully testable without touching real user data. Returns
-/// the paths that failed to delete, if any - an empty vec means a clean
-/// wipe.
+/// the paths that failed to delete (or the reason the data folder itself
+/// couldn't even be enumerated), if any - an empty vec means a clean wipe.
 fn uninstall_data(
     folder: &std::path::Path,
     settings: &std::path::Path,
@@ -199,15 +249,33 @@ fn uninstall_data(
         try_remove_file(&state_path(folder), &mut errors);
         try_remove_file(&backup_path(folder), &mut errors);
         try_remove_dir(&recovery_dir(folder), &mut errors);
-        // Exported backups and stale temps are app-created too; "remove
-        // everything" must not leave them behind.
-        if let Ok(entries) = fs::read_dir(folder) {
-            for e in entries.flatten() {
-                let n = e.file_name().to_string_lossy().into_owned();
-                if n.starts_with("remi-backup-") || n.starts_with(".state.json.tmp") {
-                    try_remove_file(&e.path(), &mut errors);
+
+        // Exported backups, usage logs and stale temps are app-created
+        // too; "remove everything" must not leave them behind. A folder
+        // that never existed (fresh install, nothing ever written) is not
+        // an error - but one that exists and genuinely can't be read
+        // (permission race, unmounted volume) must be REPORTED, not
+        // silently treated as "nothing to clean up here".
+        match fs::read_dir(folder) {
+            Ok(entries) => {
+                for entry in entries {
+                    let e = match entry {
+                        Ok(e) => e,
+                        Err(err) => {
+                            errors.push(format!("{}: {err}", folder.display()));
+                            continue;
+                        }
+                    };
+                    let n = e.file_name().to_string_lossy().into_owned();
+                    if CLEANUP_PREFIXES.iter().any(|p| n.starts_with(p)) {
+                        try_remove_file(&e.path(), &mut errors);
+                    }
                 }
             }
+            Err(e) if folder.exists() => {
+                errors.push(format!("{}: {e}", folder.display()));
+            }
+            Err(_) => { /* folder never existed - nothing to clean up */ }
         }
     }
     errors
@@ -218,9 +286,14 @@ fn uninstall_data(
 ///
 /// Reports every deletion failure rather than swallowing it - a privacy
 /// wipe that silently leaves files behind is worse than one that is honest
-/// about what it couldn't remove. Still exits even on partial failure
-/// (there is no good "undo" state to leave the app in), but the caller
-/// gets to know.
+/// about what it couldn't remove.
+///
+/// The app does NOT exit before a failure can be communicated: `app.exit`
+/// tears the process down, and an IPC response racing that teardown is not
+/// a reliable way for the frontend to learn what went wrong. On failure,
+/// `UNINSTALLING` is reset so the app resumes normal saves and stays open
+/// - the caller sees the complete error and the user can retry, check
+/// permissions, or free up disk space. Only a genuinely clean wipe exits.
 #[tauri::command]
 pub async fn reset_and_uninstall_app(app: AppHandle, keep_history: bool) -> Result<(), String> {
     // Latch FIRST so any save already queued in either webview is rejected
@@ -228,10 +301,13 @@ pub async fn reset_and_uninstall_app(app: AppHandle, keep_history: bool) -> Resu
     UNINSTALLING.store(true, Ordering::SeqCst);
 
     let errors = uninstall_data(&data_folder(), &settings_path(), keep_history);
-    app.exit(0);
     if errors.is_empty() {
+        app.exit(0);
         Ok(())
     } else {
+        // Un-latch: nothing was destroyed beyond what actually got
+        // deleted, so normal operation (including saves) may resume.
+        UNINSTALLING.store(false, Ordering::SeqCst);
         Err(format!(
             "Some files couldn't be removed: {}",
             errors.join("; ")
@@ -327,5 +403,104 @@ mod tests {
             "a real removal failure must be reported"
         );
         assert!(settings.exists(), "the failed path must still be there");
+    }
+
+    #[test]
+    fn uninstall_removes_usage_log_exports_too() {
+        // The bug this guards: only remi-backup-* and .state.json.tmp*
+        // were cleaned up; remi-usage-*.json (the opt-in usage-log
+        // export, see store/telemetry.ts's exportLogs) was left behind by
+        // "remove everything".
+        let d = tempdir().unwrap();
+        let settings = d.path().join("settings.json");
+        std::fs::write(d.path().join("remi-usage-2026-01-01.json"), "{}").unwrap();
+
+        uninstall_data(d.path(), &settings, false);
+        assert!(!d.path().join("remi-usage-2026-01-01.json").exists());
+    }
+
+    #[test]
+    fn uninstall_removes_stale_settings_temp_files_too() {
+        // settings.rs's write_settings_at names its temp files
+        // `.<filename>.tmp{pid}-{seq}` - for settings.json specifically
+        // that is `.settings.json.tmp...`, a DIFFERENT prefix than
+        // state.json's temp files. Both must be swept.
+        let d = tempdir().unwrap();
+        let settings = d.path().join("settings.json");
+        std::fs::write(d.path().join(".settings.json.tmp1234-0"), "{}").unwrap();
+
+        uninstall_data(d.path(), &settings, false);
+        assert!(!d.path().join(".settings.json.tmp1234-0").exists());
+    }
+
+    #[test]
+    fn uninstall_preserves_unrelated_files_in_the_data_folder() {
+        let d = tempdir().unwrap();
+        let settings = d.path().join("settings.json");
+        std::fs::write(d.path().join("my-notes.txt"), "not Remi's").unwrap();
+        std::fs::write(d.path().join("remi-backup-2026-01-01.json"), "{}").unwrap();
+
+        uninstall_data(d.path(), &settings, false);
+        assert!(
+            d.path().join("my-notes.txt").exists(),
+            "unrelated files must survive a wipe"
+        );
+        assert!(!d.path().join("remi-backup-2026-01-01.json").exists());
+    }
+
+    #[test]
+    fn uninstall_reports_a_failure_to_enumerate_the_data_folder_rather_than_silently_skipping_it() {
+        // The bug this guards: `if let Ok(entries) = fs::read_dir(folder)`
+        // silently did nothing on Err, so exported backups/usage logs in a
+        // folder that EXISTS but genuinely can't be enumerated (permission
+        // race, a removable volume unmounting) would be reported as a
+        // CLEAN wipe even though nothing inside was ever checked. A folder
+        // that never existed at all (fresh install) is the DIFFERENT,
+        // non-error case - see the "never existed" test above.
+        let d = tempdir().unwrap();
+        let settings = d.path().join("settings.json");
+        // A path that EXISTS but is a FILE, not a directory, exists() ==
+        // true yet read_dir() genuinely fails on it - a stand-in for a
+        // real enumerate failure without depending on platform-specific
+        // permission behavior.
+        let not_a_directory = d.path().join("data-folder-is-actually-a-file");
+        std::fs::write(&not_a_directory, "oops").unwrap();
+
+        let errors = uninstall_data(&not_a_directory, &settings, false);
+        assert!(
+            !errors.is_empty(),
+            "a folder that exists but cannot be enumerated must be reported as a failure, not a clean wipe"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn uninstall_never_follows_a_symlink_out_of_the_data_folder() {
+        // A symlink INSIDE the data folder that points OUTSIDE it must
+        // never cause recursive deletion to reach outside the intended
+        // directory. `recovery_dir` is removed with `remove_dir_all`,
+        // which on a symlink target removes the LINK itself, not what it
+        // points to when the top-level entry passed to it is a symlink -
+        // but if a symlink existed INSIDE the recovery dir pointing
+        // elsewhere, remove_dir_all would follow it. Guard against that by
+        // planting one and confirming the pointed-to file survives.
+        use std::os::unix::fs::symlink;
+
+        let d = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let canary = outside.path().join("do-not-delete.txt");
+        std::fs::write(&canary, "safe").unwrap();
+
+        let folder = d.path().join("data");
+        std::fs::create_dir_all(recovery_dir(&folder)).unwrap();
+        symlink(&canary, recovery_dir(&folder).join("escape-link")).unwrap();
+
+        let settings = d.path().join("settings.json");
+        uninstall_data(&folder, &settings, false);
+
+        assert!(
+            canary.exists(),
+            "a symlink inside Remi's data must never cause deletion outside it"
+        );
     }
 }

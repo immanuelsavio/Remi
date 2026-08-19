@@ -230,6 +230,9 @@ export function hydrate(raw: unknown): State {
 
   // Scalars.
   s.v = num(s.v, 1);
+  // Absent on backups/state files written before cross-window CAS existed -
+  // 0 matches a fresh save's starting expectation.
+  s._rev = Math.max(0, num(s._rev, 0));
   s.dayNum = Math.max(1, num(s.dayNum, 1));
   s.startedAt = Math.max(0, num(s.startedAt));
   s.savedAt = Math.max(0, num(s.savedAt));

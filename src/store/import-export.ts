@@ -79,6 +79,11 @@ export function restoreBackup(text: string): void {
   const next = hydrate(raw);
   setState(rolloverIfNewDay(bankOrphanSession(next)));
   applyTheme(S().mode, S().accent);
-  void flushSave();
+  // TODO(Part 3): this must become a real barrier - do not report
+  // "Backup restored" until persistence actually succeeds, and roll back
+  // to the pre-restore state on failure. Tracked separately; this is a
+  // minimal fix so a rejected flushSave doesn't produce an unhandled
+  // promise rejection now that it can reject.
+  void flushSave().catch((e) => showToast(`Couldn't save: ${String(e)}`));
   showToast("Backup restored");
 }

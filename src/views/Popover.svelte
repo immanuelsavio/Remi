@@ -70,8 +70,17 @@
     startClock({ owner: true });
     await registerQuitListener();
     ready = true;
-    // Persist on the way out so nothing is lost if the process is killed.
-    window.addEventListener("beforeunload", () => void flushSave());
+    // Best-effort ONLY - `beforeunload` cannot reliably await async work
+    // before the webview tears down, so this is not the real persistence
+    // barrier. The real guarantee is the quit-requested handshake (see
+    // registerQuitListener): Rust asks the frontend to flush and waits for
+    // it to explicitly call quit_app, rather than assuming any save here
+    // landed.
+    window.addEventListener("beforeunload", () => {
+      void flushSave().catch(() => {
+        /* best-effort; the quit handshake is the real barrier */
+      });
+    });
   });
 
   onDestroy(() => {

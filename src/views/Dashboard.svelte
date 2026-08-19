@@ -113,15 +113,19 @@
       });
       unlistenClose = await win.onCloseRequested(() => {
         // Rust hides the window (keeping the webview warm); we just make sure the
-        // queued debounce lands now rather than up to 250ms later.
-        void flushSave();
+        // queued debounce lands now rather than up to 250ms later. Best-effort:
+        // the dashboard is display-only and not the effect owner, so it is
+        // never the quit-handshake's flush path (see Popover.svelte).
+        void flushSave().catch(() => {});
         void invoke("dashboard_closed").catch(() => {});
       });
     } catch {
       /* not in Tauri (browser dev) - live events still cover it */
     }
 
-    window.addEventListener("beforeunload", () => void flushSave());
+    // Best-effort ONLY - see Popover.svelte's beforeunload for why this is
+    // not a real persistence barrier.
+    window.addEventListener("beforeunload", () => void flushSave().catch(() => {}));
   });
 
   onDestroy(() => {

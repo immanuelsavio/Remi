@@ -25,7 +25,7 @@ mod state_io;
 mod tray;
 mod windows;
 
-use tray::TrayHandle;
+use tray::{QuitReadiness, TrayHandle};
 use windows::{
     register_autohide, register_dashboard_hide_on_close, show_popover, PopoverGuard, TrayAnchor,
 };
@@ -41,6 +41,7 @@ fn main() {
         .manage(TrayHandle::default())
         .manage(TrayAnchor::default())
         .manage(PopoverGuard::default())
+        .manage(QuitReadiness::default())
         .invoke_handler(tauri::generate_handler![
             commands::load_app_state,
             commands::save_app_state,
@@ -57,6 +58,7 @@ fn main() {
             commands::dashboard_closed,
             commands::quit_app,
             commands::reset_and_uninstall_app,
+            commands::quit_listener_ready,
         ])
         .setup(|app| {
             // macOS: run as an Accessory (menu-bar) app - no Dock icon, no

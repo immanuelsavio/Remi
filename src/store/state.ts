@@ -276,6 +276,15 @@ export function sessionTx(
 ): void {
   const now = Date.now();
   commit((s) => {
+    // Capture whether a session was GENUINELY running before this
+    // transaction - `activeMainId` alone is not proof: during a break (or
+    // recovery, or awaiting-start) `activeMainId` is deliberately kept so
+    // the break can resume the same work, while `startedAt` is 0 because
+    // nothing is actually accruing. No `mutate` callback ever sets
+    // `startedAt` itself (that's `sessionTx`'s job alone), so if it was 0
+    // going in, the timer was paused for a reason outside this
+    // transaction and must stay paused.
+    const wasRunning = s.startedAt > 0;
     bankActive(s, now);
     const next = mutate(s, now) ?? null;
     repairActiveRefs(s);
@@ -284,14 +293,19 @@ export function sessionTx(
     } else if (!s.activeMainId) {
       s.startedAt = 0;
       if (s.phase === "active") s.phase = "today";
-    } else {
-      // The active task/step SURVIVED this transaction unreplaced (e.g.
-      // completing a different task while this one keeps running).
-      // `bankActive` above already folded [startedAt, now) into `accrued`;
-      // re-stamp `startedAt` to `now` so that interval is never banked a
-      // second time by the next sessionTx.
+    } else if (wasRunning) {
+      // A running session survived this transaction, possibly RETARGETED
+      // (e.g. an active step was deleted and the session fell back to its
+      // parent task) but still genuinely ticking. `bankActive` above
+      // already folded [startedAt, now) into whatever it was targeting at
+      // that moment; re-stamp `startedAt` to `now` so that interval is
+      // never banked a second time by the next sessionTx, regardless of
+      // whether the target changed.
       s.startedAt = now;
     }
+    // Otherwise: activeMainId survived but was NOT a running session
+    // (break/paused) - leave startedAt exactly as it was (0), never
+    // invent a start time for a timer that wasn't ticking.
   });
 }
 
