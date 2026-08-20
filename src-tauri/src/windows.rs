@@ -10,17 +10,28 @@ use crate::paths::{DASHBOARD_LABEL, POPOVER_LABEL};
 /// Let a window draw over ANOTHER app's fullscreen Space, not just switch
 /// between ordinary desktop Spaces.
 ///
-/// `WebviewWindow::set_visible_on_all_workspaces` (Tauri's public API) only
-/// sets `NSWindowCollectionBehavior.canJoinAllSpaces` - that moves a window
-/// along when you switch Spaces, but a window still can't render ABOVE a
-/// Space that's in fullscreen without `.fullScreenAuxiliary` too. That flag
-/// has no Tauri-level accessor, so this reaches for the raw `NSWindow` via
-/// `ns_window()` and sets both bits directly. Best-effort: if the window
-/// doesn't exist yet or the pointer cast fails, this silently no-ops rather
-/// than panicking the whole app over a cosmetic behavior.
+/// Two things are required together, not just one:
+///
+/// 1. `NSWindowCollectionBehavior.canJoinAllSpaces | .fullScreenAuxiliary` -
+///    `WebviewWindow::set_visible_on_all_workspaces` (Tauri's public API)
+///    only sets `canJoinAllSpaces`, which moves a window along when you
+///    switch Spaces but does NOT let it render above a Space that's
+///    actually in fullscreen. `.fullScreenAuxiliary` has no Tauri-level
+///    accessor.
+/// 2. A high enough window LEVEL. Tauri's `alwaysOnTop` only reaches
+///    `NSFloatingWindowLevel` (3) - real fullscreen Spaces composite above
+///    that. `NSStatusWindowLevel` (25, the same level real menu-bar status
+///    items render at) is what actually clears a fullscreen Space's layer;
+///    without this the collection-behavior flags alone are not sufficient,
+///    which is why the first attempt at this (behavior only, no level
+///    change) still didn't show over fullscreen apps.
+///
+/// Both are set via the raw `NSWindow` from `ns_window()`. Best-effort: if
+/// the window doesn't exist yet or the pointer cast fails, this silently
+/// no-ops rather than panicking the whole app over a cosmetic behavior.
 #[cfg(target_os = "macos")]
 fn apply_overlay_collection_behavior(win: &tauri::WebviewWindow) {
-    use objc2_app_kit::NSWindowCollectionBehavior;
+    use objc2_app_kit::{NSStatusWindowLevel, NSWindowCollectionBehavior};
 
     let Ok(ptr) = win.ns_window() else { return };
     if ptr.is_null() {
@@ -36,10 +47,30 @@ fn apply_overlay_collection_behavior(win: &tauri::WebviewWindow) {
         | NSWindowCollectionBehavior::CanJoinAllSpaces
         | NSWindowCollectionBehavior::FullScreenAuxiliary;
     ns_window.setCollectionBehavior(behavior);
+    ns_window.setLevel(NSStatusWindowLevel);
+    if std::env::var_os("REMI_DEBUG_WINDOW").is_some() {
+        eprintln!(
+            "[remi] overlay applied: behavior={:?} level={}",
+            ns_window.collectionBehavior(),
+            ns_window.level()
+        );
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
 fn apply_overlay_collection_behavior(_win: &tauri::WebviewWindow) {}
+
+/// Apply the overlay treatment to the popover once at startup.
+///
+/// `show_popover` re-applies this on every show (cheap, and macOS can reset
+/// a window's level when the app's activation state changes), but doing it
+/// once at boot means the very first tray click already has the right
+/// behavior rather than depending on ordering inside that call.
+pub fn prepare_popover_overlay(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(POPOVER_LABEL) {
+        apply_overlay_collection_behavior(&win);
+    }
+}
 
 /// The tray icon's rectangle in physical px, captured from tray events.
 #[derive(Default)]
@@ -107,9 +138,11 @@ pub fn toggle_popover(app: &AppHandle) {
 /// Anchor the popover under the tray icon, then show + focus it.
 ///
 /// Positioning happens BEFORE `show()` so the window never flashes at its
-/// old location. We re-assert `always_on_top` on every show because a
-/// menu-bar (Accessory) app's window can otherwise open BEHIND the
-/// frontmost app.
+/// old location. The overlay treatment (status level + all-Spaces /
+/// fullscreen-auxiliary collection behavior) is re-applied on every show
+/// because a menu-bar (Accessory) app's window can otherwise open BEHIND
+/// the frontmost app, and macOS can reset a window's level as activation
+/// state changes.
 pub fn show_popover(app: &AppHandle) {
     let Some(win) = app.get_webview_window(POPOVER_LABEL) else {
         return;
@@ -145,7 +178,14 @@ pub fn show_popover(app: &AppHandle) {
     x = x.min(mon_x + mon_w - win_w - 4.0).max(mon_x + 4.0);
     let _ = win.set_position(PhysicalPosition::new(x, y));
 
-    let _ = win.set_always_on_top(true);
+    // Deliberately NOT `set_always_on_top(true)` here. tao implements that as
+    // `set_level_async(NSFloatingWindowLevel)` - it QUEUES the level change
+    // onto the main queue, so it lands AFTER the synchronous level we set
+    // just below and silently clobbers it back down to floating (3). Floating
+    // is not high enough to draw over a fullscreen Space, which is exactly the
+    // bug this whole function exists to fix. The status level applied by
+    // `apply_overlay_collection_behavior` is already strictly above floating,
+    // so it subsumes "always on top" anyway.
     apply_overlay_collection_behavior(&win);
     let _ = win.show();
     let _ = win.set_focus();
