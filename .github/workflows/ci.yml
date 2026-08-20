@@ -38,3 +38,20 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+
+  # The installer and uninstaller are the parts that download code and
+  # delete files, so their tests run on every PR - not only in the release
+  # pipeline, where a failure is discovered far too late. macOS runner
+  # because both scripts are macOS-specific (xattr, .app bundles, osascript).
+  scripts:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: |
+          brew install shellcheck
+          shellcheck install.sh uninstall.sh scripts/check-versions.sh tests/scripts/*.sh
+      - run: bash -n install.sh && bash -n uninstall.sh
+      - run: bash scripts/check-versions.sh
+      - run: bash tests/scripts/test-install.sh
+      - run: bash tests/scripts/test-uninstall.sh

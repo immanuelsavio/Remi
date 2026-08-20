@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in Remi behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this.
+
+        **Please do not paste your `state.json`** — it contains your task
+        titles and notes. Describe the shape of the problem instead, or
+        strip it first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+      placeholder: I expected the popover to stay open, but it closed as soon as I clicked a step.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: |
+        In order, as precisely as you can. If this involves timing or lost
+        time, please say roughly *when* each step happened — that class of
+        bug is almost always about ordering.
+      placeholder: |
+        1. Start a task
+        2. Close the laptop lid for ~10 minutes
+        3. Reopen, click the menu-bar mark
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      options:
+        - Menu-bar popover
+        - Dashboard
+        - Timing / elapsed time
+        - Day rollover ("wrap up the day")
+        - Notifications or reminders
+        - Install / uninstall script
+        - Data, backup or restore
+        - Something else / not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Remi version
+      description: From the release you installed, e.g. v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: macOS version and chip
+      placeholder: macOS 15.2, Apple Silicon
+    validations:
+      required: true
+  - type: checkboxes
+    id: data-loss
+    attributes:
+      label: Did this lose or misattribute time?
+      description: These get looked at first.
+      options:
+        - label: Time went missing, was double-counted, or landed on the wrong task
+        - label: Tasks disappeared or were duplicated after a day rolled over
