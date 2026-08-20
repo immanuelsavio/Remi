@@ -205,7 +205,10 @@ export function hydrate(raw: unknown): State {
       }))
       .slice(-50),
   };
-  s.loggingOptIn = s.loggingOptIn === true; // opt-in: absent means NO
+  // Absent means ON (a fresh install during the beta); an explicit `false`
+  // is always honoured, so nobody who turned it off gets silently re-opted-in.
+  s.loggingOptIn = s.loggingOptIn !== false;
+  s.feedback = typeof s.feedback === "string" ? s.feedback.slice(0, 4000) : "";
 
   s.pto = arr<unknown>(s.pto).filter((x): x is string => typeof x === "string");
   s.revived = arr<unknown>(s.revived).filter((x): x is string => typeof x === "string");
@@ -244,7 +247,7 @@ export function hydrate(raw: unknown): State {
   s.trainerOn = s.trainerOn === true;
   s.avoidanceOn = s.avoidanceOn !== false;
   s.mode = s.mode === "dark" ? "dark" : "light";
-  s.accent = ACCENTS.some(([k]) => k === s.accent) ? s.accent : "amber";
+  s.accent = ACCENTS.some(([k]) => k === s.accent) ? s.accent : "remi";
   s.activeMainId = typeof s.activeMainId === "string" ? s.activeMainId : null;
   s.activeSubId = typeof s.activeSubId === "string" ? s.activeSubId : null;
 
@@ -269,6 +272,10 @@ export function hydrate(raw: unknown): State {
   const rawAwaiting = (raw as Record<string, unknown>).awaitingStart;
   s.awaitingStart =
     typeof rawAwaiting === "boolean" ? rawAwaiting : s.mains.length === 0 && s.phase === "startday";
+
+  // Absent means "not decided": a file written before this field existed
+  // came from a build that never asked, so asking once is the safe default.
+  s.carryDecided = (raw as Record<string, unknown>).carryDecided === true;
 
   // Transient fields always start clean.
   s.overlay = null;

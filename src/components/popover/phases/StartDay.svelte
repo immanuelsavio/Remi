@@ -1,82 +1,126 @@
 <script lang="ts">
+  /**
+   * The Start-my-day screen: the first thing you see each morning.
+   *
+   * When work carried over WITHOUT anyone being asked — an unattended
+   * rollover past midnight, or a plain "wrap up the day" — this is the
+   * moment to ask, because it is the first moment someone is actually
+   * present. Each carried task can come into today, go to the backlog, or
+   * be dropped.
+   *
+   * If the choice was already made at End Day (`carryDecided`), it is not
+   * asked again.
+   */
   import { app, openDashboard, startDay } from "../../../store";
+  import type { SeedChoice } from "../../../store";
+  import { fmtEst } from "../../../view";
   import type { computeStreaks } from "../../../view";
+  import RemiMark from "../../shared/RemiMark.svelte";
+  import CarryDecisions from "../../shared/CarryDecisions.svelte";
 
   export let streaks: ReturnType<typeof computeStreaks>;
 
+  let deciding = false;
+  /** Keyed by index, because a carried task is a snapshot with no id. */
+  let choices: Record<string, SeedChoice> = {};
+
   $: s = $app;
+  $: carried = s.carrySeed ?? [];
+  $: canDecide = carried.length > 0 && !s.carryDecided;
+  $: keeping = carried.filter((_, i) => (choices[String(i)] ?? "keep") === "keep").length;
+
+  function begin() {
+    startDay(deciding ? carried.map((_, i) => choices[String(i)] ?? "keep") : []);
+    openDashboard("plan");
+  }
 </script>
 
-<div class="center pad">
-  <span class="remi-mark big" aria-hidden="true"></span>
-  <div class="eyebrow">Day {s.dayNum}</div>
-  <h1>{s.dayNum > 1 ? "New day." : "Good morning."}</h1>
-  <p class="muted">
-    {#if s.carrySeed.length}
-      {s.carrySeed.length} task{s.carrySeed.length > 1 ? "s" : ""} carried over, ready to go.
-      {#if s.standardDaily.length}<br />Plus your {s.standardDaily.length} daily routine{s
-          .standardDaily.length > 1
-          ? "s"
-          : ""}.{/if}
-    {:else if s.standardDaily.length}
-      Your {s.standardDaily.length} daily routine{s.standardDaily.length > 1 ? "s" : ""} will be added
-      automatically.
-    {:else}
-      Let's line up today.<br />Add your tasks, then work them here.
-    {/if}
-  </p>
-  {#if streaks.current > 1}
-    <p class="muted small">🔥 {streaks.current}-day streak</p>
-  {/if}
-  <button
-    class="btn accent big"
-    on:click={() => {
-      // Seed the day, then open Plan: typing a whole day's tasks belongs in
-      // the 900px window, not a 380px popover.
-      startDay();
-      openDashboard("plan");
-    }}
-  >
-    <span class="ico" aria-hidden="true">▸</span> Start my day
-  </button>
+<div class="popover">
+  <div class="pop-body">
+    <div class="startday">
+      <RemiMark size={54} />
+      <div class="eyebrow">Day {s.dayNum}</div>
+      <h1 class="big">{s.dayNum > 1 ? "New day." : "Good morning."}</h1>
+
+      {#if deciding}
+        <div class="lede">
+          {carried.length} task{carried.length > 1 ? "s" : ""} came over from yesterday. What happens
+          to each?
+        </div>
+      {:else}
+        <div class="lede">
+          {#if carried.length}
+            {carried.length} task{carried.length > 1 ? "s" : ""} carried over from yesterday, ready to
+            go.
+            {#if s.standardDaily.length}<br />Plus your {s.standardDaily.length} daily routine{s
+                .standardDaily.length > 1
+                ? "s"
+                : ""}.{/if}
+          {:else if s.standardDaily.length}
+            Your {s.standardDaily.length} daily routine{s.standardDaily.length > 1 ? "s" : ""} will be
+            added automatically.
+          {:else}
+            Let's line up today.<br />Plan your tasks in the dashboard, then work them here.
+          {/if}
+        </div>
+        {#if streaks.current > 1}
+          <div class="lede">🔥 {streaks.current}-day streak</div>
+        {/if}
+      {/if}
+
+      {#if deciding}
+        <div class="carrywrap">
+          <CarryDecisions
+            bind:choices
+            items={carried.map((c, i) => ({
+              key: String(i),
+              title: c.title,
+              detail: [
+                c.carries >= 1 ? `moved ${c.carries}×` : "",
+                c.subs.length ? `${c.subs.length} steps` : "",
+                c.estMs ? `est ${fmtEst(c.estMs)}` : "",
+              ]
+                .filter(Boolean)
+                .join(" · "),
+              warn: s.avoidanceOn && c.carries >= 3,
+            }))}
+            options={[
+              { value: "keep", label: "Today", tone: "accent" },
+              { value: "backlog", label: "Backlog" },
+              { value: "drop", label: "Drop" },
+            ]}
+          />
+        </div>
+      {/if}
+
+      <button class="btn accent big" on:click={begin}>
+        <span class="ico" aria-hidden="true">▸</span>
+        {deciding ? `Start with ${keeping}` : "Start my day"}
+      </button>
+      {#if canDecide && !deciding}
+        <button
+          class="btn"
+          style="margin-top:9px; max-width:220px; width:100%;"
+          on:click={() => (deciding = true)}
+        >
+          Decide per task…
+        </button>
+      {/if}
+    </div>
+  </div>
 </div>
 
 <style>
-  .center {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 9px;
-    height: 100%;
-    text-align: center;
-    margin: auto;
+  .startday :global(.remi-logo) {
+    margin: 0 auto 14px;
   }
-  .pad {
-    padding: 10px 14px;
-  }
-  .eyebrow {
-    font-family: var(--font-num);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    font-weight: 500;
-    color: var(--accent-ink);
-  }
-  .muted {
-    color: var(--ink-soft);
-  }
-  .small {
-    font-size: 12px;
-  }
-  h1 {
-    font-size: 26px;
-    margin: 2px 0;
-    letter-spacing: -0.02em;
-  }
-  .remi-mark.big {
-    --mark-size: 44px;
-    border-width: 5px;
-    margin: 0 auto 4px;
+  /* The decision list is left-aligned inside an otherwise centred screen,
+     and scrolls on its own so a long carry list cannot push the button off. */
+  .carrywrap {
+    width: 100%;
+    text-align: left;
+    margin-top: 16px;
+    max-height: 240px;
+    overflow-y: auto;
   }
 </style>

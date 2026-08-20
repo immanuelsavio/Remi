@@ -1,53 +1,52 @@
 <script lang="ts">
-  /** Honest recovery screen. Rust preserved the files and changed nothing;
-      showing a blank day here would read as "all my work vanished". */
+  /**
+   * Honest recovery screen. Rust preserved the damaged files and changed
+   * nothing; showing a blank day here would read as "all my work vanished".
+   */
   import { damagedPaths, loadMessage, openDashboard, setPhase } from "../../../store";
+  import RemiMark from "../../shared/RemiMark.svelte";
 </script>
 
-<div class="pad scroll">
-  <h1>Couldn't read your data</h1>
-  <p class="muted small">{$loadMessage}</p>
-  <p class="muted small">
-    Nothing was deleted or overwritten. Copies of the affected files are in your recovery folder.
-  </p>
-  {#each $damagedPaths as p (p)}
-    <div class="path">{p}</div>
-  {/each}
-  <div class="row">
-    <button class="btn accent" on:click={() => setPhase("today")}>Start today fresh</button>
-    <button class="btn" on:click={() => openDashboard("settings")}>Open settings</button>
+<div class="popover">
+  <div class="pop-body">
+    <div class="startday" style="justify-content:flex-start; padding-top:26px;">
+      <RemiMark size={44} />
+      <div class="eyebrow">Recovery</div>
+      <h1 class="big">Couldn't read your data</h1>
+      <div class="lede">{$loadMessage}</div>
+      <div class="lede">
+        Nothing was deleted or overwritten. Copies of the affected files are in your recovery
+        folder.
+      </div>
+      {#each $damagedPaths as p (p)}
+        <div class="path">{p}</div>
+      {/each}
+      <button class="btn accent big" on:click={() => setPhase("today")}>Start today fresh</button>
+      <button
+        class="btn"
+        style="margin-top:9px; max-width:220px; width:100%;"
+        on:click={() => openDashboard("data")}
+      >
+        Open the Data tab
+      </button>
+    </div>
   </div>
 </div>
 
 <style>
-  .pad {
-    padding: 10px 14px;
-  }
-  .scroll {
-    flex: 1;
-    overflow-y: auto;
-  }
-  .row {
-    display: flex;
-    gap: 8px;
-    margin-top: 10px;
-  }
-  h1 {
-    font-size: 25px;
-    margin: 2px 0;
-    letter-spacing: -0.02em;
-  }
-  .muted {
-    color: var(--ink-soft);
-  }
-  .small {
-    font-size: 12px;
-  }
   .path {
     font-family: var(--font-num);
     font-size: 11px;
-    color: var(--ink-soft);
+    color: var(--ink-faint);
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 9px;
+    margin-top: 6px;
+    max-width: 100%;
     overflow-wrap: anywhere;
-    margin: 4px 0;
+  }
+  .startday :global(.remi-logo) {
+    margin: 0 auto 12px;
   }
 </style>

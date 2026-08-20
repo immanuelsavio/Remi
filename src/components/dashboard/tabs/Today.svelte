@@ -1,19 +1,32 @@
 <script lang="ts">
+  /**
+   * TODAY at desk scale - the popover's working view in the wider window, so
+   * a day PLANNED here can also be WORKED here.
+   *
+   * It calls the very same store actions the popover screens call, which is
+   * what stops the two views drifting apart.
+   */
   import {
+    addMain,
+    addSub,
     app,
     completeMain,
     extendBreak,
+    promoteSub,
     resumeFromBreak,
     reviveMain,
+    openSwitch,
+    setOverlay,
     startBreak,
-    startSub,
     startTask,
     switchToMain,
-    toggleShowSubs,
     toggleSubDone,
+    track,
   } from "../../../store";
   import { fmt, fmtEst, mainTotal, nowMs } from "../../../view";
   import type { Main, Sub } from "../../../view";
+  import RemindControl from "../../shared/RemindControl.svelte";
+  import ConfirmSubSheet from "../../shared/ConfirmSubSheet.svelte";
 
   export let active: Main | null;
   export let activeSub: Sub | null;
@@ -21,205 +34,234 @@
   export let live: number;
   export let breakLeft: number;
 
+  let expandedId: string | null = null;
+  let adding = false;
+  let taskDraft = "";
+  let stepDrafts: Record<string, string> = {};
+  let pendingRemove: { mainId: string; subId: string } | null = null;
+
   $: s = $app;
+  $: running = s.phase === "active" && !!thing;
+  $: onBreak = s.phase === "break";
+  $: openCount = s.mains.filter((m) => !m.done).length;
+  $: doneCount = s.mains.filter((m) => m.done).length;
+
+  function commitTask() {
+    if (taskDraft.trim()) addMain(taskDraft);
+    taskDraft = "";
+    adding = false;
+  }
+
+  function commitStep(mainId: string) {
+    const v = (stepDrafts[mainId] ?? "").trim();
+    if (!v) return;
+    addSub(mainId, v);
+    stepDrafts[mainId] = "";
+  }
 </script>
 
-<div class="wrap">
-  <h1>Today</h1>
-  <p class="muted">
-    The popover's working view at desk scale, so a day planned here can also be worked here.
-  </p>
+<div class="dsec-title">Today</div>
+<div class="dsec-sub">
+  Day {s.dayNum} · {openCount} open{#if doneCount}
+    · {doneCount} done{/if}
+</div>
 
-  {#if s.phase === "break"}
-    <div class="hero brk">
-      <div class="eyebrow">On a break</div>
-      <div class="timer">{fmt(breakLeft)}</div>
-      {#if s.breakPausedTitle}
-        <div class="muted small">Paused: {s.breakPausedTitle}</div>
-      {/if}
-      <div class="row">
-        <button class="btn accent" on:click={resumeFromBreak}>I'm back</button>
-        <button class="btn" on:click={() => extendBreak(5)}>+5 min</button>
-      </div>
+{#if onBreak}
+  <div class="givenback">
+    <div class="eyebrow">On a break</div>
+    <div class="gb-t">{breakLeft > 0 ? `${fmt(breakLeft)} left` : "Break's up"}</div>
+    <div class="gb-l">
+      {#if s.breakPausedTitle}Paused: {s.breakPausedTitle}.
+      {/if}Step away properly — I'll still be here.
     </div>
-  {:else if thing && active}
-    <div class="hero">
-      <div class="eyebrow">{activeSub ? "Working on a step" : "Working on"}</div>
-      <div class="hero-title">{thing.title}</div>
-      {#if activeSub}<div class="muted small">in {active.title}</div>{/if}
-      <div class="timer">{fmt((thing.accrued ?? 0) + live)}</div>
-      <div class="row">
-        <button class="btn primary" on:click={() => completeMain(active.id)}>
-          <span class="ico" aria-hidden="true">✓</span> Done
-        </button>
-        <button class="btn" on:click={() => startBreak(10)}>Break</button>
-      </div>
+    <div class="gb-acts">
+      <button class="bk-btn" on:click={resumeFromBreak}>▸ Back to work</button>
+      <button class="bk-btn ghost" on:click={() => extendBreak(5)}>+5 more minutes</button>
     </div>
-  {:else}
-    <div class="callout">
-      <div class="grow">
-        <b>Nothing running.</b>
-        <div class="muted small">Start something below to begin tracking.</div>
-      </div>
+  </div>
+{:else if running && thing && active}
+  <div class="givenback">
+    <div class="eyebrow">{activeSub ? `${active.title} › step` : "On now"}</div>
+    <div class="gb-t">{thing.title}</div>
+    <div class="gb-l">
+      {fmt((thing.accrued ?? 0) + live)} on the clock{#if activeSub}
+        · {fmt(mainTotal(active, s, $nowMs))} on “{active.title}” overall{/if}{#if active.estMs}
+        · est {fmtEst(active.estMs)}{/if}
     </div>
-  {/if}
-
-  <h2>Open</h2>
-  {#each s.mains.filter((m) => !m.done) as m (m.id)}
-    <div class="line">
-      <div class="grow">
-        <div>{m.title}</div>
-        <div class="muted small">{fmtEst(mainTotal(m, s, $nowMs))}</div>
-      </div>
-      {#if m.subs.length}
-        <button class="mini" on:click={() => toggleShowSubs(m.id)}>
-          {m._showSubs ? "▾" : "⋔"}
-        </button>
-      {/if}
+    <div class="gb-acts">
+      <button class="bk-btn" on:click={() => completeMain(active.id)}>✓ Done</button>
       <button
-        class="start-pill"
-        class:outline={s.activeMainId === m.id}
-        disabled={s.activeMainId === m.id}
-        on:click={() => (s.activeMainId ? switchToMain(m.id, true) : startTask(m.id))}
+        class="bk-btn ghost"
+        on:click={() => {
+          track("interrupt");
+          openSwitch("interrupt");
+        }}>Something came up</button
       >
-        {s.activeMainId === m.id ? "Running" : s.activeMainId ? "Switch to" : "Start"}
-        {#if s.activeMainId !== m.id}<span class="ico" aria-hidden="true">▸</span>{/if}
-      </button>
-      <button class="mini" title="Mark done" on:click={() => completeMain(m.id)}>✓</button>
+      <button class="bk-btn ghost" on:click={() => startBreak(15)}>☕ Take a break</button>
     </div>
-    {#if m._showSubs}
-      <div class="steps indent">
-        {#each m.subs as sub (sub.id)}
-          <div class="step">
-            <input
-              type="checkbox"
-              checked={sub.done}
-              aria-label={sub.title}
-              on:change={() => toggleSubDone(m.id, sub.id)}
-            />
-            <span class="grow" class:strike={sub.done}>{sub.title}</span>
-            {#if !sub.done}
-              <button class="mini" on:click={() => startSub(m.id, sub.id)}>▸</button>
+  </div>
+{/if}
+
+<div class="todaywrap" style="padding-left:0; padding-right:0;">
+  {#each s.mains as m (m.id)}
+    {@const open = expandedId === m.id}
+    {@const isOn = m.id === s.activeMainId && running}
+    {@const avoiding = s.avoidanceOn && m.carries >= 1}
+    {@const warn = s.avoidanceOn && m.carries >= 3}
+    <div class="today-card" class:done={m.done} class:avoiding={warn}>
+      <div class="today-row">
+        <div class="tinfo">
+          <div class="tt">
+            {m.title}
+            {#if m.remind}
+              <RemindControl
+                remind={m.remind}
+                now={$nowMs}
+                target={{ kind: "main", id: m.id, title: m.title }}
+              />
+            {/if}
+            {#if m.estMs}<span class="est-badge">⏱ {fmtEst(m.estMs)}</span>{/if}
+            {#if avoiding}
+              <span
+                class="carry-badge"
+                class:warn
+                title="Moved {m.carries} time{m.carries > 1 ? 's' : ''}">↻ {m.carries}×</span
+              >
             {/if}
           </div>
-        {/each}
-      </div>
-    {/if}
-  {/each}
-  {#if !s.mains.some((m) => !m.done)}
-    <p class="muted small">Nothing open. Plan some tasks, or end the day.</p>
-  {/if}
+          {#if warn}
+            <div class="avoid-note">
+              You've moved this {m.carries} days running — are you avoiding it? Try just the first small
+              step.
+            </div>
+          {:else if m.subs.length}
+            <div class="subcount">
+              {m.subs.filter((x) => x.done).length}/{m.subs.length} steps · {fmtEst(
+                mainTotal(m, s, $nowMs),
+              )}
+            </div>
+          {:else}
+            <div class="subcount">{fmtEst(mainTotal(m, s, $nowMs))}</div>
+          {/if}
+        </div>
 
-  {#if s.mains.some((m) => m.done)}
-    <h2>Done today</h2>
-    {#each s.mains.filter((m) => m.done) as m (m.id)}
-      <div class="line">
-        <span class="grow strike">{m.title}</span>
-        <span class="muted small">{fmtEst(mainTotal(m, s, $nowMs))}</span>
-        <button class="mini" title="Not actually done" on:click={() => reviveMain(m.id)}>
-          ↺
-        </button>
+        {#if m.done}
+          <button class="revive" title="Not actually done" on:click={() => reviveMain(m.id)}
+            >↺</button
+          >
+        {:else}
+          {#if !m.remind}
+            <RemindControl
+              remind={null}
+              now={$nowMs}
+              target={{ kind: "main", id: m.id, title: m.title }}
+            />
+          {/if}
+          <button
+            class="tdexp"
+            title="Steps"
+            aria-label="Steps"
+            aria-expanded={open}
+            on:click={() => (expandedId = open ? null : m.id)}>{open ? "▾" : "⋔"}</button
+          >
+          {#if isOn}
+            <span class="est-badge" title="This is on the clock">▸ on now</span>
+          {:else}
+            <button
+              class="startbtn"
+              on:click={() => (s.activeMainId ? switchToMain(m.id, true) : startTask(m.id))}
+            >
+              {s.activeMainId ? "Switch" : "Start"} ▸
+            </button>
+          {/if}
+        {/if}
       </div>
-    {/each}
+
+      {#if open}
+        <div class="td-subs">
+          {#each m.subs as sub (sub.id)}
+            <div class="subrow" class:done={sub.done} class:active={sub.id === s.activeSubId}>
+              <span class="st">
+                <button
+                  class="check"
+                  aria-label={sub.done ? "Undo" : "Mark done"}
+                  on:click={() => toggleSubDone(m.id, sub.id)}>✓</button
+                >
+                <span class="txt">{sub.title}</span>
+              </span>
+              <span class="rgt">
+                {#if !sub.done}
+                  <RemindControl
+                    remind={sub.remind}
+                    now={$nowMs}
+                    target={{ kind: "sub", mainId: m.id, id: sub.id, title: sub.title }}
+                  />
+                  <button
+                    class="mini promo"
+                    title="Make its own task"
+                    aria-label="Make “{sub.title}” its own task"
+                    on:click={() => promoteSub(m.id, sub.id)}>⤴</button
+                  >
+                {/if}
+                <button
+                  class="xsub"
+                  title="Remove or complete"
+                  aria-label="Remove or complete"
+                  on:click={() => (pendingRemove = { mainId: m.id, subId: sub.id })}>✕</button
+                >
+              </span>
+            </div>
+          {/each}
+          <div class="addsub-inline">
+            <input
+              placeholder="＋ add a step…"
+              autocomplete="off"
+              bind:value={stepDrafts[m.id]}
+              on:keydown={(e) => e.key === "Enter" && commitStep(m.id)}
+            />
+          </div>
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <div class="empty">
+      <p class="empty-t">Nothing lined up yet</p>
+      <p class="empty-sub">Add a task below, or build the day out in Plan.</p>
+    </div>
+  {/each}
+
+  {#if adding}
+    <div class="addsub-inline" style="margin:10px 0 0;">
+      <!-- svelte-ignore a11y-autofocus -->
+      <input
+        autofocus
+        placeholder="a task…"
+        autocomplete="off"
+        bind:value={taskDraft}
+        on:keydown={(e) => {
+          if (e.key === "Enter") commitTask();
+          if (e.key === "Escape") {
+            taskDraft = "";
+            adding = false;
+          }
+        }}
+        on:blur={commitTask}
+      />
+    </div>
+  {:else}
+    <button
+      class="addmain-link"
+      style="width:auto; margin:10px 0 0;"
+      on:click={() => (adding = true)}
+    >
+      ＋ Add task
+    </button>
   {/if}
 </div>
 
-<style>
-  .wrap {
-    padding: 20px 26px 48px;
-    max-width: 1040px;
-  }
-  h1 {
-    font-size: 26px;
-    letter-spacing: -0.02em;
-    margin: 0 0 4px;
-  }
-  h2 {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--ink-soft);
-    margin: 26px 0 8px;
-  }
-  .muted {
-    color: var(--ink-soft);
-  }
-  .small {
-    font-size: 12px;
-  }
-  .strike {
-    text-decoration: line-through;
-    opacity: 0.6;
-  }
-  .grow {
-    flex: 1;
-    min-width: 0;
-  }
-  .row {
-    display: flex;
-    align-items: flex-end;
-    gap: 9px;
-    margin-top: 9px;
-    flex-wrap: wrap;
-  }
-  .indent {
-    padding-left: 16px;
-  }
-  .hero {
-    padding: 16px;
-    border-radius: var(--r-lg);
-    background: var(--hero-bg);
-    border: 1px solid var(--hero-line);
-    margin: 14px 0;
-  }
-  .hero.brk {
-    background: var(--break-bg);
-    color: var(--break-ink);
-  }
-  .hero-title {
-    font-size: 21px;
-    font-weight: 620;
-    letter-spacing: -0.01em;
-  }
-  .eyebrow {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    color: var(--ink-soft);
-  }
-  .timer {
-    font-family: var(--font-num);
-    font-size: 34px;
-    font-variant-numeric: tabular-nums;
-    margin: 5px 0;
-  }
-  .steps {
-    margin: 9px 0 0 5px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .step {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-  }
-  .line {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    padding: 11px 2px;
-    border-bottom: 1px solid var(--line);
-  }
-  .callout {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 13px;
-    border-radius: var(--r-md);
-    background: var(--hero-bg);
-    border: 1px solid var(--hero-line);
-    margin: 12px 0;
-  }
-</style>
+<div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
+  <button class="bk-btn ghost" on:click={() => setOverlay("backlog")}>▤ Backlog</button>
+  <button class="bk-btn ghost" on:click={() => setOverlay("endday")}>Wrap up the day ›</button>
+</div>
+
+<ConfirmSubSheet bind:pending={pendingRemove} />

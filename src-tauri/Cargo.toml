@@ -32,18 +32,21 @@ dirs = "6"
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
 
-# macOS-only: Tauri's `set_visible_on_all_workspaces` sets ONLY
-# NSWindowCollectionBehavior.canJoinAllSpaces, which moves a window between
-# desktop Spaces but does NOT let it draw over another app's FULLSCREEN
-# Space - that needs .fullScreenAuxiliary too, which Tauri's public API
-# does not expose. Both crates already resolve in the dependency tree
-# transitively (via tao/tauri itself), so this adds no new supply-chain
-# surface - see `windows::apply_overlay_collection_behavior`.
+# macOS-only: the popover has to draw over ANOTHER app's fullscreen Space.
+# That needs an NSPanel with NSWindowStyleMaskNonactivatingPanel (so giving
+# it key status does not ACTIVATE Remi and switch the user out of that
+# Space), plus .fullScreenAuxiliary collection behaviour and
+# NSStatusWindowLevel. Tauri exposes none of the three: its
+# `set_visible_on_all_workspaces` sets only .canJoinAllSpaces, and its
+# `alwaysOnTop` only reaches NSFloatingWindowLevel. Both crates already
+# resolve transitively via tao/tauri, so this adds no new supply-chain
+# surface - see `windows::panel`.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = [
   "std",
   "NSWindow",
+  "NSPanel",
   "NSResponder",
 ] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std"] }
@@ -52,9 +55,10 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 tempfile = "3"
 
 # Dependencies deliberately not used:
-#   tauri-nspanel   - the objc2-app-kit collection-behavior call below covers
-#                      the one thing it was for (floating over fullscreen
-#                      Spaces) without pulling in a whole panel-window crate
+#   tauri-nspanel   - it is only published as a git dependency pinned to a
+#                      branch, and all we need from it is one method
+#                      override plus four setters, which `windows::panel`
+#                      does directly with the objc2 crates already in tree
 #   tauri-plugin-positioner - manual anchoring covers this build
 #   semver, reqwest, zip - silent self-update
 #   rfd             - native "your data file is corrupt" dialog

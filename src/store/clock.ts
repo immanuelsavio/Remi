@@ -48,8 +48,20 @@ export function startClock(opts: { owner: boolean } = { owner: true }): void {
   tickTimer = setInterval(() => {
     const now = Date.now();
     nowMs.set(now); // display time: always, in both windows
-    if (!effectOwner) return;
+    // DELIBERATELY ABOVE the effect-owner gate. Rolling the day is state
+    // CORRECTNESS, not a background effect: getting it wrong files today's
+    // work under yesterday's date. The owner is the POPOVER, which is
+    // hidden almost all the time, and a hidden WKWebView has its timers
+    // throttled or suspended by macOS - so gating this behind ownership
+    // meant an app left open overnight could silently never roll, while the
+    // visible dashboard ticked away doing nothing about it.
+    //
+    // Safe to run in both windows: `rolloverIfNewDay` no-ops once
+    // `dateISO === today`, and saves are compare-and-swap, so if both
+    // windows roll at once one write is rejected and that window reloads
+    // the already-rolled state rather than rolling again.
     checkDayRollover(now);
+    if (!effectOwner) return;
     checkReminders(now);
     checkWellness(now);
     checkCheckin(now);
@@ -68,7 +80,8 @@ export function stopClock(): void {
  * Roll the day while the app is RUNNING at local midnight.
  *
  * Rollover otherwise only happens at boot, so an app left open overnight
- * would keep filing today's work under yesterday's date.
+ * would keep filing today's work under yesterday's date. Runs in BOTH
+ * windows - see the note at the call site.
  */
 function checkDayRollover(now: number): void {
   const today = todayISO(new Date(now));

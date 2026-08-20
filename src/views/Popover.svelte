@@ -29,12 +29,14 @@
     teardownSync,
   } from "../store";
   import { computeStreaks, fmtEst, nowMs, todayTrackedMs } from "../view";
+  import type { State } from "../view";
 
   import Recovery from "../components/popover/phases/Recovery.svelte";
   import Break from "../components/popover/phases/Break.svelte";
   import StartDay from "../components/popover/phases/StartDay.svelte";
   import Active from "../components/popover/phases/Active.svelte";
   import TaskList from "../components/popover/phases/TaskList.svelte";
+  import TaskMap from "../components/popover/phases/TaskMap.svelte";
 
   import Checkin from "../components/popover/overlays/Checkin.svelte";
   import Switch from "../components/popover/overlays/Switch.svelte";
@@ -46,20 +48,33 @@
   import WelcomeBack from "../components/popover/overlays/WelcomeBack.svelte";
 
   import Footer from "../components/popover/Footer.svelte";
+  import TopStrip from "../components/popover/TopStrip.svelte";
   import Toast from "../components/popover/Toast.svelte";
+  import RemindSheet from "../components/shared/RemindSheet.svelte";
 
   let ready = false;
-  /** Shared between the Active hero's "Something came up" input and the
-      Switch overlay - both bind to the same draft in the original file. */
+  /**
+   * The TASK MAP is window-local UI, not a persisted phase.
+   *
+   * The showcase models it as `phase = "map"` with a `prevPhase` to get
+   * back. Here that would write "map" into `state.json` and reopen the app
+   * on a navigation screen days later - so it is a plain boolean instead,
+   * and Back simply drops it, landing on whatever phase is actually current.
+   */
+  let showMap = false;
+  /** The phase the map was opened from - see the reactive guard below. */
+  let mapOpenedOn: State["phase"] | null = null;
+  /** Shared between the Active screen and the Switch overlay - both write
+      the same draft, as in the original single file. */
   let interruptDraft = "";
   /** Lifted from the phase/overlay components: each is destroyed and
       recreated whenever `phase`/`overlay` changes away and back (e.g.
       starting a break, or closing and reopening the backlog overlay), but in
       the original single-file component these lived at the top level and
       survived those round trips. */
-  let showInterrupt = false;
   let taskDraft = "";
   let backlogDraft = "";
+  let expandedId: string | null = null;
 
   onMount(async () => {
     initErrorCapture();
@@ -102,14 +117,30 @@
   $: tracked = todayTrackedMs(s, $nowMs);
   $: breakLeft = Math.max(0, s.breakEndsAt - $nowMs);
   $: streaks = computeStreaks(s);
-  /** Break and recovery manage their own full-height layout. */
-  $: bare = s.phase === "break" || s.phase === "recovery";
-  $: showFooter = ready && s.phase !== "startday" && !bare;
+  /** Top-strip label: the day on the list screen, the task while working. */
+  $: stripLabel =
+    s.phase === "active" && active
+      ? `${active.title}${activeSub ? " · step" : ""}`
+      : `Day ${s.dayNum}${streaks.current > 1 ? ` · 🔥 ${streaks.current}` : ""} · ${fmtEst(tracked)}`;
+  /**
+   * Close the map when the PHASE changes underneath it.
+   *
+   * Compared against the phase captured when the map opened, not against
+   * "any store update": `s` is a fresh object on every commit (each clock
+   * checkpoint included), so a bare `$: showMap = false` would slam the map
+   * shut a second after it opened.
+   */
+  $: if (showMap && s.phase !== mapOpenedOn) showMap = false;
+
+  function openMap() {
+    mapOpenedOn = s.phase;
+    showMap = true;
+  }
 </script>
 
-<div class="pop">
+<div class="popover">
   {#if !ready}
-    <div class="center muted">Loading today…</div>
+    <div class="startday"><div class="lede">Loading today…</div></div>
 
     <!-- ================= RECOVERY ================= -->
   {:else if s.phase === "recovery"}
@@ -122,35 +153,25 @@
     <!-- ================= START DAY ================= -->
   {:else if s.phase === "startday"}
     <StartDay {streaks} />
+
+    <!-- ================= TASK MAP ================= -->
+  {:else if showMap}
+    <TaskMap onBack={() => (showMap = false)} />
   {:else}
-    <!-- ================= HEADER ================= -->
-    <div class="top">
-      <span class="eyebrow">Day {s.dayNum}</span>
-      {#if streaks.current > 1}<span class="muted small">🔥 {streaks.current}</span>{/if}
-      <span class="spacer"></span>
-      <span class="muted small" title="Tracked today">{fmtEst(tracked)}</span>
-      <button class="tbtn" on:click={() => setOverlay("backlog")}>
-        <span class="ico" aria-hidden="true">▤</span> Backlog{#if s.backlog.length}
-          &nbsp;· {s.backlog.length}{/if}
-      </button>
-    </div>
-
-    <div class="body">
+    <!-- ================= WORKING SCREENS ================= -->
+    <div class="pop-body">
+      <TopStrip label={stripLabel} onMap={openMap} />
       {#if s.phase === "active" && active && thing}
-        <Active {active} {activeSub} {thing} {thingMs} bind:interruptDraft bind:showInterrupt />
+        <Active {active} {activeSub} {thing} {thingMs} />
+      {:else}
+        <TaskList bind:expandedId bind:draft={taskDraft} />
       {/if}
-
-      <TaskList {open} {done} bind:draft={taskDraft} />
     </div>
-  {/if}
-
-  <!-- ================= FOOTER ================= -->
-  {#if showFooter}
     <Footer />
   {/if}
 
   <!-- ================= OVERLAYS =================
-       Rendered INSIDE .pop so the scrim is bounded by the window. -->
+       Rendered INSIDE .popover so the scrim is bounded by the window. -->
   {#if s.overlay === "checkin" && thing}
     <Checkin {thing} {thingMs} />
   {:else if s.overlay === "switch"}
@@ -165,83 +186,13 @@
     <Backlog bind:backlogDraft />
   {/if}
 
+  <!-- The reminder picker layers above whatever else is open, since it is
+       raised FROM those screens. -->
+  <RemindSheet />
+
   <!-- Wellness + welcome-back sit outside the overlay router: they are
-       interruptions from the clock, not something the user navigated to. -->
+       interruptions from the clock, not somewhere the user navigated. -->
   <Wellness />
   <WelcomeBack />
   <Toast />
 </div>
-
-<style>
-  /* Layout only - all colour comes from the tokens in global.css. */
-  .pop {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    overflow: hidden;
-    background: var(--bg);
-    color: var(--ink);
-  }
-  .body {
-    flex: 1;
-    overflow-y: auto;
-  }
-  .center {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 9px;
-    height: 100%;
-    text-align: center;
-    margin: auto;
-  }
-  .top {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 14px;
-    flex: none;
-    border-bottom: 1px solid var(--line);
-  }
-  .spacer {
-    flex: 1;
-  }
-  .tbtn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--ink-soft);
-    font-family: var(--font-sans);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 5px 9px;
-    border-radius: 999px;
-    cursor: pointer;
-    flex: none;
-  }
-  .tbtn:hover {
-    border-color: var(--accent);
-    color: var(--ink);
-  }
-  .tbtn .ico {
-    font-size: 10px;
-  }
-  .eyebrow {
-    font-family: var(--font-num);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    font-weight: 500;
-    color: var(--accent-ink);
-  }
-  .muted {
-    color: var(--ink-soft);
-  }
-  .small {
-    font-size: 12px;
-  }
-</style>

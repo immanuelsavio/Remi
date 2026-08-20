@@ -106,6 +106,34 @@ pub async fn set_auto_update(on: bool) -> Result<(), String> {
     patch_settings("autoUpdate", serde_json::json!(on))
 }
 
+/// The running app version, so the UI can show it without a network call.
+#[tauri::command]
+pub async fn get_app_version() -> Result<String, String> {
+    Ok(crate::updater::current_version())
+}
+
+/// The version whose "what's new" notes the user has already seen.
+///
+/// Lives in `settings.json`, not `state.json`: it describes THIS
+/// installation, not the user's work, so it must not travel inside a
+/// backup and reappear on another machine as "already seen".
+///
+/// Empty means "never recorded" - which is a fresh install, not an
+/// upgrade, so nothing is shown.
+#[tauri::command]
+pub async fn get_seen_version() -> Result<String, String> {
+    Ok(read_settings()?
+        .get("seenVersion")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string())
+}
+
+#[tauri::command]
+pub async fn set_seen_version(version: String) -> Result<(), String> {
+    patch_settings("seenVersion", serde_json::json!(version))
+}
+
 /// Reveal the data folder in Finder / Explorer / the desktop file manager.
 #[tauri::command]
 pub async fn open_data_folder() -> Result<(), String> {

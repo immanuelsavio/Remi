@@ -108,10 +108,23 @@ export function initErrorCapture(): void {
   });
 }
 
-/** Export the anonymous usage log as JSON into the data folder. */
+/**
+ * Record what the user wants to tell us.
+ *
+ * Stored, not sent: it rides along in the next log export, which the user
+ * performs and hands over deliberately. Nothing here reaches the network.
+ */
+export function setFeedback(text: string): void {
+  commit((s) => void (s.feedback = String(text).slice(0, 4000)));
+}
+
+/** Export the usage log as JSON into the data folder. */
 export async function exportLogs(): Promise<void> {
-  if (!S().loggingOptIn) {
-    showToast("Turn usage logging on first");
+  const s0 = S();
+  // Feedback alone is worth exporting: someone who turned logging off can
+  // still file a complaint, and refusing would just lose the report.
+  if (!s0.loggingOptIn && !s0.feedback.trim()) {
+    showToast("Turn usage logging on, or write a note first");
     return;
   }
   try {

@@ -27,7 +27,7 @@ describe("hydrate", () => {
     });
     expect(s.dayNum).toBe(1);
     expect(s.dayTargetMins).toBeGreaterThanOrEqual(30);
-    expect(s.accent).toBe("amber");
+    expect(s.accent).toBe("remi");
     expect(s.mode).toBe("light");
     expect(s.phase).toBe("today");
     expect(s.startedAt).toBe(0);

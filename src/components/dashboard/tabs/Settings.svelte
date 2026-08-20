@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     app,
+    dashTab,
     resetAndUninstall,
     setAccent,
     setAutoUpdate,
@@ -11,11 +12,12 @@
     setStandardDaily,
     setWellnessEvery,
     setWellnessHour,
+    setOverlay,
     toggleWellness,
     wellnessCopy,
     type BoolPref,
   } from "../../../store";
-  import { ACCENTS } from "../../../view";
+  import { ACCENTS, clockLabel } from "../../../view";
   import type { WellnessKey } from "../../../view";
 
   export let autoUpdate: boolean;
@@ -56,27 +58,30 @@
   const WELLNESS_KEYS: WellnessKey[] = ["water", "stand", "walk", "lunch", "breakr"];
 </script>
 
-<div class="wrap">
-  <h1>Settings</h1>
+<div class="dsec-title">Settings</div>
+<div class="dsec-sub">Everything you can control, in one place.</div>
 
-  <div class="line">
-    <span class="grow">Appearance</span>
-    <div class="seg">
-      <button class="segbtn" class:on={s.mode === "light"} on:click={() => setMode("light")}>
-        ☀ Light
-      </button>
-      <button class="segbtn" class:on={s.mode === "dark"} on:click={() => setMode("dark")}>
-        ☾ Dark
-      </button>
+<div class="settgrp">
+  <h4>Appearance</h4>
+  <div class="settrow">
+    <div>
+      <div class="st">Mode</div>
+      <div class="sd">Light or dark.</div>
+    </div>
+    <div class="seg-inline">
+      <button class:on={s.mode === "light"} on:click={() => setMode("light")}>☀ Light</button>
+      <button class:on={s.mode === "dark"} on:click={() => setMode("dark")}>☾ Dark</button>
     </div>
   </div>
-
-  <div class="line">
-    <span class="grow">Accent</span>
-    <div class="swatches">
+  <div class="settrow">
+    <div>
+      <div class="st">Colour</div>
+      <div class="sd">Remi's own accent comes from the app icon. Pick another if you'd rather.</div>
+    </div>
+    <div class="acc-swatches">
       {#each ACCENTS as [name, hex] (name)}
         <button
-          class="sw"
+          class="acc-sw"
           class:on={s.accent === name}
           style="background:{hex}"
           title={name}
@@ -86,232 +91,210 @@
       {/each}
     </div>
   </div>
+</div>
 
-  <div class="line">
-    <span class="grow">
-      Workday target
-      <div class="muted small">Drives the "under target" stat.</div>
-    </span>
-    <input
-      class="in narrow"
-      type="number"
-      min="1"
-      max="16"
-      value={Math.round(s.dayTargetMins / 60)}
-      on:change={(e) => setDayTarget(Number(e.currentTarget.value) * 60)}
-    />
-    <span class="muted small">hours</span>
-  </div>
-
-  <div class="line">
-    <span class="grow">
-      Check-in interval
-      <div class="muted small">
-        Asks "still on this?" at 1×, 2× then 4× this, then stops. 0 turns it off.
+<div class="settgrp">
+  <h4>Check-ins</h4>
+  <div class="settrow">
+    <div>
+      <div class="st">Ping me while I work</div>
+      <div class="sd">
+        A gentle “still on this?” at 1×, 2× then 4× your interval, then it backs off for good.
       </div>
-    </span>
-    <input
-      class="in narrow"
-      type="number"
-      min="0"
-      max="240"
-      value={s.pingMin}
-      on:change={(e) => setPingMin(Number(e.currentTarget.value))}
-    />
-    <span class="muted small">min</span>
+    </div>
+    <div class="seg-inline">
+      {#each [10, 15, 30, 0] as v (v)}
+        <button class:on={s.pingMin === v} on:click={() => setPingMin(v)}>
+          {v === 0 ? "Off" : `${v}m`}
+        </button>
+      {/each}
+    </div>
   </div>
+</div>
 
+<div class="settgrp">
+  <h4>Focus habits</h4>
   {#each FLAGS as f (f.key)}
-    <div class="line">
-      <span class="grow">
-        {f.label}
-        <div class="muted small">{f.hint}</div>
-      </span>
-      <button class="btn small" on:click={() => setFlag(f.key, !s[f.key])}>
-        {s[f.key] ? "On" : "Off"}
-      </button>
+    <div class="settrow">
+      <div>
+        <div class="st">{f.label}</div>
+        <div class="sd">{f.hint}</div>
+      </div>
+      <input
+        type="checkbox"
+        checked={s[f.key]}
+        aria-label={f.label}
+        on:change={() => setFlag(f.key, !s[f.key])}
+      />
     </div>
   {/each}
+</div>
 
-  <div class="line">
-    <span class="grow">
-      Silent self-update
-      <div class="muted small">Stored for a future updater - this build does not self-update.</div>
-    </span>
-    <button
-      class="btn small"
-      on:click={async () => {
-        autoUpdate = !autoUpdate;
-        await setAutoUpdate(autoUpdate);
-      }}
-    >
-      {autoUpdate ? "On" : "Off"}
-    </button>
+<div class="settgrp">
+  <h4>Wellness nudges</h4>
+  <div class="dsec-sub" style="margin:-2px 0 6px; font-size:11.5px;">
+    Gentle, optional reminders to look after yourself. Off by default, one at a time, never during a
+    break — and they never touch your task clock.
   </div>
-
-  <h2>Wellness nudges</h2>
-  <p class="muted small">
-    Opt-in, one at a time, never during a break, and they never touch the clock.
-  </p>
   {#each WELLNESS_KEYS as key (key)}
     {@const c = s.wellness[key]}
     {@const copy = wellnessCopy(key)}
-    <div class="line">
-      <span class="grow">{copy.icon} {copy.title}</span>
-      {#if key === "lunch"}
+    <div class="settrow">
+      <div>
+        <div class="st">{copy.icon} {copy.title}</div>
+        <div class="sd">{copy.msg}</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        {#if c.on && key === "lunch"}
+          <select
+            class="well-int"
+            aria-label="Lunch hour"
+            value={String(c.atHour ?? 13)}
+            on:change={(e) => setWellnessHour(key, Number(e.currentTarget.value))}
+          >
+            {#each [11, 12, 13, 14] as h (h)}
+              <option value={String(h)}>{clockLabel(h, 0)}</option>
+            {/each}
+          </select>
+        {:else if c.on}
+          <select
+            class="well-int"
+            aria-label="{copy.title} interval"
+            value={String(c.everyMin ?? 60)}
+            on:change={(e) => setWellnessEvery(key, Number(e.currentTarget.value))}
+          >
+            {#each [30, 45, 60, 90, 120] as o (o)}
+              <option value={String(o)}>every {o < 60 ? `${o}m` : `${o / 60}h`}</option>
+            {/each}
+          </select>
+        {/if}
         <input
-          class="in narrow"
-          type="number"
-          min="0"
-          max="23"
-          value={c.atHour ?? 13}
-          aria-label="Lunch hour"
-          on:change={(e) => setWellnessHour(key, Number(e.currentTarget.value))}
+          type="checkbox"
+          checked={c.on}
+          aria-label={copy.title}
+          on:change={() => toggleWellness(key, !c.on)}
         />
-        <span class="muted small">o'clock</span>
-      {:else}
-        <span class="muted small">every</span>
-        <input
-          class="in narrow"
-          type="number"
-          min="1"
-          max="480"
-          value={c.everyMin ?? 60}
-          aria-label="{copy.title} interval"
-          on:change={(e) => setWellnessEvery(key, Number(e.currentTarget.value))}
-        />
-        <span class="muted small">min</span>
-      {/if}
-      <button class="btn small" on:click={() => toggleWellness(key, !c.on)}>
-        {c.on ? "On" : "Off"}
-      </button>
+      </div>
     </div>
   {/each}
+</div>
 
-  <h2>Daily routines</h2>
-  <p class="muted small">
-    One per line. Added fresh to every new day, skipping anything already carried.
-  </p>
-  <textarea class="in" rows="4" bind:value={routinesText}></textarea>
-  <button class="btn" on:click={() => setStandardDaily(routinesText.split("\n"))}>
-    Save routines
-  </button>
-
-  <h2 class="danger-h">Danger zone</h2>
-  {#if !confirmWipe}
-    <button class="btn danger-btn" on:click={() => (confirmWipe = true)}>
-      Reset & uninstall…
+<div class="settgrp">
+  <h4>Day</h4>
+  <div class="settrow">
+    <div>
+      <div class="st">Workday length</div>
+      <div class="sd">Drives the “time given back” stat.</div>
+    </div>
+    <span class="num-field">
+      <input
+        class="num-in"
+        type="number"
+        min="1"
+        max="16"
+        step="0.5"
+        aria-label="Workday length in hours"
+        value={s.dayTargetMins / 60}
+        on:change={(e) => setDayTarget(Math.round(Number(e.currentTarget.value) * 60))}
+      />
+      <span class="num-unit">hrs</span>
+    </span>
+  </div>
+  <div class="settrow">
+    <div>
+      <div class="st">Streaks &amp; days off</div>
+      <div class="sd">
+        Mark PTO on the Calendar. Days off bridge your streak — they never break it.
+      </div>
+    </div>
+    <button class="set-btn" on:click={() => dashTab.set("calendar")}>Open Calendar</button>
+  </div>
+  <div class="settrow">
+    <div>
+      <div class="st">Daily routines</div>
+      <div class="sd">One per line. Added fresh to every new day, skipping anything carried.</div>
+    </div>
+  </div>
+  <textarea class="imp-text" style="min-height:90px;" bind:value={routinesText}></textarea>
+  <div class="bk-actions" style="margin-top:10px;">
+    <button class="set-btn" on:click={() => setStandardDaily(routinesText.split("\n"))}>
+      Save routines
     </button>
+  </div>
+</div>
+
+<div class="settgrp">
+  <h4>Updates</h4>
+  <div class="settrow">
+    <div>
+      <div class="st">Check for updates automatically</div>
+      <div class="sd">
+        Looks for a new release when Remi starts. It never installs anything on its own — updating
+        is always a button you press, on the Data tab.
+      </div>
+    </div>
+    <input
+      type="checkbox"
+      checked={autoUpdate}
+      aria-label="Automatic updates"
+      on:change={async () => {
+        autoUpdate = !autoUpdate;
+        await setAutoUpdate(autoUpdate);
+      }}
+    />
+  </div>
+</div>
+
+<div class="settgrp">
+  <h4>Data</h4>
+  <div class="settrow">
+    <div>
+      <div class="st">Version &amp; updates</div>
+      <div class="sd">See what you're running, and take a new release when there is one.</div>
+    </div>
+    <button class="set-btn" on:click={() => dashTab.set("data")}>Open Data</button>
+  </div>
+  <div class="settrow">
+    <div>
+      <div class="st">Backup &amp; restore</div>
+      <div class="sd">Export or restore your JSON on the Data tab.</div>
+    </div>
+    <button class="set-btn" on:click={() => dashTab.set("data")}>Open Data</button>
+  </div>
+  <div class="settrow">
+    <div>
+      <div class="st">Reset the day</div>
+      <div class="sd">Clear today and start fresh (keeps backlog &amp; history).</div>
+    </div>
+    <button class="set-btn danger" on:click={() => setOverlay("restart")}>Restart day…</button>
+  </div>
+</div>
+
+<div class="settgrp">
+  <h4 style="color:var(--danger)">Danger zone</h4>
+  {#if !confirmWipe}
+    <div class="settrow">
+      <div>
+        <div class="st">Reset &amp; uninstall Remi</div>
+        <div class="sd">
+          Remove Remi's data and settings from this computer, then quit so you can delete the app.
+        </div>
+      </div>
+      <button class="set-btn danger" on:click={() => (confirmWipe = true)}>
+        Reset &amp; uninstall…
+      </button>
+    </div>
   {:else}
-    <div class="card warn">
-      <p><b>Remove Remi's data from this machine?</b></p>
-      <p class="muted small">
-        This quits the app. Drag it to the Trash afterwards to finish removing it.
-      </p>
-      <div class="row">
-        <button class="btn" on:click={() => (confirmWipe = false)}>Cancel</button>
-        <button class="btn" on:click={() => resetAndUninstall(true)}> Wipe, keep history </button>
-        <button class="btn danger-btn" on:click={() => resetAndUninstall(false)}>
+    <div class="bk-card" style="border-color:var(--danger);">
+      <h4>Remove Remi's data from this machine?</h4>
+      <p>This quits the app. Drag it to the Trash afterwards to finish removing it.</p>
+      <div class="bk-actions">
+        <button class="set-btn" on:click={() => (confirmWipe = false)}>Cancel</button>
+        <button class="set-btn" on:click={() => resetAndUninstall(true)}>Wipe, keep history</button>
+        <button class="set-btn danger" on:click={() => resetAndUninstall(false)}>
           Remove everything
         </button>
       </div>
     </div>
   {/if}
 </div>
-
-<style>
-  .wrap {
-    padding: 20px 26px 48px;
-    max-width: 1040px;
-  }
-  h1 {
-    font-size: 26px;
-    letter-spacing: -0.02em;
-    margin: 0 0 4px;
-  }
-  h2 {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--ink-soft);
-    margin: 26px 0 8px;
-  }
-  .muted {
-    color: var(--ink-soft);
-  }
-  .small {
-    font-size: 12px;
-  }
-  .grow {
-    flex: 1;
-    min-width: 0;
-  }
-  .row {
-    display: flex;
-    align-items: flex-end;
-    gap: 9px;
-    margin-top: 9px;
-    flex-wrap: wrap;
-  }
-  .line {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    padding: 11px 2px;
-    border-bottom: 1px solid var(--line);
-  }
-  .card {
-    margin: 11px 0;
-    padding: 13px;
-    border-radius: var(--r-md);
-    background: var(--card);
-    border: 1px solid var(--line);
-  }
-  .card.warn {
-    background: var(--warn-bg);
-    border-color: var(--warn-line);
-  }
-  .seg {
-    display: flex;
-    gap: 3px;
-    background: var(--bg-2);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    padding: 3px;
-  }
-  .segbtn {
-    border: none;
-    background: transparent;
-    color: var(--ink-soft);
-    font: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
-    padding: 6px 12px;
-    border-radius: 999px;
-    cursor: pointer;
-  }
-  .segbtn.on {
-    background: var(--accent);
-    color: #fff;
-  }
-  .swatches {
-    display: flex;
-    gap: 6px;
-  }
-  .sw {
-    width: 23px;
-    height: 23px;
-    border-radius: 50%;
-    border: 2px solid transparent;
-    cursor: pointer;
-  }
-  .sw.on {
-    border-color: var(--ink);
-  }
-  .narrow {
-    width: 72px;
-  }
-  .danger-h {
-    color: var(--danger);
-  }
-</style>

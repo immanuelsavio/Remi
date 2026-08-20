@@ -53,6 +53,7 @@ export {
   togglePto,
   useRevive,
   type CarryChoice,
+  type SeedChoice,
 } from "./day";
 export {
   addMain,
@@ -81,12 +82,24 @@ export {
   exportLogs,
   friction,
   initErrorCapture,
+  setFeedback,
   track,
   trackClick,
   trackError,
   trackTab,
 } from "./telemetry";
-export { closeOverlay, openDashboard, setOverlay, setPhase, toggleSubsOpen } from "./ui-state";
+export {
+  closeOverlay,
+  closeRemind,
+  openDashboard,
+  openSwitch,
+  openRemind,
+  remindTarget,
+  setOverlay,
+  setPhase,
+  toggleSubsOpen,
+  type RemindTarget,
+} from "./ui-state";
 export {
   getAutoUpdate,
   getDataFolder,
@@ -106,6 +119,18 @@ export {
   type BoolPref,
 } from "./settings-actions";
 export { applyImport, exportBackup, restoreBackup } from "./import-export";
+export {
+  appVersion,
+  checkForUpdate,
+  checkWhatsNew,
+  dismissWhatsNew,
+  installUpdate,
+  loadAppVersion,
+  updateChecking,
+  updateInfo,
+  whatsNew,
+  type UpdateInfo,
+} from "./updates";
 
 /** Take the offer: resume the work that was interrupted. */
 export function resumeWelcomeBack(): void {

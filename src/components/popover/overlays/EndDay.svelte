@@ -1,69 +1,73 @@
 <script lang="ts">
-  import { app, closeOverlay, endDay, openDashboard } from "../../../store";
+  /**
+   * End Day, with a real per-task decision.
+   *
+   * The default is still one button: most evenings everything unfinished
+   * should just carry. "Decide per task" expands the list in place rather
+   * than sending you to another screen — the previous version's button
+   * claimed to do this and merely opened the Plan tab, which offers no such
+   * choice.
+   */
+  import { app, closeOverlay, endDay } from "../../../store";
+  import type { CarryChoice } from "../../../store";
   import { fmtEst } from "../../../view";
   import type { Main } from "../../../view";
+  import CarryDecisions from "../../shared/CarryDecisions.svelte";
 
   export let tracked: number;
   export let done: Main[];
 
+  let deciding = false;
+  let choices: Record<string, CarryChoice> = {};
+
   $: s = $app;
+  $: pending = s.mains.filter((m) => !m.done);
+  $: carrying = pending.filter((m) => (choices[m.id] ?? "carry") === "carry").length;
+  $: toBacklog = pending.filter((m) => choices[m.id] === "backlog").length;
+  $: marked = pending.filter((m) => choices[m.id] === "done").length;
 </script>
 
 <div class="scrim">
-  <div class="sheet">
-    <h3>End the day?</h3>
-    <p class="muted small">
-      {fmtEst(tracked)} tracked · {done.length} done
-      {#if s.mains.filter((m) => !m.done).length}
-        · {s.mains.filter((m) => !m.done).length} will carry to tomorrow
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="s-in">
+      <h3>End the day?</h3>
+      <div class="s-text">
+        {fmtEst(tracked)} tracked · {done.length + marked} done{#if carrying}
+          · {carrying} carrying to tomorrow{/if}{#if toBacklog}
+          · {toBacklog} to backlog{/if}.
+      </div>
+
+      {#if deciding && pending.length}
+        <div class="grouplbl">What happens to each?</div>
+        <CarryDecisions
+          bind:choices
+          items={pending.map((m) => ({
+            key: m.id,
+            title: m.title,
+            detail: s.avoidanceOn && m.carries >= 1 ? `moved ${m.carries}×` : undefined,
+            warn: s.avoidanceOn && m.carries >= 3,
+          }))}
+          options={[
+            { value: "carry", label: "Tomorrow", tone: "accent" },
+            { value: "backlog", label: "Backlog" },
+            { value: "done", label: "Done", tone: "done" },
+          ]}
+        />
       {/if}
-    </p>
-    <div class="stack">
+
       <button
-        class="btn accent"
+        class="checkin-yes"
         on:click={() => {
-          endDay();
+          endDay(deciding ? choices : {});
           closeOverlay();
-        }}>End day</button
+        }}>Wrap up the day</button
       >
-      <button class="btn" on:click={() => openDashboard("plan")}>Decide per task…</button>
-      <button class="link" on:click={closeOverlay}>Not yet</button>
+      {#if !deciding && pending.length}
+        <button class="checkin-no" on:click={() => (deciding = true)}>
+          Decide per task… ({pending.length})
+        </button>
+      {/if}
+      <button class="checkin-no" on:click={closeOverlay}>Not yet</button>
     </div>
   </div>
 </div>
-
-<style>
-  .muted {
-    color: var(--ink-soft);
-  }
-  .small {
-    font-size: 12px;
-  }
-  h3 {
-    font-size: 17px;
-    margin: 0 0 3px;
-    letter-spacing: -0.01em;
-  }
-  .stack {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-    margin-top: 12px;
-  }
-  .scrim {
-    position: absolute;
-    inset: 0;
-    background: color-mix(in srgb, var(--ink) 42%, transparent);
-    display: flex;
-    align-items: flex-end;
-    padding: 12px;
-  }
-  .sheet {
-    width: 100%;
-    padding: 15px;
-    border-radius: var(--r-lg);
-    background: var(--bg);
-    border: 1px solid var(--line);
-    box-shadow: 0 12px 34px color-mix(in srgb, var(--ink) 24%, transparent);
-  }
-</style>

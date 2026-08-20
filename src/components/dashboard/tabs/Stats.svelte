@@ -1,11 +1,20 @@
 <script lang="ts">
-  import { app } from "../../../store";
+  /**
+   * STATS - the evidence tab.
+   *
+   * Three stories, in order of how much they change someone's mind:
+   *   1. Time given back against the workday target.
+   *   2. The streak, and the one revive that can rescue it.
+   *   3. Estimate vs reality, and what interruptions did to the difference -
+   *      the case that an estimate can be accurate while the DAY runs long.
+   */
+  import { app, useRevive } from "../../../store";
   import {
-    dateFromISO,
+    computeStreaks,
     fmtEst,
+    hoursStr,
     interruptionStats,
     nowMs,
-    prettyDate,
     timeSense,
     todayAsRecord,
     todayTrackedMs,
@@ -13,144 +22,229 @@
 
   $: s = $app;
   $: tracked = todayTrackedMs(s, $nowMs);
-  $: target = s.dayTargetMins * 60_000;
-  // "Given back" only means something while you're still under your own target.
-  $: givenBack = Math.max(0, target - tracked);
-  $: ints = interruptionStats([...s.history, todayAsRecord(s, $nowMs)]);
-  $: sense = timeSense(s.estimateLog);
+  $: doneToday = s.mains.filter((m) => m.done).length;
+  $: target = Math.max(1, s.dayTargetMins) * 60000;
+  $: given = Math.max(0, target - tracked);
+  $: pct = Math.min(100, Math.round((tracked / target) * 100));
+  $: allDone = s.history.reduce((a, h) => a + h.completed.length, 0) + doneToday;
+  $: allTracked = s.history.reduce((a, h) => a + h.totalMs, 0) + tracked;
+  $: streaks = computeStreaks(s);
+  $: ts = timeSense(s.estimateLog);
+  $: intr = interruptionStats([...s.history, todayAsRecord(s, $nowMs)]);
+  $: canRevive = !!streaks.broken && streaks.life >= 1;
 </script>
 
-<div class="wrap">
-  <h1>What actually happened</h1>
-  <div class="tiles">
-    <div class="tile">
-      <div class="k">{fmtEst(tracked)}</div>
-      <div class="muted small">Focused today</div>
+<div class="dsec-title">Stats</div>
+<div class="dsec-sub">
+  Against a {fmtEst(target)} day. “Given back” is time you didn't have to spend.
+</div>
+
+<!-- ---------- streak ---------- -->
+{#if streaks.longest || streaks.current}
+  <div class="grouplbl" style="margin-left:2px;">Streak</div>
+  <div class="stat-row">
+    <div class="stat">
+      <div class="v">{streaks.current > 0 ? "🔥" : "💤"} {streaks.current}</div>
+      <div class="l">Current streak (days)</div>
     </div>
-    <div class="tile">
-      <div class="k">{fmtEst(givenBack)}</div>
-      <div class="muted small">Under your {Math.round(s.dayTargetMins / 60)}h target</div>
+    <div class="stat soft">
+      <div class="v">{streaks.longest}</div>
+      <div class="l">Longest streak</div>
     </div>
-    <div class="tile">
-      <div class="k">{ints.count}</div>
-      <div class="muted small">Interruptions · {fmtEst(ints.totalMs)}</div>
+    <div class="stat soft">
+      <div class="v">{streaks.life >= 1 ? "❤️" : "🤍"}</div>
+      <div class="l">Revive {streaks.life >= 1 ? "ready" : "used"}</div>
     </div>
-    <div class="tile">
-      <div class="k">{ints.perFocusHour.toFixed(1)}</div>
-      <div class="muted small">Per focused hour</div>
+  </div>
+  <div class="bk-card">
+    <div class="s-text" style="color:var(--ink-soft)">
+      {#if streaks.current > 0}
+        {streaks.current}-day streak{streaks.current === streaks.longest ? " — your best yet!" : ""}
+      {:else}
+        Streak's asleep — your best was {streaks.longest} days.
+      {/if}
+      <span style="color:var(--ink-faint)">Weekends and days off never break it.</span>
+    </div>
+    <div class="s-text" style="color:var(--ink-faint); margin-top:6px;">
+      {#if streaks.life >= 1}
+        ❤️ <b>1 revive ready.</b> Spend it to bridge a missed day and keep a streak going — your call
+        when it's worth it.
+      {:else}
+        🤍 Revive spent. You earn one back after every 5-day streak.
+      {/if}
+    </div>
+    {#if canRevive}
+      <button class="set-btn" style="margin-top:10px;" on:click={useRevive}>
+        ❤️ Use revive to save your streak
+      </button>
+    {/if}
+  </div>
+{/if}
+
+<!-- ---------- time given back ---------- -->
+<div class="givenback">
+  <div class="eyebrow">Time given back today</div>
+  <div class="gb-v">{hoursStr(given)}</div>
+  <div class="gb-l">
+    You've tracked <b>{hoursStr(tracked)}</b> of a {fmtEst(target)} day on real tasks.
+  </div>
+  <div class="bar"><span style="width:{pct}%"></span></div>
+</div>
+
+<div class="stat-row">
+  <div class="stat">
+    <div class="v">{doneToday}</div>
+    <div class="l">Completed today</div>
+  </div>
+  <div class="stat soft">
+    <div class="v">{hoursStr(tracked)}</div>
+    <div class="l">Time on tasks today</div>
+  </div>
+  <div class="stat soft">
+    <div class="v">{s.dayNum}</div>
+    <div class="l">Day number</div>
+  </div>
+</div>
+<div class="stat-row">
+  <div class="stat soft">
+    <div class="v">{allDone}</div>
+    <div class="l">Completed all-time</div>
+  </div>
+  <div class="stat soft">
+    <div class="v">{hoursStr(allTracked)}</div>
+    <div class="l">Tracked all-time</div>
+  </div>
+  <div class="stat soft">
+    <div class="v">{s.history.length}</div>
+    <div class="l">Days logged</div>
+  </div>
+</div>
+
+<!-- ---------- time-sense trainer ---------- -->
+{#if s.trainerOn || ts}
+  <div class="grouplbl" style="margin-left:2px;">⏱ Time-sense trainer</div>
+  {#if !ts}
+    <div class="bk-card">
+      <div class="s-text" style="color:var(--ink-faint)">
+        Estimate a task in Plan, finish it, and your accuracy shows up here.
+      </div>
+    </div>
+  {:else}
+    <div
+      class="givenback"
+      style="background:linear-gradient(160deg,var(--break-bg),color-mix(in srgb,var(--break-bg) 60%, var(--card)));border-color:var(--break-line);"
+    >
+      <div class="eyebrow" style="color:var(--break-ink)">On average, tasks take</div>
+      <div class="gb-v" style="color:var(--break-ink)">{ts.avgRatio.toFixed(1)}×</div>
+      <div class="gb-l">your estimate. {ts.verdict}</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat soft">
+        <div class="v">{ts.count}</div>
+        <div class="l">Estimated tasks</div>
+      </div>
+      <div class="stat soft">
+        <div class="v">{ts.under}</div>
+        <div class="l">Under / on time</div>
+      </div>
+      <div class="stat soft">
+        <div class="v">{ts.over}</div>
+        <div class="l">Ran over</div>
+      </div>
+    </div>
+    <div class="bk-card">
+      <h4 style="margin-bottom:8px;">Recent estimates</h4>
+      {#each ts.recent as e, i (i)}
+        {@const ratio = e.actualMs / e.estMs}
+        <div class="ts-row">
+          <span>est {fmtEst(e.estMs)} → actual {fmtEst(e.actualMs)}</span>
+          <span class="ts-r" class:over={e.actualMs > e.estMs} class:ok={e.actualMs <= e.estMs}>
+            {ratio.toFixed(1)}×
+          </span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+{/if}
+
+<!-- ---------- interruptions ---------- -->
+<div class="grouplbl" style="margin-left:2px;">⚡ Interruptions</div>
+{#if intr.count === 0}
+  <div class="bk-card">
+    <div class="s-text" style="color:var(--ink-faint)">
+      No interruptions recorded yet. When something pulls you off a task, Remi logs it here — useful
+      evidence when a task takes longer than anyone estimated.
+    </div>
+  </div>
+{:else}
+  <div
+    class="givenback"
+    style="background:linear-gradient(160deg,var(--break-bg),color-mix(in srgb,var(--break-bg) 60%, var(--card)));border-color:var(--break-line);"
+  >
+    <div class="eyebrow" style="color:var(--break-ink)">Time lost to interruptions</div>
+    <div class="gb-v" style="color:var(--break-ink)">{hoursStr(intr.totalMs)}</div>
+    <div class="gb-l">
+      across {intr.count} interruption{intr.count === 1 ? "" : "s"} — about {intr.perFocusHour.toFixed(
+        1,
+      )} per hour of focused work.
+    </div>
+  </div>
+  <div class="stat-row">
+    <div class="stat soft">
+      <div class="v">{intr.count}</div>
+      <div class="l">Total interruptions</div>
+    </div>
+    <div class="stat soft">
+      <div class="v">{hoursStr(intr.totalMs)}</div>
+      <div class="l">Time lost</div>
+    </div>
+    <div class="stat soft">
+      <div class="v">{hoursStr(intr.longestMs)}</div>
+      <div class="l">Longest single one</div>
     </div>
   </div>
 
-  {#if sense}
-    <h2>Time sense</h2>
-    <p>{sense.verdict}</p>
-    <p class="muted small">
-      {sense.count} estimate{sense.count === 1 ? "" : "s"} · {sense.under} under, {sense.over}
-      over · average {sense.avgRatio.toFixed(2)}× your guess
-    </p>
-  {/if}
-
-  <h2>Where the time went</h2>
-  {#if !ints.stretched.length}
-    <p class="muted small">
-      No task has run far past its focused time yet. That's the good outcome.
-    </p>
-  {:else}
-    <p class="muted small">
-      Tasks whose wall-clock ran well past the time actually spent on them - this is what
-      interruptions cost.
-    </p>
-    {#each ints.stretched.slice(0, 10) as t (t.title + t.elapsedMs)}
-      <div class="line">
-        <div class="grow">
-          <div>{t.title}</div>
-          <div class="muted small">
-            {fmtEst(t.focusedMs)} focused · {fmtEst(t.elapsedMs)} elapsed
-            {#if t.interruptedCount}· interrupted {t.interruptedCount}×{/if}
-          </div>
+  {#if intr.topCauses.length}
+    <div class="bk-card">
+      <h4 style="margin-bottom:8px;">What interrupts you most</h4>
+      {#each intr.topCauses as c (c.title)}
+        <div class="ts-row">
+          <span>{c.title}</span>
+          <span class="ts-r">{c.count}× · {hoursStr(c.totalMs)}</span>
         </div>
-        <b>{t.stretchRatio.toFixed(1)}×</b>
-      </div>
-    {/each}
+      {/each}
+    </div>
   {/if}
 
-  <h2>What interrupts you</h2>
-  {#if !ints.topCauses.length}
-    <p class="muted small">Nothing has pulled you away yet.</p>
-  {:else}
-    {#each ints.topCauses as c (c.title)}
-      <div class="line">
-        <span class="grow">{c.title}</span>
-        <span class="muted small">{c.count}× · {fmtEst(c.totalMs)}</span>
+  {#if intr.stretched.length}
+    <div class="grouplbl" style="margin-left:2px;">Estimate vs reality</div>
+    <div class="dsec-sub" style="margin:-2px 0 8px; font-size:11.5px;">
+      The work matched the estimate; the day did not. This is the gap interruptions create.
+    </div>
+    {#each intr.stretched.slice(0, 5) as t (t.title)}
+      <div class="bk-card">
+        <div class="dtask-head" style="padding:0 0 6px;">
+          <span class="dt-t">{t.title}</span>
+          <span class="est-badge">{t.stretchRatio.toFixed(1)}× longer</span>
+        </div>
+        <div class="ts-row">
+          <span>Estimated</span><span class="ts-r">{t.estMs ? fmtEst(t.estMs) : "—"}</span>
+        </div>
+        <div class="ts-row">
+          <span>Focused work</span><span class="ts-r ok">{hoursStr(t.focusedMs)}</span>
+        </div>
+        <div class="ts-row">
+          <span>Actually took (start → done)</span>
+          <span class="ts-r over">{hoursStr(t.elapsedMs)}</span>
+        </div>
+        <div class="ts-row">
+          <span>Interrupted</span>
+          <span class="ts-r">{t.interruptedCount}× · {hoursStr(t.interruptedMs)} lost</span>
+        </div>
       </div>
     {/each}
+    {#if intr.stretched.length > 5}
+      <div class="imp-note">+{intr.stretched.length - 5} more in the work-record export.</div>
+    {/if}
   {/if}
-
-  <h2>Recent days</h2>
-  {#if !s.history.length}
-    <p class="muted small">Your first day is still in progress.</p>
-  {:else}
-    {#each [...s.history].reverse().slice(0, 14) as d (d.dateISO)}
-      <div class="line">
-        <span class="grow">{prettyDate(dateFromISO(d.dateISO))}</span>
-        <span class="muted small">
-          {d.completed.length} done · {fmtEst(d.totalMs)}
-          {#if d.unfinished.length}· {d.unfinished.length} carried{/if}
-        </span>
-      </div>
-    {/each}
-  {/if}
-</div>
-
-<style>
-  .wrap {
-    padding: 20px 26px 48px;
-    max-width: 1040px;
-  }
-  h1 {
-    font-size: 26px;
-    letter-spacing: -0.02em;
-    margin: 0 0 4px;
-  }
-  h2 {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--ink-soft);
-    margin: 26px 0 8px;
-  }
-  .muted {
-    color: var(--ink-soft);
-  }
-  .small {
-    font-size: 12px;
-  }
-  .grow {
-    flex: 1;
-    min-width: 0;
-  }
-  .tiles {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-    gap: 11px;
-    margin: 14px 0;
-  }
-  .tile {
-    padding: 15px;
-    border-radius: var(--r-md);
-    background: var(--card);
-    border: 1px solid var(--line);
-  }
-  .k {
-    font-family: var(--font-num);
-    font-size: 27px;
-    font-variant-numeric: tabular-nums;
-  }
-  .line {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    padding: 11px 2px;
-    border-bottom: 1px solid var(--line);
-  }
-</style>
+{/if}
