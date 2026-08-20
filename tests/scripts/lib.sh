@@ -11,6 +11,37 @@
 # returns, before the test ever reaches its assertion.
 set -uo pipefail
 
+# Scratch space for every temp file and throwaway HOME these tests create.
+#
+# Honours $TMPDIR rather than hardcoding /tmp: macOS gives each user a
+# private per-session TMPDIR, and sandboxed or CI shells may not be able to
+# write to /tmp at all. Note that BSD `mktemp` IGNORES $TMPDIR unless it is
+# given an explicit template path - it asks the OS for the per-user temp dir
+# instead - which is why `new_tmpdir` below always passes a full template
+# rooted here rather than calling a bare `mktemp -d`.
+TMP_ROOT="${TMPDIR:-/tmp}"
+TMP_ROOT="${TMP_ROOT%/}"
+
+# Make a throwaway directory, or abort the whole run.
+#
+# THIS GUARD IS LOAD-BEARING, not defensive tidiness. These tests build
+# destructive paths by hand - "$fake_home/Applications/Remi.app",
+# "$fake_home/Library/Application Support/...", "$fake_home/Remi" - and
+# then delete them. If `mktemp` fails and its empty output is captured
+# into $fake_home, every one of those paths becomes an ABSOLUTE system
+# path: the real /Applications/Remi.app, the real /Library, the real
+# /Remi. A silent failure here would point the uninstall tests at the
+# user's actual installation. Fail loudly instead.
+new_tmpdir() {
+  local d
+  d="$(mktemp -d "$TMP_ROOT/remi-test.XXXXXX")" || d=""
+  if [[ -z "$d" || ! -d "$d" ]]; then
+    printf 'FATAL: could not create a temp dir under %s - refusing to run destructive tests against absolute paths\n' "$TMP_ROOT" >&2
+    exit 1
+  fi
+  printf '%s\n' "$d"
+}
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck disable=SC2034 # used by test files that source this library
 INSTALL_SH="$REPO_ROOT/install.sh"
@@ -63,7 +94,7 @@ build_fake_app_bundle() {
 </dict></plist>
 EOF
   local src
-  src="$(mktemp /tmp/remi-fakebin.XXXXXX.c)"
+  src="$(mktemp "$TMP_ROOT/remi-fakebin.XXXXXX.c")"
   cat > "$src" <<'EOF'
 int main(void) { for(;;) { } return 0; }
 EOF
@@ -83,8 +114,15 @@ EOF
 # file://-backed fake GitHub API (see fake_github_release_dir below).
 build_release_assets() {
   local out_dir="$1" version="$2" arch="$3" host_arch_flag="$4"
+  # `cd ""` is a no-op that SUCCEEDS in bash, so an empty $out_dir would let
+  # the redirects below write checksums.txt into the repo instead of the
+  # throwaway release dir. Refuse rather than litter.
+  if [[ -z "$out_dir" || ! -d "$out_dir" ]]; then
+    printf 'FATAL: build_release_assets needs an existing output dir, got %q\n' "$out_dir" >&2
+    exit 1
+  fi
   local stage
-  stage="$(mktemp -d)"
+  stage="$(new_tmpdir)"
   build_fake_app_bundle "$stage/Remi.app" "$host_arch_flag"
 
   local asset_name="Remi-${version}-macos-${arch}.tar.gz"
