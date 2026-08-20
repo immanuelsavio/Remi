@@ -14,4 +14,3 @@ What was chosen?
 ## Consequences
 
 What becomes easier, harder, or explicitly out of scope?
-
