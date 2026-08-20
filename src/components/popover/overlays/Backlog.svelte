@@ -17,24 +17,31 @@
 <div class="scrim">
   <div class="sheet">
     <h3>Backlog</h3>
-    <p class="muted small">Things for later. Nothing here is on today's list.</p>
+    <p class="muted small">
+      A parking lot for ideas and someday-tasks. Add freely; pull into today when you're ready.
+    </p>
+    <div class="add-row">
+      <input
+        class="in"
+        placeholder="Add to backlog…"
+        bind:value={backlogDraft}
+        on:keydown={(e) => e.key === "Enter" && commitBacklog()}
+      />
+      <button class="btn accent" on:click={commitBacklog}>Add</button>
+    </div>
     <div class="stack scroll-sm">
       {#each s.backlog as b (b.id)}
         <div class="card-row bl">
           <span class="grow">{b.title}</span>
-          <button class="btn small" on:click={() => backlogToToday(b.id)}>→ Today</button>
+          <button class="start-pill outline" on:click={() => backlogToToday(b.id)}>
+            <span class="ico" aria-hidden="true">→</span> Today
+          </button>
           <button class="mini danger" title="Remove" on:click={() => deleteBacklog(b.id)}>
             ✕
           </button>
         </div>
       {/each}
       {#if !s.backlog.length}<p class="muted small">Empty.</p>{/if}
-      <input
-        class="in"
-        placeholder="Add something for later…"
-        bind:value={backlogDraft}
-        on:keydown={(e) => e.key === "Enter" && commitBacklog()}
-      />
       <button class="link" on:click={closeOverlay}>Close</button>
     </div>
   </div>
@@ -55,6 +62,17 @@
     font-size: 17px;
     margin: 0 0 3px;
     letter-spacing: -0.01em;
+  }
+  .add-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .add-row .in {
+    flex: 1;
+  }
+  .add-row .btn {
+    flex: none;
   }
   .stack {
     display: flex;

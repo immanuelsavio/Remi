@@ -61,9 +61,14 @@
 
   <div class="line">
     <span class="grow">Appearance</span>
-    <button class="btn small" on:click={() => setMode(s.mode === "dark" ? "light" : "dark")}>
-      {s.mode === "dark" ? "Dark" : "Light"}
-    </button>
+    <div class="seg">
+      <button class="segbtn" class:on={s.mode === "light"} on:click={() => setMode("light")}>
+        ☀ Light
+      </button>
+      <button class="segbtn" class:on={s.mode === "dark"} on:click={() => setMode("dark")}>
+        ☾ Dark
+      </button>
+    </div>
   </div>
 
   <div class="line">
@@ -265,6 +270,29 @@
   .card.warn {
     background: var(--warn-bg);
     border-color: var(--warn-line);
+  }
+  .seg {
+    display: flex;
+    gap: 3px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px;
+  }
+  .segbtn {
+    border: none;
+    background: transparent;
+    color: var(--ink-soft);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .segbtn.on {
+    background: var(--accent);
+    color: #fff;
   }
   .swatches {
     display: flex;

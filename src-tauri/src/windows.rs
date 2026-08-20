@@ -7,6 +7,40 @@ use tauri::{AppHandle, Manager, PhysicalPosition, WindowEvent};
 
 use crate::paths::{DASHBOARD_LABEL, POPOVER_LABEL};
 
+/// Let a window draw over ANOTHER app's fullscreen Space, not just switch
+/// between ordinary desktop Spaces.
+///
+/// `WebviewWindow::set_visible_on_all_workspaces` (Tauri's public API) only
+/// sets `NSWindowCollectionBehavior.canJoinAllSpaces` - that moves a window
+/// along when you switch Spaces, but a window still can't render ABOVE a
+/// Space that's in fullscreen without `.fullScreenAuxiliary` too. That flag
+/// has no Tauri-level accessor, so this reaches for the raw `NSWindow` via
+/// `ns_window()` and sets both bits directly. Best-effort: if the window
+/// doesn't exist yet or the pointer cast fails, this silently no-ops rather
+/// than panicking the whole app over a cosmetic behavior.
+#[cfg(target_os = "macos")]
+fn apply_overlay_collection_behavior(win: &tauri::WebviewWindow) {
+    use objc2_app_kit::NSWindowCollectionBehavior;
+
+    let Ok(ptr) = win.ns_window() else { return };
+    if ptr.is_null() {
+        return;
+    }
+    // SAFETY: `ns_window()` hands back a valid, retained `NSWindow*` for the
+    // lifetime of this call (Tauri autoreleases it into the current pool);
+    // `objc2` types are `#[repr(transparent)]` over the raw pointer, so this
+    // cast is the standard way to recover a typed reference from Tauri's
+    // "raw window handle" escape hatch.
+    let ns_window: &objc2_app_kit::NSWindow = unsafe { &*(ptr as *const objc2_app_kit::NSWindow) };
+    let behavior = ns_window.collectionBehavior()
+        | NSWindowCollectionBehavior::CanJoinAllSpaces
+        | NSWindowCollectionBehavior::FullScreenAuxiliary;
+    ns_window.setCollectionBehavior(behavior);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apply_overlay_collection_behavior(_win: &tauri::WebviewWindow) {}
+
 /// The tray icon's rectangle in physical px, captured from tray events.
 #[derive(Default)]
 pub struct TrayAnchor(Mutex<Option<(f64, f64, f64, f64)>>);
@@ -112,6 +146,7 @@ pub fn show_popover(app: &AppHandle) {
     let _ = win.set_position(PhysicalPosition::new(x, y));
 
     let _ = win.set_always_on_top(true);
+    apply_overlay_collection_behavior(&win);
     let _ = win.show();
     let _ = win.set_focus();
 }

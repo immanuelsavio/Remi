@@ -1,54 +1,80 @@
 /* Remi - design tokens + the handful of shared element styles.
-   Full repo equivalent: styles/tokens.css + styles/base.css + showcase.css.
+   Ported from .showcase/workflow.html, the approved visual reference.
 
    Two INDEPENDENT theme axes, so one hue drives everything:
      [data-mode="light"|"dark"]   -> neutral surfaces / text
      [data-accent="amber"|...]    -> the accent family
    Accent tints are derived from --accent via color-mix, which is why adding a
-   sixth accent means adding one hex value and nothing else. */
+   seventh accent means adding one hex value and nothing else. */
+
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
 
 :root {
   --accent: #e0762a; /* replaced by the [data-accent] blocks below */
   --success: #43a047;
+  --success-ink: #2f7d33;
   --break: #6a5acd;
   --danger: #c0392b;
 
   --r-sm: 9px;
   --r-md: 13px;
   --r-lg: 18px;
+  --font-serif: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans:
+    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, monospace;
 
   /* Derived tints - mode-independent, computed from --accent + the surfaces. */
   --accent-ink: color-mix(in srgb, var(--accent) 78%, #000);
   --hero-bg: color-mix(in srgb, var(--accent) 12%, var(--card));
   --hero-line: color-mix(in srgb, var(--accent) 30%, var(--line));
+  --sub-bg: color-mix(in srgb, var(--accent) 10%, var(--card));
+  --sub-fg: color-mix(in srgb, var(--accent) 60%, var(--ink-soft));
   --pill-bg: color-mix(in srgb, var(--accent) 18%, var(--card));
+  --pill-active-bg: color-mix(in srgb, var(--accent) 18%, var(--card));
+  --pill-active-fg: var(--accent-ink);
+  --pill-todo-bg: color-mix(in srgb, var(--ink) 7%, var(--card));
+  --pill-todo-fg: var(--ink-soft);
+  --pill-done-bg: color-mix(in srgb, var(--success) 20%, var(--card));
+  --pill-done-fg: var(--success-ink);
   --warn-bg: color-mix(in srgb, var(--danger) 8%, var(--card));
   --warn-line: color-mix(in srgb, var(--danger) 26%, var(--line));
   --warn-ink: color-mix(in srgb, var(--danger) 74%, var(--ink));
   --break-bg: color-mix(in srgb, var(--break) 14%, var(--card));
+  --break-line: color-mix(in srgb, var(--break) 32%, var(--line));
   --break-ink: color-mix(in srgb, var(--break) 72%, var(--ink));
+  --focus: var(--accent);
 }
 
 /* ---- MODE: light (default) ---- */
 :root,
 [data-mode="light"] {
-  --bg: #fbf8f4;
-  --card: #ffffff;
-  --line: #e7e1d8;
-  --ink: #241f1a;
-  --ink-soft: #7b7268;
+  --bg: #f4f1ec;
+  --bg-2: #eae5dc;
+  --card: #fffdf9;
+  --line: #e2dccf;
+  --ink: #2a2622;
+  --ink-soft: #6b6259;
+  --ink-faint: #a59c90;
+  --shadow: 0 24px 60px -20px rgba(60, 45, 25, 0.4);
+  --grain: 0.03;
 }
 
 /* ---- MODE: dark ---- */
 [data-mode="dark"] {
-  --bg: #17151a;
-  --card: #201d24;
-  --line: #322d38;
-  --ink: #f2eee9;
-  --ink-soft: #9c93a3;
+  --bg: #15140f;
+  --bg-2: #201d16;
+  --card: #1e1b15;
+  --line: #302b23;
+  --ink: #f0ebe2;
+  --ink-soft: #b3aa9c;
+  --ink-faint: #7c7367;
+  --shadow: 0 24px 70px -18px rgba(0, 0, 0, 0.7);
+  --grain: 0.05;
   /* Tints computed against a dark card need a lighter ink to stay readable. */
-  --accent-ink: color-mix(in srgb, var(--accent) 62%, #fff);
+  --accent-ink: color-mix(in srgb, var(--accent) 72%, #fff);
+  --hero-bg: color-mix(in srgb, var(--accent) 18%, var(--card));
+  --break-ink: color-mix(in srgb, var(--break) 55%, #fff);
 }
 
 /* ---- ACCENT families ---- */
@@ -57,6 +83,9 @@
 }
 [data-accent="coral"] {
   --accent: #e2543f;
+}
+[data-accent="rose"] {
+  --accent: #d24d7a;
 }
 [data-accent="violet"] {
   --accent: #7a5cd0;
@@ -82,19 +111,34 @@ body {
 }
 
 body {
+  position: relative;
   background: var(--bg);
   color: var(--ink);
-  font:
-    14px/1.45 -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Inter,
-    system-ui,
-    sans-serif;
+  font: 14px/1.45 var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  transition:
+    background 0.3s,
+    color 0.3s;
   /* A tray popover is chrome, not a document: text selection just looks broken. */
   user-select: none;
   cursor: default;
+}
+
+/* Subtle paper grain, matching the showcase's tactile surface. Multiply on
+   light keeps it a shadow-like texture; screen on dark keeps it from
+   muddying already-dark surfaces. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--grain);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+}
+[data-mode="dark"] body::before {
+  mix-blend-mode: screen;
 }
 
 /* Inputs are the exception - they must behave like real text fields. */
@@ -106,36 +150,78 @@ p {
   margin: 6px 0;
 }
 
+h1,
+h2,
+h3 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
 /* Visible focus is non-negotiable: both windows are keyboard navigable. */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.eyebrow {
+  font-family: var(--font-num);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 10px;
+  color: var(--accent-ink);
+  font-weight: 500;
 }
 
 /* ================= CONTROLS ================= */
 
 .btn {
   font: inherit;
+  font-family: var(--font-sans);
   font-size: 13px;
-  font-weight: 560;
-  padding: 8px 14px;
+  font-weight: 600;
+  padding: 10px 14px;
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
   background: var(--card);
   color: var(--ink);
   cursor: pointer;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition:
+    transform 0.12s,
+    border-color 0.18s,
+    background 0.18s,
+    filter 0.18s;
 }
 .btn:hover {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+.btn.primary {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+  box-shadow: 0 8px 18px -10px var(--success);
 }
 .btn.accent {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+  box-shadow: 0 8px 18px -10px var(--accent);
 }
+.btn.primary:hover,
 .btn.accent:hover {
   filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+.btn.big {
+  font-size: 15px;
+  padding: 14px 16px;
 }
 .btn.small {
   padding: 6px 11px;
@@ -146,9 +232,170 @@ p {
   border-style: dashed;
   color: var(--ink-soft);
 }
+.btn.danger-btn,
+.btn.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
 .btn.danger-btn {
+  background: none;
   border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
   color: var(--danger);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  filter: none;
+  transform: none;
+}
+.btn .ico {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Pill-shaped "Start" action - the accent-filled rounded button used on
+   task rows in the Today/Task-map views. */
+.start-pill {
+  flex: none;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 12.5px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: filter 0.15s;
+}
+.start-pill:hover {
+  filter: brightness(1.05);
+}
+.start-pill:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Outline variant of the pill - used for secondary "Start" affordances
+   (task-map rows) where the filled pill would be too loud. */
+.start-pill.outline {
+  background: transparent;
+  color: var(--accent-ink);
+}
+.start-pill.outline:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Small accent-outlined pill for "promote a step to its own task" and
+   similar escalation actions. */
+.promote {
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent-ink);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 11px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  flex: none;
+}
+.promote:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Full-width confirm/cancel pair used in confirmation sheets and modals. */
+.confirm-yes {
+  width: 100%;
+  border: none;
+  background: var(--success);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 16px;
+  padding: 15px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  margin-top: 14px;
+  box-shadow: 0 8px 18px -10px var(--success);
+  transition: filter 0.15s;
+}
+.confirm-yes:hover {
+  filter: brightness(1.05);
+}
+.confirm-yes:disabled {
+  opacity: 0.55;
+  cursor: default;
+  filter: none;
+}
+.confirm-no {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink-soft);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 11px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  margin-top: 9px;
+}
+.confirm-no:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+/* Toggle switch - opt-in settings (usage logging, etc). */
+.pill-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+}
+.pill-switch .ps-track {
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--line);
+  position: relative;
+  transition: background 0.2s;
+  flex: none;
+}
+.pill-switch .ps-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: left 0.2s;
+}
+.pill-switch.on .ps-track {
+  background: var(--accent);
+}
+.pill-switch.on .ps-knob {
+  left: 21px;
+}
+.pill-switch .ps-lbl {
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.pill-switch.on .ps-lbl {
+  color: var(--accent-ink);
 }
 
 /* Small square icon button (steps toggle, remove, revive). */
@@ -175,9 +422,10 @@ p {
 
 .in {
   font: inherit;
+  font-family: var(--font-sans);
   font-size: 13px;
   width: 100%;
-  padding: 9px 11px;
+  padding: 10px 12px;
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
   background: var(--card);
@@ -208,6 +456,29 @@ p {
 }
 .link:hover {
   color: var(--ink);
+}
+
+/* The Remi mark: an accent-colored ring with a filled dot, echoing the
+   mouse-on-clock icon at glyph scale. Pure CSS - themes with the accent
+   automatically, no image asset to keep in sync across light/dark/accent. */
+.remi-mark {
+  --mark-size: 22px;
+  display: inline-block;
+  width: var(--mark-size);
+  height: var(--mark-size);
+  border-radius: 50%;
+  border: 3px solid var(--accent);
+  position: relative;
+  flex: none;
+}
+.remi-mark::after {
+  content: "";
+  position: absolute;
+  inset: 2px 2px auto auto;
+  width: 28%;
+  height: 28%;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 /* Slim scrollbars - a 380px popover cannot spare 15px to a gutter. */

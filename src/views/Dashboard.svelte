@@ -162,7 +162,16 @@
 
 <div class="dash">
   <div class="head">
-    <div class="brand"><span class="dot"></span> Remi</div>
+    <button
+      class="brand"
+      title="Go to Today"
+      on:click={() => {
+        dashTab.set("today");
+        trackTab("today");
+      }}
+    >
+      <span class="remi-mark"></span> Remi
+    </button>
     <div class="tabs" role="tablist" aria-label="Dashboard sections">
       {#each TABS as t, i (t.id)}
         <button
@@ -322,22 +331,30 @@
   .head {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 10px 16px;
+    gap: 16px;
+    padding: 0 20px;
+    height: 56px;
     border-bottom: 1px solid var(--line);
+    background: var(--bg-2);
     flex: none;
   }
   .brand {
     display: flex;
     align-items: center;
-    gap: 7px;
-    font-weight: 640;
+    gap: 10px;
+    font-family: var(--font-serif);
+    font-weight: 600;
+    font-size: 17px;
+    color: var(--ink);
+    border: none;
+    background: none;
+    padding: 6px 4px;
+    margin: 0 0 0 -4px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
   }
-  .dot {
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    border: 3px solid var(--accent);
+  .brand:hover {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
   .spacer {
     flex: 1;
@@ -352,25 +369,26 @@
 
   .tabs {
     display: flex;
-    gap: 3px;
+    gap: 2px;
   }
   .tab {
-    border: 0;
-    background: none;
+    border: none;
+    background: transparent;
     color: var(--ink-soft);
-    padding: 6px 12px;
-    border-radius: var(--r-sm);
-    font: inherit;
-    font-size: 13px;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 13.5px;
+    padding: 9px 14px;
+    border-radius: 8px;
     cursor: pointer;
   }
-  .tab:hover {
-    background: var(--card);
+  .tab:hover:not(.on) {
+    color: var(--ink);
   }
   .tab.on {
-    background: var(--pill-bg);
-    color: var(--accent-ink);
-    font-weight: 600;
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: 0 2px 8px -4px rgba(0, 0, 0, 0.25);
   }
 
   h3 {
