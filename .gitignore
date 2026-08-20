@@ -49,3 +49,11 @@ Thumbs.db
 
 # Claude Code ephemeral state
 .claude/scheduled_tasks.lock
+
+# Internal planning and AI-assistant scratch. Kept on disk, never published:
+# these were working documents, not part of the product, and they were purged
+# from git history before the repo went public.
+IMPLEMENTATION_PLAN.md
+docs/ai/
+docs/legacy/
+.claude/

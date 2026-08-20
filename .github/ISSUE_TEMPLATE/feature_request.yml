@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an improvement to Remi
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remi is opinionated on purpose — some things are deliberately absent
+        (steps are one level deep, for example, because deeper nesting turns
+        into planning-as-procrastination). It also never scolds the user.
+        [docs/product.md](../blob/main/docs/product.md) explains the reasoning.
+
+        That is not a "no" — it just means the *problem* matters more than
+        the proposed solution here.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you running into?
+      description: Describe the situation, not the feature. What happens today that doesn't work for you?
+      placeholder: At the end of the day I can't tell which of my tasks were interrupted by the same meeting.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What did you have in mind?
+      description: Optional. If you already have a shape in mind, describe it.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything you've tried instead?
+      description: Optional. Workarounds you're using today, or other tools that solve it well.
+    validations:
+      required: false

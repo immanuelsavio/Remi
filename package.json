@@ -1,6 +1,26 @@
 {
   "name": "remi",
   "version": "0.1.0",
+  "description": "A macOS menu-bar day tracker for ADHD brains, built around the time you lose - not just the time you spend.",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Immanuel Savio",
+  "homepage": "https://github.com/immanuelsavio/Remi#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/immanuelsavio/Remi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/immanuelsavio/Remi/issues"
+  },
+  "keywords": [
+    "adhd",
+    "time-tracking",
+    "menu-bar",
+    "tauri",
+    "svelte",
+    "productivity",
+    "macos"
+  ],
   "private": true,
   "type": "module",
   "engines": {
