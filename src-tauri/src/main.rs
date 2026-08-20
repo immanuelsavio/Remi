@@ -27,7 +27,8 @@ mod windows;
 
 use tray::{QuitReadiness, TrayHandle};
 use windows::{
-    register_autohide, register_dashboard_hide_on_close, show_dashboard, PopoverGuard, TrayAnchor,
+    prepare_popover_overlay, register_autohide, register_dashboard_hide_on_close, show_dashboard,
+    PopoverGuard, TrayAnchor,
 };
 
 fn main() {
@@ -85,6 +86,9 @@ fn main() {
             tray::build_tray(handle)?;
             register_autohide(handle);
             register_dashboard_hide_on_close(handle);
+            // Give the popover its over-fullscreen treatment up front, so the
+            // first tray click already behaves correctly.
+            prepare_popover_overlay(handle);
             // Launching Remi (Applications, Dock, Desktop shortcut, first
             // run) opens the dashboard - the tray icon and its clock/effects
             // are already running underneath (the popover webview boots and
