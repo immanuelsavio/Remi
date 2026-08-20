@@ -1,248 +1,132 @@
 <script lang="ts">
-  import { app, showToast, togglePto, useRevive } from "../../../store";
-  import { canMarkPto, computeStreaks, fmtEst, isoOf, MONTHS_FULL, todayISO } from "../../../view";
+  /**
+   * CALENDAR - a RECORD, not a planner.
+   *
+   * Green = the day's work was finished; orange = something was left open.
+   * Only days that actually have a record are coloured, because the point is
+   * to show what happened, not what was intended.
+   *
+   * PTO can be set for today or LATER only. Marking a past missed day off
+   * would silently un-break a broken streak - which is exactly the lie the
+   * revive heart exists to make you pay for deliberately.
+   */
+  import { app, showToast, togglePto } from "../../../store";
+  import {
+    canMarkPto,
+    computeStreaks,
+    fmtEst,
+    hoursStr,
+    MONTHS_FULL,
+    todayISO,
+  } from "../../../view";
+
+  /** "YYYY-MM" of the month on screen. Lifted to the router so paging back
+      and switching tabs doesn't snap you to today again. */
+  export let monthCursor: string;
 
   $: s = $app;
   $: streaks = computeStreaks(s);
+  $: year = Number(monthCursor.split("-")[0]);
+  $: month = Number(monthCursor.split("-")[1]) - 1;
+  $: byDate = new Map(s.history.filter((h) => h.dateISO).map((h) => [h.dateISO, h]));
+  $: today = todayISO();
 
-  // Lifted to the router and passed down bound so the visible month survives
-  // switching away from this tab and back, matching the original single-file
-  // component where this lived at the top level.
-  export let monthCursor = todayISO().slice(0, 7);
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-  $: monthDays = (() => {
-    const [y, m] = monthCursor.split("-").map(Number);
-    const first = new Date(y, m - 1, 1);
-    const lead = first.getDay(); // 0 = Sunday
-    const count = new Date(y, m, 0).getDate();
-    const cells: (string | null)[] = Array.from({ length: lead }, () => null);
-    for (let d = 1; d <= count; d++) cells.push(isoOf(new Date(y, m - 1, d)));
-    return cells;
+  /** Leading blanks + every real day, as ISO strings. */
+  $: cells = (() => {
+    const startDow = new Date(year, month, 1).getDay();
+    const days = new Date(year, month + 1, 0).getDate();
+    const out: (string | null)[] = Array(startDow).fill(null);
+    const p = (n: number) => String(n).padStart(2, "0");
+    for (let d = 1; d <= days; d++) out.push(`${year}-${p(month + 1)}-${p(d)}`);
+    return out;
   })();
-  $: worked = new Set(s.history.filter((h) => h.completed.length).map((h) => h.dateISO));
-  $: byDate = new Map(s.history.map((h) => [h.dateISO, h]));
 
   function shiftMonth(delta: number) {
-    const [y, m] = monthCursor.split("-").map(Number);
-    const d = new Date(y, m - 1 + delta, 1);
+    const d = new Date(year, month + delta, 1);
     monthCursor = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function onDay(iso: string) {
+    const rec = byDate.get(iso);
+    if (rec) {
+      showToast(
+        `${iso} · ${rec.completed.length} done · ${hoursStr(rec.totalMs)}` +
+          (rec.unfinished.length ? ` · ${rec.unfinished.length} left open` : ""),
+      );
+      return;
+    }
+    if (!canMarkPto(iso, today)) {
+      showToast("Time off can only be set for today or later");
+      return;
+    }
+    togglePto(iso);
   }
 </script>
 
-<div class="wrap">
-  <h1>Calendar</h1>
-  <p class="muted">
-    Days you finished something. Weekends, time off and revived days bridge a streak without
-    breaking it.
-  </p>
-
-  <div class="row">
-    <button class="btn small" on:click={() => shiftMonth(-1)}>‹</button>
-    <b class="grow center-txt">
-      {MONTHS_FULL[Number(monthCursor.split("-")[1]) - 1]}
-      {monthCursor.split("-")[0]}
-    </b>
-    <button class="btn small" on:click={() => shiftMonth(1)}>›</button>
+<div class="dsec-title">Calendar</div>
+{#if streaks.longest}
+  <div class="cal-streak">
+    🔥 <b>{streaks.current}</b>-day streak{#if streaks.longest > streaks.current}
+      · best {streaks.longest}{/if}
   </div>
+{/if}
 
-  <div class="cal">
-    {#each ["S", "M", "T", "W", "T", "F", "S"] as d, i (i)}
-      <div class="cal-h muted small">{d}</div>
-    {/each}
-    {#each monthDays as iso, i (i)}
-      {#if !iso}
-        <div></div>
-      {:else}
-        {@const rec = byDate.get(iso)}
-        <button
-          class="cal-d"
-          class:worked={worked.has(iso)}
-          class:pto={s.pto.includes(iso)}
-          class:revived={s.revived.includes(iso)}
-          class:today={iso === s.dateISO}
-          title={rec
-            ? `${rec.completed.length} done · ${fmtEst(rec.totalMs)}`
-            : s.pto.includes(iso)
-              ? "Time off"
-              : iso}
-          on:click={() => {
-            if (!canMarkPto(iso, s.dateISO)) {
-              // Never retroactively - that would erase a real missed day.
-              showToast("Time off can only be set for today or later");
-              return;
-            }
-            togglePto(iso);
-          }}
-        >
-          {Number(iso.slice(-2))}
-        </button>
-      {/if}
-    {/each}
+<div class="cal-head">
+  <div class="mnav">
+    <button aria-label="Previous month" on:click={() => shiftMonth(-1)}>‹</button>
+    <span class="mtitle">{MONTHS_FULL[month]} {year}</span>
+    <button aria-label="Next month" on:click={() => shiftMonth(1)}>›</button>
   </div>
-
-  <div class="legend muted small">
-    <span><i class="sw-worked"></i> worked</span>
-    <span><i class="sw-pto"></i> time off</span>
-    <span><i class="sw-rev"></i> revived</span>
-    <span>click a future day to mark time off</span>
+  <div class="cal-legend">
+    <span><i class="g"></i> done</span>
+    <span><i class="o"></i> left something</span>
+    <span><i class="p"></i> day off</span>
   </div>
-
-  <h2>Streak</h2>
-  <div class="tiles">
-    <div class="tile">
-      <div class="k">{streaks.current}</div>
-      <div class="muted small">Current</div>
-    </div>
-    <div class="tile">
-      <div class="k">{streaks.longest}</div>
-      <div class="muted small">Longest</div>
-    </div>
-    <div class="tile">
-      <div class="k">{streaks.life ? "❤️" : "—"}</div>
-      <div class="muted small">Revive</div>
-    </div>
-    <div class="tile">
-      <div class="k">{streaks.activeCount}</div>
-      <div class="muted small">Active days</div>
-    </div>
-  </div>
-  {#if streaks.broken}
-    <div class="callout">
-      <div class="grow">
-        <b>{streaks.broken} broke your streak.</b>
-        <div class="muted small">
-          {streaks.life ? "Spend your revive to bridge it." : "Earn a revive with a 5-day streak."}
-        </div>
-      </div>
-      <button class="btn" disabled={!streaks.life} on:click={useRevive}>❤️ Revive</button>
-    </div>
-  {/if}
 </div>
 
-<style>
-  .wrap {
-    padding: 20px 26px 48px;
-    max-width: 1040px;
-  }
-  h1 {
-    font-size: 26px;
-    letter-spacing: -0.02em;
-    margin: 0 0 4px;
-  }
-  h2 {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--ink-soft);
-    margin: 26px 0 8px;
-  }
-  .muted {
-    color: var(--ink-soft);
-  }
-  .small {
-    font-size: 12px;
-  }
-  .grow {
-    flex: 1;
-    min-width: 0;
-  }
-  .center-txt {
-    text-align: center;
-  }
-  .row {
-    display: flex;
-    align-items: flex-end;
-    gap: 9px;
-    margin-top: 9px;
-    flex-wrap: wrap;
-  }
-  .tiles {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-    gap: 11px;
-    margin: 14px 0;
-  }
-  .tile {
-    padding: 15px;
-    border-radius: var(--r-md);
-    background: var(--card);
-    border: 1px solid var(--line);
-  }
-  .k {
-    font-family: var(--font-num);
-    font-size: 27px;
-    font-variant-numeric: tabular-nums;
-  }
-  .callout {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 13px;
-    border-radius: var(--r-md);
-    background: var(--hero-bg);
-    border: 1px solid var(--hero-line);
-    margin: 12px 0;
-  }
+<div class="cal-grid">
+  {#each DOW as d (d)}
+    <div class="cal-dow">{d}</div>
+  {/each}
+  {#each cells as iso, i (i)}
+    {#if !iso}
+      <div class="cal-cell empty"></div>
+    {:else}
+      {@const rec = byDate.get(iso)}
+      {@const pto = s.pto.includes(iso)}
+      {@const unfinished = !!rec && rec.unfinished.length > 0}
+      <button
+        class="cal-cell clickable"
+        class:pto
+        class:done={!pto && !!rec && !unfinished}
+        class:unfinished={!pto && unfinished}
+        class:today={iso === s.dateISO}
+        title={rec
+          ? `${rec.completed.length} done · ${fmtEst(rec.totalMs)}`
+          : pto
+            ? "Day off"
+            : iso}
+        on:click={() => onDay(iso)}
+      >
+        <span class="dnum">{Number(iso.slice(-2))}</span>
+        {#if rec}
+          <span class="cdot">
+            {#if rec.completed.length}<i class="g"></i>{/if}
+            {#if unfinished}<i class="o"></i>{/if}
+            {#if s.revived.includes(iso)}<i class="s"></i>{/if}
+          </span>
+          <span class="cmini">{rec.completed.length}✓</span>
+        {:else if pto}
+          <span class="cmini">PTO</span>
+        {/if}
+      </button>
+    {/if}
+  {/each}
+</div>
 
-  /* ---- calendar ---- */
-  .cal {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 5px;
-    max-width: 420px;
-    margin: 10px 0;
-  }
-  .cal-h {
-    text-align: center;
-    padding: 3px 0;
-  }
-  .cal-d {
-    aspect-ratio: 1;
-    border-radius: var(--r-sm);
-    border: 1px solid var(--line);
-    background: var(--card);
-    color: var(--ink);
-    font: inherit;
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .cal-d.worked {
-    background: var(--pill-bg);
-    color: var(--accent-ink);
-    font-weight: 640;
-  }
-  .cal-d.pto {
-    background: var(--break-bg);
-    color: var(--break-ink);
-  }
-  .cal-d.revived {
-    border-color: var(--danger);
-  }
-  .cal-d.today {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
-  }
-  .legend {
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-  .legend i {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 3px;
-    margin-right: 4px;
-    vertical-align: middle;
-  }
-  .sw-worked {
-    background: var(--pill-bg);
-  }
-  .sw-pto {
-    background: var(--break-bg);
-  }
-  .sw-rev {
-    border: 2px solid var(--danger);
-  }
-</style>
+<div class="dsec-sub" style="margin-top:14px;">
+  Tap a day with a record to see what it held. Tap today or a future day to mark a day off (PTO).
+  Past days can't be marked off — that's what the revive heart is for.
+</div>

@@ -11,6 +11,7 @@
 //!   * `migration` - one-time legacy Dopamigo MVP -> Remi data migration
 //!   * `commands`  - the IPC surface the Svelte frontend calls
 //!   * `tray`      - the menu-bar icon (drawn in code, no PNG on disk)
+//!   * `updater`   - release checks, and handing an update to install.sh
 //!   * `windows`   - the popover/dashboard windows and their lifecycle
 //!
 //! The frontend owns the state SHAPE. Rust treats it as opaque
@@ -23,6 +24,7 @@ mod paths;
 mod settings;
 mod state_io;
 mod tray;
+mod updater;
 mod windows;
 
 use tray::{QuitReadiness, TrayHandle};
@@ -67,6 +69,11 @@ fn main() {
             commands::quit_app,
             commands::reset_and_uninstall_app,
             commands::quit_listener_ready,
+            commands::get_app_version,
+            commands::get_seen_version,
+            commands::set_seen_version,
+            updater::check_for_update,
+            updater::install_update,
         ])
         .setup(|app| {
             // macOS: run as an Accessory (menu-bar) app - no Dock icon, no

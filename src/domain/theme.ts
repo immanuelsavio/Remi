@@ -5,5 +5,5 @@ import type { Accent, Mode } from "./types";
 export function applyTheme(mode: Mode, accent: Accent): void {
   const root = document.documentElement;
   root.setAttribute("data-mode", mode === "dark" ? "dark" : "light");
-  root.setAttribute("data-accent", ACCENTS.some(([k]) => k === accent) ? accent : "amber");
+  root.setAttribute("data-accent", ACCENTS.some(([k]) => k === accent) ? accent : "remi");
 }

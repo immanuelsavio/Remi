@@ -16,6 +16,7 @@ export {
   type DashTab,
   type Main,
   type Mode,
+  type Remind,
   type State,
   type Sub,
   type WellnessKey,

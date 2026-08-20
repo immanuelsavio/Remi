@@ -3,10 +3,9 @@
    * The dashboard window (900x640): plan a day at desk scale, work it, and see
    * the evidence.
    *
-   * Full-repo equivalent: `Dashboard.svelte` + 7 tab components + an import
-   * modal (~1900 lines). Six tab components live under
-   * `components/dashboard/tabs/`; this file is the thin router: tab strip,
-   * lifecycle, derived state, and the shared overlays.
+   * Seven tab components live under `components/dashboard/tabs/`; this file
+   * is the thin router: tab strip, lifecycle, derived state, and the shared
+   * overlays.
    *
    * DISPLAY-ONLY for effects: `startClock({owner:false})` ticks the timers but
    * fires no notifications and does not own the tray title. Both webviews exist
@@ -38,20 +37,31 @@
     teardownSync,
     toast,
     trackTab,
+    addBacklog,
+    backlogToToday,
+    deleteBacklog,
     dismissWellness,
     snoozeWellness,
     wellnessCopy,
     wellnessNudge,
+    appVersion,
+    checkForUpdate,
+    checkWhatsNew,
+    loadAppVersion,
   } from "../store";
   import { computeStreaks, fmtEst, nowMs, todayISO, todayTrackedMs } from "../view";
-  import type { DashTab, ParsedImport } from "../view";
+  import type { DashTab } from "../view";
 
   import Plan from "../components/dashboard/tabs/Plan.svelte";
   import Today from "../components/dashboard/tabs/Today.svelte";
   import Calendar from "../components/dashboard/tabs/Calendar.svelte";
   import Stats from "../components/dashboard/tabs/Stats.svelte";
   import Data from "../components/dashboard/tabs/Data.svelte";
+  import Notes from "../components/dashboard/tabs/Notes.svelte";
   import Settings from "../components/dashboard/tabs/Settings.svelte";
+  import RemiMark from "../components/shared/RemiMark.svelte";
+  import RemindSheet from "../components/shared/RemindSheet.svelte";
+  import WhatsNew from "../components/dashboard/WhatsNew.svelte";
 
   const TABS: { id: DashTab; label: string }[] = [
     // Plan then Today: the order you actually move through a day.
@@ -60,6 +70,7 @@
     { id: "calendar", label: "Calendar" },
     { id: "stats", label: "Stats" },
     { id: "data", label: "Data" },
+    { id: "notes", label: "Notes" },
     { id: "settings", label: "Settings" },
   ];
 
@@ -76,16 +87,14 @@
   // every switch - see the original single-file Dashboard, where all of this
   // lived at the top level and survived switching tabs.
   // Plan
-  let planDraft = "";
   let stepDrafts: Record<string, string> = {};
   let estDrafts: Record<string, { h: number; m: number }> = {};
-  let remindDrafts: Record<string, string> = {};
-  let noteOpen: string | null = null;
+  // Overlays
+  let backlogDraft = "";
   // Calendar
   let monthCursor = todayISO().slice(0, 7);
   // Data
   let importText = "";
-  let importPreview: ParsedImport | null = null;
   let restoreText = "";
   let confirmRestore = false;
   // Settings
@@ -103,6 +112,16 @@
     autoUpdate = await getAutoUpdate();
     routinesText = $app.standardDaily.join("\n");
     ready = true;
+
+    // Version, then the two version-dependent things. Both are best-effort
+    // and neither blocks the UI: `checkWhatsNew` only speaks up after a real
+    // version change, and the update check is silent unless there is news.
+    await loadAppVersion();
+    void checkWhatsNew();
+    // Honour the Settings toggle: "check automatically" has to actually
+    // mean something, or it is just decoration. Manual checks from the Data
+    // tab always run regardless.
+    if (autoUpdate) void checkForUpdate(true);
 
     // This webview boots at app launch - long before the window is opened - so
     // refresh on focus as a fallback for any missed event.
@@ -161,7 +180,7 @@
 </script>
 
 <div class="dash">
-  <div class="head">
+  <div class="dash-head">
     <button
       class="brand"
       title="Go to Today"
@@ -170,13 +189,12 @@
         trackTab("today");
       }}
     >
-      <span class="remi-mark"></span> Remi
+      <RemiMark size={22} /> Remi
     </button>
-    <div class="tabs" role="tablist" aria-label="Dashboard sections">
+    <div class="dtabs" role="tablist" aria-label="Dashboard sections">
       {#each TABS as t, i (t.id)}
         <button
-          class="tab"
-          class:on={tab === t.id}
+          class="dtab"
           role="tab"
           id="tab-{t.id}"
           aria-selected={tab === t.id}
@@ -194,37 +212,28 @@
       {/each}
     </div>
     <span class="spacer"></span>
-    <span class="muted small">
-      Day {s.dayNum} · {fmtEst(tracked)} tracked
+    <span class="hm">
+      Day {s.dayNum} · {fmtEst(tracked)}
       {#if streaks.current > 1}· 🔥 {streaks.current}{/if}
     </span>
+    <span class="beta" title="Remi {$appVersion} — still in beta">BETA</span>
   </div>
 
-  <div class="body" id="panel" role="tabpanel" aria-labelledby="tab-{tab}">
+  <div class="dash-body" id="panel" role="tabpanel" aria-labelledby="tab-{tab}">
     {#if !ready}
-      <p class="muted pad">Loading…</p>
-
-      <!-- ================= PLAN ================= -->
+      <div class="dsec-sub">Loading…</div>
     {:else if tab === "plan"}
-      <Plan bind:draft={planDraft} bind:stepDrafts bind:estDrafts bind:remindDrafts bind:noteOpen />
-
-      <!-- ================= TODAY ================= -->
+      <Plan bind:stepDrafts bind:estDrafts />
     {:else if tab === "today"}
       <Today {active} {activeSub} {thing} {live} {breakLeft} />
-
-      <!-- ================= CALENDAR ================= -->
     {:else if tab === "calendar"}
       <Calendar bind:monthCursor />
-
-      <!-- ================= STATS ================= -->
     {:else if tab === "stats"}
       <Stats />
-
-      <!-- ================= DATA ================= -->
     {:else if tab === "data"}
-      <Data {dataFolder} bind:importText bind:importPreview bind:restoreText bind:confirmRestore />
-
-      <!-- ================= SETTINGS ================= -->
+      <Data {dataFolder} bind:importText bind:restoreText bind:confirmRestore />
+    {:else if tab === "notes"}
+      <Notes />
     {:else}
       <Settings {autoUpdate} bind:routinesText bind:confirmWipe />
     {/if}
@@ -235,80 +244,140 @@
        popover owns bounded check-ins. -->
   {#if s.overlay === "endday"}
     <div class="scrim">
-      <div class="sheet wide">
-        <h3>End the day?</h3>
-        <p class="muted small">
-          {fmtEst(tracked)} tracked · {s.mains.filter((m) => m.done).length} done. Anything unfinished
-          carries to tomorrow, keeping its notes and steps.
-        </p>
-        <div class="stack">
+      <div class="sheet wide" role="dialog" aria-modal="true">
+        <div class="s-in">
+          <h3>End the day?</h3>
+          <div class="s-text">
+            {fmtEst(tracked)} tracked · {s.mains.filter((m) => m.done).length} done. Anything unfinished
+            carries to tomorrow, keeping its notes and steps.
+          </div>
           <button
-            class="btn accent"
+            class="checkin-yes"
             on:click={() => {
               endDay();
               closeOverlay();
-            }}>End day</button
+            }}>Wrap up the day</button
           >
-          <button class="link" on:click={closeOverlay}>Not yet</button>
+          <button class="checkin-no" on:click={closeOverlay}>Not yet</button>
         </div>
       </div>
     </div>
   {:else if s.overlay === "restart"}
     <div class="scrim">
-      <div class="sheet">
-        <h3>Start today over?</h3>
-        <p class="muted small">
-          Clears today's tasks and timers. Backlog, history and settings stay.
-        </p>
-        <div class="stack">
+      <div class="sheet" role="dialog" aria-modal="true">
+        <div class="s-in">
+          <h3>Start today over?</h3>
+          <div class="s-text">
+            Clears today's tasks and timers. Backlog, history and settings stay.
+          </div>
           <button
-            class="btn accent"
+            class="btn danger"
+            style="width:100%; margin-top:16px;"
             on:click={() => {
               restartDay();
               closeOverlay();
             }}>Restart the day</button
           >
-          <button class="link" on:click={closeOverlay}>Cancel</button>
+          <button class="checkin-no" on:click={closeOverlay}>Cancel</button>
         </div>
       </div>
     </div>
   {:else if s.overlay === "done-choose"}
     <div class="scrim">
-      <div class="sheet">
-        <h3>Nice. What's next?</h3>
-        <div class="stack">
-          {#each s.mains.filter((m) => !m.done) as m (m.id)}
-            <button class="btn" on:click={() => startTask(m.id)}>{m.title}</button>
-          {/each}
-          {#if !s.mains.some((m) => !m.done)}
-            <p class="muted small">Everything on today's list is done.</p>
-          {/if}
-          <button class="link" on:click={closeOverlay}>Just stop for now</button>
+      <div class="sheet" role="dialog" aria-modal="true">
+        <div class="s-in">
+          <h3>Nice. What's next?</h3>
+          <div class="pick-list">
+            {#each s.mains.filter((m) => !m.done) as m (m.id)}
+              <button class="pick" on:click={() => startTask(m.id)}>
+                <span class="pick-head">
+                  <span><span class="pt">{m.title}</span></span>
+                  <span class="tag">start</span>
+                </span>
+              </button>
+            {:else}
+              <div class="s-text">Everything on today's list is done.</div>
+            {/each}
+          </div>
+          <button class="checkin-no" style="margin-top:12px;" on:click={closeOverlay}>
+            Just stop for now
+          </button>
+        </div>
+      </div>
+    </div>
+  {:else if s.overlay === "backlog"}
+    <div class="scrim">
+      <div class="sheet" role="dialog" aria-modal="true">
+        <div class="s-in">
+          <h3>Backlog</h3>
+          <div class="s-text">Ideas and someday-tasks. Pull one into today when you're ready.</div>
+          <div class="newmain-row">
+            <input
+              placeholder="Add to backlog…"
+              autocomplete="off"
+              bind:value={backlogDraft}
+              on:keydown={(e) => {
+                if (e.key !== "Enter" || !backlogDraft.trim()) return;
+                addBacklog(backlogDraft);
+                backlogDraft = "";
+              }}
+            />
+            <button
+              on:click={() => {
+                if (!backlogDraft.trim()) return;
+                addBacklog(backlogDraft);
+                backlogDraft = "";
+              }}>Add</button
+            >
+          </div>
+          <div class="backlog-body" style="padding:10px 0 0;">
+            {#each s.backlog as b (b.id)}
+              <div class="bl-row">
+                <span class="bt">{b.title}</span>
+                <span class="rgt">
+                  <button class="toToday" on:click={() => backlogToToday(b.id)}>→ Today</button>
+                  <button
+                    class="xdel"
+                    title="Remove"
+                    aria-label="Remove"
+                    on:click={() => deleteBacklog(b.id)}>✕</button
+                  >
+                </span>
+              </div>
+            {:else}
+              <div class="bl-empty">Empty — that's a good sign.</div>
+            {/each}
+          </div>
+          <button class="checkin-no" on:click={closeOverlay}>Close</button>
         </div>
       </div>
     </div>
   {/if}
 
+  <RemindSheet />
+  <WhatsNew />
+
   {#if $wellnessNudge}
     {@const c = wellnessCopy($wellnessNudge)}
-    <div class="scrim">
-      <div class="sheet">
-        <h3>{c.icon} {c.title}</h3>
-        <p class="muted small">{c.msg}</p>
-        <div class="stack">
-          <button class="btn accent" on:click={dismissWellness}>Done</button>
-          <button class="btn" on:click={snoozeWellness}>Snooze 15 min</button>
-        </div>
-      </div>
+    <div class="well-nudge" role="status">
+      <span class="wn-ico" aria-hidden="true">{c.icon}</span>
+      <span class="wn-body">
+        <span class="wn-t">{c.title}</span>
+        <span class="wn-m">{c.msg}</span>
+      </span>
+      <span class="wn-acts">
+        <button class="wn-snooze" on:click={snoozeWellness}>Later</button>
+        <button class="wn-ok" on:click={dismissWellness}>OK</button>
+      </span>
     </div>
   {/if}
 
   {#if $toast}
     <div class="toast">
-      <span class="grow">{$toast.msg}</span>
+      <span class="tmsg">{$toast.msg}</span>
       {#if $toast.actionLabel}
         <button
-          class="undo"
+          class="taction"
           on:click={() => {
             $toast?.action?.();
             toast.set(null);
@@ -320,142 +389,27 @@
 </div>
 
 <style>
-  .dash {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    background: var(--bg);
-    color: var(--ink);
-  }
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 0 20px;
-    height: 56px;
-    border-bottom: 1px solid var(--line);
-    background: var(--bg-2);
-    flex: none;
-  }
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-family: var(--font-serif);
-    font-weight: 600;
-    font-size: 17px;
-    color: var(--ink);
-    border: none;
-    background: none;
-    padding: 6px 4px;
-    margin: 0 0 0 -4px;
-    border-radius: var(--r-sm);
-    cursor: pointer;
-  }
-  .brand:hover {
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-  }
   .spacer {
     flex: 1;
   }
-  .body {
-    flex: 1;
-    overflow-y: auto;
+  /* Right-hand day summary in the header - the showcase's `.hist-head .hm`
+     treatment, reused so the mono/faint register matches. */
+  .hm {
+    font-family: var(--font-num);
+    font-size: 11px;
+    color: var(--ink-faint);
+    white-space: nowrap;
   }
-  .pad {
-    padding: 16px;
-  }
-
-  .tabs {
-    display: flex;
-    gap: 2px;
-  }
-  .tab {
-    border: none;
-    background: transparent;
-    color: var(--ink-soft);
-    font-family: var(--font-sans);
-    font-weight: 600;
-    font-size: 13.5px;
-    padding: 9px 14px;
-    border-radius: 8px;
-    cursor: pointer;
-  }
-  .tab:hover:not(.on) {
-    color: var(--ink);
-  }
-  .tab.on {
-    background: var(--card);
-    color: var(--ink);
-    box-shadow: 0 2px 8px -4px rgba(0, 0, 0, 0.25);
-  }
-
-  h3 {
-    font-size: 17px;
-    margin: 0 0 3px;
-  }
-  .muted {
-    color: var(--ink-soft);
-  }
-  .small {
-    font-size: 12px;
-  }
-  .grow {
-    flex: 1;
-    min-width: 0;
-  }
-  .stack {
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-    margin-top: 12px;
-  }
-
-  .scrim {
-    position: absolute;
-    inset: 0;
-    background: color-mix(in srgb, var(--ink) 42%, transparent);
-    display: grid;
-    place-items: center;
-    padding: 20px;
-  }
-  .sheet {
-    width: 100%;
-    max-width: 420px;
-    padding: 18px;
-    border-radius: var(--r-lg);
-    background: var(--bg);
-    border: 1px solid var(--line);
-    box-shadow: 0 16px 44px color-mix(in srgb, var(--ink) 28%, transparent);
-  }
-  .sheet.wide {
-    max-width: 520px;
-  }
-
-  .toast {
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: 22px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 15px;
-    border-radius: var(--r-sm);
-    background: var(--ink);
-    color: var(--bg);
-    font-size: 13px;
-    max-width: 70vw;
-  }
-  .undo {
-    font: inherit;
-    font-weight: 640;
-    border: 0;
-    background: none;
-    color: var(--bg);
-    text-decoration: underline;
-    cursor: pointer;
+  /* Says "don't trust this with anything precious yet" without nagging. */
+  .beta {
+    font-family: var(--font-num);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: #fff;
+    background: var(--break);
+    border-radius: 999px;
+    padding: 3px 8px;
     flex: none;
   }
 </style>

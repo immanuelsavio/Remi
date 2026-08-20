@@ -32,8 +32,12 @@ export function buildLogs(s: State) {
   return {
     app: "remi",
     kind: "usage-logs",
-    schema: 2,
-    containsNoContent: true,
+    schema: 3,
+    // The counters remain content-free. `feedback` is the single exception
+    // and is flagged rather than hidden, so whoever reads this file knows
+    // one field is the user's own prose.
+    containsNoContent: !s.feedback.trim(),
+    feedback: s.feedback.trim(),
     currentDay: s.dayNum,
     settings: {
       checkinMin: s.pingMin,

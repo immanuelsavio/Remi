@@ -17,13 +17,21 @@ export type Overlay =
   null | "checkin" | "switch" | "done-choose" | "restart" | "endday" | "backlog";
 
 /** Dashboard sections, in tab-strip order. */
-export type DashTab = "plan" | "today" | "calendar" | "stats" | "data" | "settings";
+export type DashTab = "plan" | "today" | "calendar" | "stats" | "data" | "notes" | "settings";
 
 export type Mode = "light" | "dark";
-export type Accent = "amber" | "coral" | "rose" | "violet" | "teal" | "blue";
+export type Accent = "remi" | "amber" | "coral" | "rose" | "violet" | "teal" | "blue";
 
-/** The six accent families and their exact hex values. */
+/**
+ * The accent families and their exact hex values.
+ *
+ * `remi` is first and is the default: it is sampled from the app icon
+ * itself (the coral of the sun behind the mouse, #fd8066, deepened enough
+ * that white text on a filled button stays legible). The other six are the
+ * showcase's palette, kept so the accent remains the user's choice.
+ */
 export const ACCENTS: ReadonlyArray<readonly [Accent, string]> = [
+  ["remi", "#ec6a4a"],
   ["amber", "#e0762a"],
   ["coral", "#e2543f"],
   ["rose", "#d24d7a"],
@@ -272,6 +280,16 @@ export interface State {
    * dropping every task the user marked "Tomorrow".
    */
   awaitingStart: boolean;
+  /**
+   * Whether the user has already decided, task by task, what happens to the
+   * work in `carrySeed`.
+   *
+   * End Day asks; an unattended midnight rollover cannot - nobody is there.
+   * Without this flag Start Day could not tell "you already chose to carry
+   * these three" from "these three carried because the clock ticked past
+   * midnight", and would either re-ask every morning or never ask at all.
+   */
+  carryDecided: boolean;
 
   mains: Main[];
   carrySeed: CarrySnapshot[];
@@ -293,10 +311,29 @@ export interface State {
   /** Tasks seeded fresh into every new day ("standard daily" routines). */
   standardDaily: string[];
   /**
-   * Anonymous usage logging. OFF by default: it is described to the user as
-   * opt-in, so it must not start collecting before they say yes.
+   * Anonymous usage logging. ON by default during the beta.
+   *
+   * The counters are content-free by construction (see `buildLogs`), so
+   * "on" costs the user nothing they would object to, and a beta with no
+   * usage signal is a beta nobody learns anything from. It stays a visible
+   * one-click switch in Data, and turning it off stops collection
+   * immediately.
+   *
+   * Existing installs keep whatever they had: `hydrate` only treats an
+   * ABSENT key as "on", and every file written by an earlier build has the
+   * key present.
    */
   loggingOptIn: boolean;
+
+  /**
+   * The user's own words about what is wrong - free text, and the ONE
+   * place in the export that deliberately carries content.
+   *
+   * Kept separate from `metrics` precisely so that boundary stays legible:
+   * everything under `metrics` is counts, this is prose the user chose to
+   * write and chose to send.
+   */
+  feedback: string;
 
   // ---- notification preferences ----
   notifyReminders: boolean;

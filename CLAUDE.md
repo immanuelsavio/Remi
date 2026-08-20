@@ -68,6 +68,17 @@ title. If you add a new background effect to the clock, gate it behind
 `effectOwner` the same way — both windows running effects means duplicate
 notifications and check-ins that can fire in a hidden window.
 
+**`checkDayRollover` is the one deliberate exception, and must stay ABOVE
+the gate.** It is state correctness, not an effect: the owner is the
+popover, which is hidden almost all the time, and a hidden WKWebView has
+its timers throttled or suspended by macOS — so gating rollover behind
+ownership let an app left open overnight silently never roll the day,
+while the visible dashboard ticked away doing nothing about it. It is safe
+in both windows because `rolloverIfNewDay` no-ops once `dateISO === today`
+and saves are compare-and-swap. Before adding anything else above the
+gate, ask: would running this twice be wrong, or would NOT running it be
+wrong?
+
 ## Module boundaries
 
 - Components import actions from `src/store` (the facade at

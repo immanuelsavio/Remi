@@ -6,7 +6,7 @@
  * test really pins down is that time is banked exactly once, into the right
  * place, no matter what the mutation did to the thing being timed.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Captures what would have been persisted, so saves can be asserted on. */
 const saved: Record<string, unknown>[] = [];
@@ -127,12 +127,15 @@ import {
   setFlag,
   setMainTitle,
   setNote,
+  setFeedback,
   setRemind,
   startBreak,
+  startClock,
   startDay,
   startNewMain,
   startSub,
   startTask,
+  stopClock,
   switchToMain,
   toggleSubDone,
   togglePto,
@@ -1469,15 +1472,18 @@ describe("quit is a real persistence barrier", () => {
 
 // ===========================================================================
 describe("usage logging", () => {
-  it("records NOTHING until the user opts in", () => {
+  it("records NOTHING once the user switches it off", () => {
+    // Logging is on by default during the beta, so the guarantee that
+    // matters is the opposite direction: switching it off must stop
+    // collection immediately, not merely stop exporting.
+    setFlag("loggingOptIn", false);
     track("task_started");
     trackClick("start");
     friction("undo_used");
     expect(S().metrics.days).toEqual({});
   });
 
-  it("counts events, clicks and friction once enabled", () => {
-    setFlag("loggingOptIn", true);
+  it("counts events, clicks and friction while enabled", () => {
     track("task_started");
     track("task_started");
     trackClick("start_button");
@@ -1600,5 +1606,238 @@ describe("settings", () => {
     addMain("Observed");
     expect(seen!.mains.some((m) => m.title === "Observed")).toBe(true);
     un();
+  });
+});
+
+// ===========================================================================
+describe("day rollover while the app is left running", () => {
+  // The scenario: the app is open, nobody touches it, and local midnight
+  // passes. Rollover at boot cannot help here - the app never rebooted.
+  afterEach(() => {
+    stopClock();
+    vi.useRealTimers();
+  });
+
+  /** Run exactly one clock tick. */
+  function tick(): void {
+    vi.advanceTimersByTime(1000);
+  }
+
+  it("archives yesterday and carries its open tasks when midnight passes", () => {
+    vi.useFakeTimers();
+    const [a] = ids();
+    startTask(a);
+    rewind(60_000);
+    // The app has been open since yesterday.
+    S().dateISO = "2020-01-01";
+
+    startClock({ owner: true });
+    tick();
+
+    const s = S();
+    expect(s.dateISO).toBe(todayISO());
+    expect(s.dayNum).toBe(2);
+    expect(s.phase).toBe("startday");
+    expect(s.history.map((h) => h.dateISO)).toEqual(["2020-01-01"]);
+    expect(s.carrySeed.map((c) => c.title)).toEqual(["Alpha", "Beta"]);
+    // The session that was running when midnight passed must not keep
+    // accruing into the new day.
+    expect(s.activeMainId).toBeNull();
+    expect(s.startedAt).toBe(0);
+  });
+
+  it("rolls only ONCE even if many ticks pass after midnight", () => {
+    vi.useFakeTimers();
+    S().dateISO = "2020-01-01";
+
+    startClock({ owner: true });
+    tick();
+    tick();
+    tick();
+
+    const s = S();
+    expect(s.dayNum).toBe(2);
+    expect(s.history).toHaveLength(1);
+  });
+
+  it("re-dates without re-rolling when the day was already ended", () => {
+    vi.useFakeTimers();
+    endDay();
+    // End Day keeps YESTERDAY's date and sets awaitingStart.
+    S().dateISO = "2020-01-01";
+    const before = S().carrySeed.length;
+
+    startClock({ owner: true });
+    tick();
+
+    const s = S();
+    expect(s.dateISO).toBe(todayISO());
+    expect(s.dayNum).toBe(2); // NOT 3
+    expect(s.carrySeed).toHaveLength(before);
+  });
+
+  it("rolls the day even in a window that does not own background effects", () => {
+    // Rollover is state correctness, not a notification. The window that
+    // owns effects is the POPOVER, which is hidden most of the time and can
+    // have its timers throttled or suspended by the OS; the dashboard may be
+    // the only window actually ticking. If rollover is gated behind effect
+    // ownership, a day can silently fail to roll.
+    vi.useFakeTimers();
+    S().dateISO = "2020-01-01";
+
+    startClock({ owner: false });
+    tick();
+
+    expect(S().dateISO).toBe(todayISO());
+    expect(S().dayNum).toBe(2);
+  });
+});
+
+// ===========================================================================
+describe("deciding what happens to carried work", () => {
+  it("carries everything by default, and records that nobody was asked", () => {
+    endDay();
+    const s = S();
+    expect(s.carrySeed.map((c) => c.title)).toEqual(["Alpha", "Beta"]);
+    // A plain wrap-up is not a per-task decision, so Start Day must still ask.
+    expect(s.carryDecided).toBe(false);
+  });
+
+  it("applies per-task choices at End Day and marks the carry decided", () => {
+    const [a, b] = ids();
+    endDay({ [a]: "backlog", [b]: "done" });
+
+    const s = S();
+    expect(s.carrySeed).toHaveLength(0);
+    expect(s.backlog.map((x) => x.title)).toEqual(["Alpha"]);
+    expect(s.carryDecided).toBe(true);
+    // "Done" means it really was finished, so it belongs in the archive.
+    expect(s.history[0].completed.map((c) => c.title)).toContain("Beta");
+  });
+
+  it("an unattended rollover leaves the carry UNDECIDED", () => {
+    vi.useFakeTimers();
+    S().dateISO = "2020-01-01";
+    startClock({ owner: true });
+    vi.advanceTimersByTime(1000);
+    stopClock();
+    vi.useRealTimers();
+
+    const s = S();
+    expect(s.carrySeed).toHaveLength(2);
+    expect(s.carryDecided).toBe(false); // nobody was there to ask
+  });
+
+  it("Start Day routes each carried task to today, the backlog, or nowhere", () => {
+    endDay(); // Alpha, Beta both carry
+    startDay(["backlog", "keep"]);
+
+    const s = S();
+    expect(s.mains.map((m) => m.title)).toEqual(["Beta"]);
+    expect(s.backlog.map((x) => x.title)).toEqual(["Alpha"]);
+    expect(s.phase).toBe("today");
+  });
+
+  it("dropping a carried task discards it without touching the backlog", () => {
+    endDay();
+    startDay(["drop", "drop"]);
+
+    const s = S();
+    expect(s.mains).toHaveLength(0);
+    expect(s.backlog).toHaveLength(0);
+    // Yesterday's archive still records that the work existed.
+    expect(s.history[0].unfinished.map((u) => u.title)).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("keeps notes, steps and estimates on a task routed into today", () => {
+    const [a] = ids();
+    setNote(a, null, "the note");
+    setEstimate(a, 1, 30);
+    addSub(a, "a step");
+    endDay();
+    startDay(["keep", "drop"]);
+
+    const m = S().mains[0];
+    expect(m.title).toBe("Alpha");
+    expect(m.note).toBe("the note");
+    expect(m.estMs).toBe(90 * 60_000);
+    expect(m.subs.map((x) => x.title)).toEqual(["a step"]);
+  });
+
+  it("startDay() with no choices keeps everything, as it always did", () => {
+    endDay();
+    startDay();
+    expect(S().mains.map((m) => m.title)).toEqual(["Alpha", "Beta"]);
+    expect(S().carryDecided).toBe(false);
+  });
+});
+
+// ===========================================================================
+describe("feedback and the usage log", () => {
+  it("logging is ON for a fresh install", () => {
+    expect(S().loggingOptIn).toBe(true);
+  });
+
+  it("never re-opts-in someone who turned it off", async () => {
+    const off = { ...freshDay(), loggingOptIn: false, dateISO: todayISO(), awaitingStart: false };
+    loadResult = { kind: "loaded", state: off };
+    await boot();
+    expect(S().loggingOptIn).toBe(false);
+  });
+
+  it("treats an absent flag as on, for files written before it existed", async () => {
+    const legacy: Record<string, unknown> = {
+      ...freshDay(),
+      dateISO: todayISO(),
+      awaitingStart: false,
+    };
+    delete legacy.loggingOptIn;
+    loadResult = { kind: "loaded", state: legacy };
+    await boot();
+    expect(S().loggingOptIn).toBe(true);
+  });
+
+  it("carries the user's note into the exported log, flagged as content", async () => {
+    setFeedback("  the timer jumped back an hour  ");
+    expect(S().feedback).toBe("  the timer jumped back an hour  ");
+
+    writtenFileNames.length = 0;
+    await exportLogs();
+
+    const written = saved.length ? saved : [];
+    expect(writtenFileNames.some((n) => n.startsWith("remi-usage-"))).toBe(true);
+    void written;
+
+    const logs = buildLogs(S());
+    expect(logs.feedback).toBe("the timer jumped back an hour");
+    // The header must stop claiming the file is content-free once it isn't.
+    expect(logs.containsNoContent).toBe(false);
+  });
+
+  it("still reports the log as content-free when there is no note", () => {
+    const logs = buildLogs(S());
+    expect(logs.feedback).toBe("");
+    expect(logs.containsNoContent).toBe(true);
+  });
+
+  it("caps a pasted essay so one report cannot bloat the state file", () => {
+    setFeedback("x".repeat(10_000));
+    expect(S().feedback.length).toBe(4000);
+  });
+
+  it("exports a note even with logging switched off - a report is worth keeping", async () => {
+    setFlag("loggingOptIn", false);
+    setFeedback("still broken");
+    writtenFileNames.length = 0;
+    await exportLogs();
+    expect(writtenFileNames.some((n) => n.startsWith("remi-usage-"))).toBe(true);
+  });
+
+  it("refuses to export when there is neither logging nor a note", async () => {
+    setFlag("loggingOptIn", false);
+    setFeedback("");
+    writtenFileNames.length = 0;
+    await exportLogs();
+    expect(writtenFileNames).toHaveLength(0);
   });
 });

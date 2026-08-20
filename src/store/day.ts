@@ -17,11 +17,35 @@ import {
   showToast,
 } from "./state";
 
-/** Start Day: seed carried tasks + standard-daily routines, then open planning. */
-export function startDay(): void {
+/**
+ * What happens to one carried task when the day starts.
+ *
+ * Distinct from `CarryChoice`, which End Day uses: "done" is meaningful
+ * when wrapping up (you did finish it, you just forgot to tick it) but not
+ * the next morning, because yesterday's record is already archived. What is
+ * left is whether the task belongs in today, in the backlog, or nowhere.
+ */
+export type SeedChoice = "keep" | "backlog" | "drop";
+
+/**
+ * Start Day: seed carried tasks + standard-daily routines, then open planning.
+ *
+ * `choices` runs parallel to `carrySeed`; anything unspecified is kept, so
+ * calling `startDay()` with no arguments behaves exactly as it always did.
+ */
+export function startDay(choices: SeedChoice[] = []): void {
   commit((s) => {
     const seeded: ReturnType<typeof mkMain>[] = [];
-    (s.carrySeed || []).forEach((c) => {
+    const parked: BacklogItem[] = [];
+    (s.carrySeed || []).forEach((c, i) => {
+      const choice = choices[i] ?? "keep";
+      if (choice === "drop") return;
+      if (choice === "backlog") {
+        // Steps are dropped on purpose: the backlog is a one-line parking
+        // lot, and a task pulled back out starts its planning again.
+        parked.push({ id: nid(), title: c.title, remind: c.remind ?? null, note: c.note ?? "" });
+        return;
+      }
       // Rebuild from the durable snapshot so notes/reminders/estimate come back.
       const m = mkMain(
         c.title,
@@ -38,6 +62,7 @@ export function startDay(): void {
       m.estMs = c.estMs || 0;
       seeded.push(m);
     });
+    if (parked.length) s.backlog = [...s.backlog, ...parked];
     // Standard daily routines are added fresh every day, skipping duplicates.
     (s.standardDaily || []).forEach((title) => {
       const t = title.trim();
@@ -47,6 +72,7 @@ export function startDay(): void {
     });
     s.mains = seeded;
     s.carrySeed = [];
+    s.carryDecided = false; // consumed; the next carry starts undecided again
     s.dateISO = todayISO();
     s.awaitingStart = false; // the day has begun; rollover may act normally again
     s.phase = "today";
@@ -124,6 +150,10 @@ export function endDay(choices: Record<string, CarryChoice> = {}): void {
   // survive.
   next.dateISO = s1.dateISO;
   next.awaitingStart = true;
+  // Only a real per-task decision counts. A plain "wrap up the day" carries
+  // everything by default, which is not the same as being asked - so Start
+  // Day should still offer the choice in the morning.
+  next.carryDecided = Object.keys(choices).length > 0;
 
   setState(next);
   showToast(
