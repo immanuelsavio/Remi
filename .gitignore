@@ -40,3 +40,8 @@ Thumbs.db
 # Environment files that may hold secrets
 .env
 .env.local
+.claude/settings.local.json
+.codegraph/
+
+# Claude Code ephemeral state
+.claude/scheduled_tasks.lock
