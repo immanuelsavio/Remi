@@ -51,7 +51,9 @@
   {/if}
 
   <div class="row">
-    <button class="btn accent" on:click={() => completeMain(active.id)}>Done</button>
+    <button class="btn primary" on:click={() => completeMain(active.id)}>
+      <span class="ico" aria-hidden="true">✓</span> Done
+    </button>
     <button class="btn" on:click={() => startBreak(10)}>Break</button>
   </div>
 
@@ -100,10 +102,12 @@
 
 <style>
   .eyebrow {
-    font-size: 11px;
+    font-family: var(--font-num);
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.09em;
-    color: var(--ink-soft);
+    letter-spacing: 0.2em;
+    font-weight: 500;
+    color: var(--accent-ink);
   }
   .muted {
     color: var(--ink-soft);
@@ -126,20 +130,26 @@
   }
   .timer {
     font-family: var(--font-num);
-    font-size: 33px;
+    font-weight: 600;
+    font-size: 34px;
     font-variant-numeric: tabular-nums;
     margin: 6px 0;
   }
   .hero {
     margin: 10px 14px 0;
-    padding: 14px;
+    padding: 16px;
     border-radius: var(--r-lg);
-    background: var(--hero-bg);
+    background: linear-gradient(
+      170deg,
+      var(--hero-bg),
+      color-mix(in srgb, var(--hero-bg) 55%, var(--card))
+    );
     border: 1px solid var(--hero-line);
   }
   .hero-title {
-    font-size: 19px;
-    font-weight: 620;
+    font-family: var(--font-serif);
+    font-size: 20px;
+    font-weight: 600;
     letter-spacing: -0.01em;
     overflow-wrap: anywhere;
   }

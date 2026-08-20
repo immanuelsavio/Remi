@@ -8,7 +8,7 @@
 </script>
 
 <div class="center pad">
-  <div class="ring" aria-hidden="true"></div>
+  <span class="remi-mark big" aria-hidden="true"></span>
   <div class="eyebrow">Day {s.dayNum}</div>
   <h1>{s.dayNum > 1 ? "New day." : "Good morning."}</h1>
   <p class="muted">
@@ -37,7 +37,7 @@
       openDashboard("plan");
     }}
   >
-    ▸ Start my day
+    <span class="ico" aria-hidden="true">▸</span> Start my day
   </button>
 </div>
 
@@ -56,10 +56,12 @@
     padding: 10px 14px;
   }
   .eyebrow {
-    font-size: 11px;
+    font-family: var(--font-num);
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.09em;
-    color: var(--ink-soft);
+    letter-spacing: 0.2em;
+    font-weight: 500;
+    color: var(--accent-ink);
   }
   .muted {
     color: var(--ink-soft);
@@ -68,15 +70,13 @@
     font-size: 12px;
   }
   h1 {
-    font-size: 25px;
+    font-size: 26px;
     margin: 2px 0;
     letter-spacing: -0.02em;
   }
-  .ring {
-    width: 54px;
-    height: 54px;
-    border-radius: 50%;
-    border: 5px solid var(--accent);
-    opacity: 0.9;
+  .remi-mark.big {
+    --mark-size: 44px;
+    border-width: 5px;
+    margin: 0 auto 4px;
   }
 </style>

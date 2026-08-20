@@ -129,12 +129,15 @@
           </button>
         {:else}
           <button
-            class="btn small"
+            class="start-pill"
+            class:outline={s.activeMainId === m.id}
+            disabled={s.activeMainId === m.id}
             on:click={() => (s.activeMainId ? switchToMain(m.id, true) : startTask(m.id))}
           >
-            {s.activeMainId === m.id ? "Running" : s.activeMainId ? "Switch" : "Start ▸"}
+            {s.activeMainId === m.id ? "Running" : s.activeMainId ? "Switch to" : "Start"}
+            {#if s.activeMainId !== m.id}<span class="ico" aria-hidden="true">▸</span>{/if}
           </button>
-          <button class="btn small" on:click={() => completeMain(m.id)}>Done</button>
+          <button class="mini" title="Mark done" on:click={() => completeMain(m.id)}>✓</button>
         {/if}
         <button
           class="mini"
@@ -230,10 +233,12 @@
                 >▸</button
               >
               <button
-                class="mini"
+                class="promote"
                 title="Make this its own task"
-                on:click={() => promoteSub(m.id, sub.id)}>↥</button
+                on:click={() => promoteSub(m.id, sub.id)}
               >
+                ↳ make its own task
+              </button>
             {/if}
             <button class="mini danger" on:click={() => removeSub(m.id, sub.id)}>✕</button>
           </div>

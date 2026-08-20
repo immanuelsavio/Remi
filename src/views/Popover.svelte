@@ -22,6 +22,7 @@
     initErrorCapture,
     initSync,
     registerQuitListener,
+    setOverlay,
     startClock,
     stopClock,
     teardownQuitListener,
@@ -128,6 +129,10 @@
       {#if streaks.current > 1}<span class="muted small">🔥 {streaks.current}</span>{/if}
       <span class="spacer"></span>
       <span class="muted small" title="Tracked today">{fmtEst(tracked)}</span>
+      <button class="tbtn" on:click={() => setOverlay("backlog")}>
+        <span class="ico" aria-hidden="true">▤</span> Backlog{#if s.backlog.length}
+          &nbsp;· {s.backlog.length}{/if}
+      </button>
     </div>
 
     <div class="body">
@@ -203,11 +208,35 @@
   .spacer {
     flex: 1;
   }
-  .eyebrow {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
+  .tbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid var(--line);
+    background: transparent;
     color: var(--ink-soft);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 9px;
+    border-radius: 999px;
+    cursor: pointer;
+    flex: none;
+  }
+  .tbtn:hover {
+    border-color: var(--accent);
+    color: var(--ink);
+  }
+  .tbtn .ico {
+    font-size: 10px;
+  }
+  .eyebrow {
+    font-family: var(--font-num);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-weight: 500;
+    color: var(--accent-ink);
   }
   .muted {
     color: var(--ink-soft);

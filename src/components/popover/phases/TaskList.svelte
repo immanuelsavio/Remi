@@ -29,7 +29,7 @@
 
 <!-- ---------- the list ---------- -->
 <div class="pad tight">
-  <h2>{s.phase === "active" ? "Everything else" : "Ready when you are"}</h2>
+  <h1 class="headline">{s.phase === "active" ? "Everything else" : "Ready when you are"}</h1>
 </div>
 
 {#if !open.length && !done.length}
@@ -76,10 +76,10 @@
         </button>
       {/if}
       <button
-        class="btn small"
+        class="start-pill"
         on:click={() => (s.activeMainId ? switchToMain(m.id, true) : startTask(m.id))}
       >
-        {s.activeMainId ? "Switch" : "Start ▸"}
+        {s.activeMainId ? "Switch to" : "Start"} <span class="ico" aria-hidden="true">▸</span>
       </button>
     </div>
 
@@ -146,8 +146,14 @@
     flex: 1;
     min-width: 0;
   }
+  h1.headline {
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
   h2 {
     font-size: 12px;
+    font-family: var(--font-sans);
     text-transform: uppercase;
     letter-spacing: 0.07em;
     margin: 0;

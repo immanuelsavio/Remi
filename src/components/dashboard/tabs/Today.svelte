@@ -49,7 +49,9 @@
       {#if activeSub}<div class="muted small">in {active.title}</div>{/if}
       <div class="timer">{fmt((thing.accrued ?? 0) + live)}</div>
       <div class="row">
-        <button class="btn accent" on:click={() => completeMain(active.id)}>Done</button>
+        <button class="btn primary" on:click={() => completeMain(active.id)}>
+          <span class="ico" aria-hidden="true">✓</span> Done
+        </button>
         <button class="btn" on:click={() => startBreak(10)}>Break</button>
       </div>
     </div>
@@ -75,12 +77,15 @@
         </button>
       {/if}
       <button
-        class="btn small"
+        class="start-pill"
+        class:outline={s.activeMainId === m.id}
+        disabled={s.activeMainId === m.id}
         on:click={() => (s.activeMainId ? switchToMain(m.id, true) : startTask(m.id))}
       >
-        {s.activeMainId === m.id ? "Running" : s.activeMainId ? "Switch" : "Start ▸"}
+        {s.activeMainId === m.id ? "Running" : s.activeMainId ? "Switch to" : "Start"}
+        {#if s.activeMainId !== m.id}<span class="ico" aria-hidden="true">▸</span>{/if}
       </button>
-      <button class="btn small" on:click={() => completeMain(m.id)}>Done</button>
+      <button class="mini" title="Mark done" on:click={() => completeMain(m.id)}>✓</button>
     </div>
     {#if m._showSubs}
       <div class="steps indent">

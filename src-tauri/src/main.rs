@@ -27,15 +27,22 @@ mod windows;
 
 use tray::{QuitReadiness, TrayHandle};
 use windows::{
-    register_autohide, register_dashboard_hide_on_close, show_popover, PopoverGuard, TrayAnchor,
+    register_autohide, register_dashboard_hide_on_close, show_dashboard, PopoverGuard, TrayAnchor,
 };
 
 fn main() {
     tauri::Builder::default()
-        // A second launch resurfaces the existing popover instead of
-        // starting a new process.
+        // A second launch (double-clicking the .app again, or a Dock/
+        // Spotlight/Desktop-shortcut open while Remi is already running)
+        // opens the DASHBOARD, not the tray popover - the popover's clock
+        // and effects are already running in the background (this window
+        // boots and starts its clock at app launch regardless of
+        // visibility; see Popover.svelte's header note), so "opening the
+        // app" should surface the planning/evidence view, matching what a
+        // normal app icon click means, while the tray stays a click-to-open
+        // overlay.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            show_popover(app);
+            show_dashboard(app);
         }))
         .plugin(tauri_plugin_notification::init())
         .manage(TrayHandle::default())
@@ -78,6 +85,14 @@ fn main() {
             tray::build_tray(handle)?;
             register_autohide(handle);
             register_dashboard_hide_on_close(handle);
+            // Launching Remi (Applications, Dock, Desktop shortcut, first
+            // run) opens the dashboard - the tray icon and its clock/effects
+            // are already running underneath (the popover webview boots and
+            // starts ticking regardless of visibility), so this is the
+            // "widget started, overlay not popped open" behavior: the menu
+            // bar mark is live, but the visible surface you land on is the
+            // dashboard, matching what opening any normal app means.
+            show_dashboard(handle);
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -86,11 +101,14 @@ fn main() {
             // Re-opening an already-running .app on macOS does NOT start a
             // second process - LaunchServices sends a Reopen event instead,
             // so single-instance never fires. Without this, pressing Enter
-            // on Remi in Spotlight appears to do nothing (there are no
-            // windows to restore in a tray-only app).
+            // on Remi in Spotlight, or clicking its Dock/Desktop icon,
+            // appears to do nothing (there are no windows to restore in a
+            // tray-only app). Opens the dashboard, matching single-instance
+            // relaunch above - the tray popover is a click-to-open overlay,
+            // not what "open the app" means.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = &event {
-                show_popover(app);
+                show_dashboard(app);
             }
             let _ = (app, &event);
         });

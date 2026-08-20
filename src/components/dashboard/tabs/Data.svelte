@@ -113,8 +113,16 @@
         recorded
       </div>
     </span>
-    <button class="btn small" on:click={() => setFlag("loggingOptIn", !s.loggingOptIn)}>
-      {s.loggingOptIn ? "On" : "Off"}
+    <button
+      class="pill-switch"
+      class:on={s.loggingOptIn}
+      role="switch"
+      aria-checked={s.loggingOptIn}
+      aria-label="Usage logging"
+      on:click={() => setFlag("loggingOptIn", !s.loggingOptIn)}
+    >
+      <span class="ps-track"><span class="ps-knob"></span></span>
+      <span class="ps-lbl">{s.loggingOptIn ? "On" : "Off"}</span>
     </button>
     <button class="btn small" disabled={!s.loggingOptIn} on:click={exportLogs}>
       Export logs
