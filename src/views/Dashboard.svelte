@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * The dashboard window (900x640): plan a day at desk scale, work it, and see
+   * The dashboard window (opens maximized): plan a day at desk scale, work it, and see
    * the evidence.
    *
    * Seven tab components live under `components/dashboard/tabs/`; this file

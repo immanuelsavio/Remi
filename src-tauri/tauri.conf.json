@@ -34,10 +34,12 @@
         "visible": false,
         "decorations": true,
         "resizable": true,
-        "width": 900,
-        "height": 640,
+        "width": 1180,
+        "height": 800,
         "minWidth": 640,
-        "minHeight": 480
+        "minHeight": 480,
+        "maximized": true,
+        "center": true
       }
     ],
     "security": {

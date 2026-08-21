@@ -23,6 +23,7 @@
   import { ACCENTS, clockLabel } from "../../../view";
   import type { WellnessKey } from "../../../view";
   import Mascot from "../../shared/Mascot.svelte";
+  import TourSign from "../TourSign.svelte";
   import { NAME_MAX } from "../../../domain/name";
   import { COSTUMES } from "../../../domain/types";
 
@@ -81,10 +82,7 @@
       </div>
     </div>
     <div class="tour-cta">
-      <div class="tc-guide">
-        <span class="tc-bubble">Tour's this way</span>
-        <Mascot mood="ready" costume="guide" size={92} />
-      </div>
+      <TourSign size={210} />
       <button class="set-btn" on:click={startTour}>▸ Start the tour</button>
     </div>
   </div>
@@ -497,22 +495,6 @@
     display: flex;
     align-items: center;
     gap: 10px;
-  }
-  .tc-guide {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .tc-bubble {
-    position: relative;
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--accent-ink);
-    background: color-mix(in srgb, var(--accent) 12%, var(--card));
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    padding: 5px 10px;
-    white-space: nowrap;
   }
   .cos-pick {
     display: flex;
