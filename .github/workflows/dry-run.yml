@@ -87,7 +87,7 @@ jobs:
           shasum -a 256 "$ASSET_NAME" > "$ASSET_NAME.sha256"
           echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.package.outputs.asset_name }}
           path: |

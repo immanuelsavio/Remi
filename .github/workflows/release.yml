@@ -137,7 +137,7 @@ jobs:
           tar -C "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -czf "$ASSET_NAME" Remi.app
           echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-asset-${{ matrix.arch_name }}
           path: ${{ steps.package.outputs.asset_name }}
