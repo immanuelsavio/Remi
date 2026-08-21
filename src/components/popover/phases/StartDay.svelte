@@ -13,7 +13,8 @@
    */
   import { app, openDashboard, resumeDay } from "../../../store";
   import type { SeedChoice } from "../../../store";
-  import { fmtEst } from "../../../view";
+  import { fmtEst, todayISO } from "../../../view";
+  import { endedOn } from "../../../domain/day-state";
   import type { computeStreaks } from "../../../view";
   import RemiMark from "../../shared/RemiMark.svelte";
   import Mascot from "../../shared/Mascot.svelte";
@@ -28,6 +29,9 @@
   $: s = $app;
   $: carried = s.carrySeed ?? [];
   $: canDecide = carried.length > 0 && !s.carryDecided;
+  /** Today is already archived: reopening is the only way back in. */
+  $: wrappedToday = endedOn(s, todayISO());
+  $: canReopen = wrappedToday && !!s.resumable;
   $: keeping = carried.filter((_, i) => (choices[String(i)] ?? "keep") === "keep").length;
 
   /**
@@ -57,7 +61,11 @@
         <RemiMark size={54} />
       {/if}
       <div class="eyebrow">Day {s.dayNum}</div>
-      <h1 class="big">{s.dayNum > 1 ? "New day." : "Good morning."}</h1>
+      <h1 class="big">
+        {#if wrappedToday}That's today, done.{:else}{s.dayNum > 1
+            ? "New day."
+            : "Good morning."}{/if}
+      </h1>
 
       {#if deciding}
         <div class="lede">
@@ -110,21 +118,33 @@
         </div>
       {/if}
 
-      <button class="btn accent big" on:click={begin}>
-        <span class="ico" aria-hidden="true">▸</span>
-        {deciding ? `Start with ${keeping}` : "Start my day"}
-      </button>
-      {#if s.resumable && !deciding}
+      {#if canReopen && !deciding}
+        <!-- Today is already archived. A new day belongs to a new date, so
+             reopening is the only move on offer. -->
         <button
-          class="btn"
-          style="margin-top:9px; max-width:220px; width:100%;"
-          title="Put yesterday's tasks and their time back"
+          class="btn accent big"
+          title="Put today's tasks and their time back"
           on:click={resumeDay}
         >
-          ↺ Reopen day {s.resumable.dayNum}
+          <span class="ico" aria-hidden="true">↺</span> Reopen today
         </button>
+      {:else}
+        <button class="btn accent big" on:click={begin}>
+          <span class="ico" aria-hidden="true">▸</span>
+          {deciding ? `Start with ${keeping}` : "Start my day"}
+        </button>
+        {#if s.resumable && !deciding}
+          <button
+            class="btn"
+            style="margin-top:9px; max-width:220px; width:100%;"
+            title="Put yesterday's tasks and their time back"
+            on:click={resumeDay}
+          >
+            ↺ Reopen day {s.resumable.dayNum}
+          </button>
+        {/if}
       {/if}
-      {#if canDecide && !deciding}
+      {#if canDecide && !deciding && !canReopen}
         <button
           class="btn"
           style="margin-top:9px; max-width:220px; width:100%;"

@@ -19,7 +19,8 @@
    */
   import { app, openDashboard, resumeDay, startDay } from "../../store";
   import type { SeedChoice } from "../../store";
-  import { fmtEst } from "../../view";
+  import { fmtEst, todayISO } from "../../view";
+  import { endedOn, lastLoggedDay } from "../../domain/day-state";
   import CarryDecisions from "../shared/CarryDecisions.svelte";
   import Mascot from "../shared/Mascot.svelte";
   import WakeSequence from "./WakeSequence.svelte";
@@ -33,6 +34,21 @@
   /** Only ask again if End Day did not already ask. */
   $: canDecide = carried.length > 0 && !s.carryDecided;
   $: keeping = carried.filter((_, i) => (choices[String(i)] ?? "keep") === "keep").length;
+
+  /**
+   * Today is already in the archive: the user wrapped up and came back the
+   * same day. There is no new day to start — only the closed one to
+   * reopen.
+   *
+   * `endDay` builds tomorrow's state (dayNum + 1, `awaitingStart`) while
+   * keeping today's `dateISO`, so neither of those can answer this; the
+   * archive can. Offering "Start my day" here would skip to tomorrow while
+   * it is still today, stranding everything just filed.
+   */
+  $: wrappedToday = endedOn(s, todayISO());
+  $: endedRecord = lastLoggedDay(s);
+  /** Never strand someone: with nothing to reopen, starting must stay possible. */
+  $: canReopen = wrappedToday && !!s.resumable;
 
   const OPTIONS: { value: SeedChoice; label: string; tone?: "accent" | "done" }[] = [
     { value: "keep", label: "Today", tone: "accent" },
@@ -68,8 +84,16 @@
   <div class="sdgate">
     <!-- Asleep until you say so. -->
     <Mascot mood="sleep" size={132} />
-    <div class="eyebrow">Day {s.dayNum}</div>
-    <h1 class="big">{s.dayNum > 1 ? "New day." : "Good morning."}</h1>
+    <div class="eyebrow">
+      {wrappedToday && endedRecord ? `Day ${endedRecord.day} · wrapped up` : `Day ${s.dayNum}`}
+    </div>
+    <h1 class="big">
+      {#if wrappedToday}
+        That's today, done.
+      {:else}
+        {s.dayNum > 1 ? "New day." : "Good morning."}
+      {/if}
+    </h1>
 
     {#if deciding}
       <p class="lede">
@@ -95,7 +119,12 @@
         </button>
       </div>
     {:else}
-      {#if carried.length}
+      {#if wrappedToday}
+        <p class="lede">
+          You wrapped up today already. Tomorrow's day starts tomorrow — until then, reopening is
+          the way back in, and it restores exactly what you chose on the way out.
+        </p>
+      {:else if carried.length}
         <p class="lede">
           {carried.length} task{carried.length === 1 ? "" : "s"} carried over from yesterday.
         </p>
@@ -118,12 +147,17 @@
       {/if}
 
       <div class="sd-acts">
-        <button class="bk-btn" on:click={begin}>▸ Start my day</button>
-        {#if canDecide}
-          <button class="bk-btn ghost" on:click={() => (deciding = true)}>Decide per task</button>
-        {/if}
-        {#if s.resumable}
-          <button class="bk-btn ghost" on:click={resumeDay}>Reopen yesterday</button>
+        {#if canReopen}
+          <!-- Only reopening. A new day belongs to a new date. -->
+          <button class="bk-btn" on:click={resumeDay}>↺ Reopen today</button>
+        {:else}
+          <button class="bk-btn" on:click={begin}>▸ Start my day</button>
+          {#if canDecide}
+            <button class="bk-btn ghost" on:click={() => (deciding = true)}>Decide per task</button>
+          {/if}
+          {#if s.resumable}
+            <button class="bk-btn ghost" on:click={resumeDay}>Reopen yesterday</button>
+          {/if}
         {/if}
       </div>
     {/if}

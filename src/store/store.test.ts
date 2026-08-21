@@ -1292,6 +1292,28 @@ describe("import, export and restore", () => {
     expect(s.overlay).toBeNull();
   });
 
+  it("follows the other window when IT starts the day", async () => {
+    // The dashboard starts the day; the tray must stop offering to start
+    // it. `awaitingStart` flipping is a change of what the day IS, not a
+    // background edit within it, so the local screen has to give way -
+    // otherwise the popover sits on "Start my day" for a day that is
+    // already running.
+    loadResult = {
+      kind: "loaded",
+      state: { ...freshDay(4), dateISO: todayISO(), phase: "startday", awaitingStart: true },
+    };
+    await boot();
+    expect(S().phase).toBe("startday");
+
+    loadResult = {
+      kind: "loaded",
+      state: { ...freshDay(4), dateISO: todayISO(), phase: "today", awaitingStart: false },
+    };
+    await reloadFromDisk();
+    expect(S().phase).toBe("today");
+    expect(S().awaitingStart).toBe(false);
+  });
+
   it("still keeps this window's screen when the reload is the SAME day", async () => {
     // The anti-yank behaviour is the point of preserving these, and must
     // survive the fix above: a background save in the other window must not

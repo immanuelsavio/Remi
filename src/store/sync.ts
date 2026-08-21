@@ -50,7 +50,13 @@ export async function reloadFromDisk(): Promise<void> {
     //
     // When the persisted day is not the day this window is looking at, the
     // local view belongs to a day that no longer exists. Take theirs.
-    const sameDay = next.dateISO === cur.dateISO && next.dayNum === cur.dayNum;
+    // `awaitingStart` is part of the identity here, not a detail: when the
+    // OTHER window starts the day, this one must stop offering to start it.
+    // That is a change of what the day IS, not a background edit within it.
+    const sameDay =
+      next.dateISO === cur.dateISO &&
+      next.dayNum === cur.dayNum &&
+      next.awaitingStart === cur.awaitingStart;
     if (sameDay) {
       next.phase = cur.phase;
       next.overlay = cur.overlay;

@@ -156,7 +156,11 @@ export async function flushSave(): Promise<void> {
             // Same-day guard as `reloadFromDisk` - see the long note there.
             // Re-imposing this window's view on top of a NEWER DAY is what
             // turned a lost CAS at midnight into an endless write war.
-            if (next.dateISO === cur.dateISO && next.dayNum === cur.dayNum) {
+            if (
+              next.dateISO === cur.dateISO &&
+              next.dayNum === cur.dayNum &&
+              next.awaitingStart === cur.awaitingStart
+            ) {
               next.phase = cur.phase;
               next.overlay = cur.overlay;
               next.subsOpen = cur.subsOpen;
