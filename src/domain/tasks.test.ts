@@ -8,6 +8,7 @@ import {
   daySnapshot,
   elapsedOf,
   enrichSnapshot,
+  isTiming,
   mainTotal,
   todayAsRecord,
   todayTrackedMs,
@@ -117,5 +118,38 @@ describe("roll-ups", () => {
     const rec = todayAsRecord(s, T0);
     expect(rec.totalMs).toBe(960_000);
     expect(rec.interruptions).toEqual([]);
+  });
+});
+
+describe("isTiming", () => {
+  it("is true only when a task is assigned AND the clock has a start", () => {
+    const s = freshDay();
+    s.activeMainId = "a";
+    s.startedAt = T0;
+    expect(isTiming(s)).toBe(true);
+  });
+
+  it("is FALSE during a break, which parks the task but stops the clock", () => {
+    // `startBreak` deliberately keeps `activeMainId` so the same work can be
+    // resumed, and sets `startedAt = 0`. Anything that asks "is something
+    // running?" by looking at `activeMainId` alone gets this backwards - and
+    // that is exactly the bug this exists to prevent: every task in the list
+    // offering "Switch" (which files an interruption) while nothing at all
+    // was on the clock.
+    const s = freshDay();
+    s.activeMainId = "a";
+    s.startedAt = 0;
+    s.breakEndsAt = T0 + 600_000;
+    expect(isTiming(s)).toBe(false);
+  });
+
+  it("is false with no task assigned", () => {
+    const s = freshDay();
+    s.startedAt = T0;
+    expect(isTiming(s)).toBe(false);
+  });
+
+  it("is false on a fresh day", () => {
+    expect(isTiming(freshDay())).toBe(false);
   });
 });

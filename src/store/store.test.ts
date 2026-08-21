@@ -553,6 +553,25 @@ describe("breaks", () => {
     expect(s.mains[0].accrued).toBeGreaterThanOrEqual(5_900);
   });
 
+  it("starting a task during a break ENDS the break", () => {
+    // Reported from real use: on a break, the dashboard still lists every
+    // task, so pressing one is the obvious way back to work. Leaving
+    // `breakEndsAt` in the future meant the clock ran while the app still
+    // believed it was on a break - and the break-over notification would
+    // fire later at a task that had been running for minutes.
+    const [a, b] = ids();
+    startTask(a);
+    startBreak(10);
+    expect(S().breakEndsAt).toBeGreaterThan(Date.now());
+
+    startTask(b);
+    const s = S();
+    expect(s.breakEndsAt).toBe(0);
+    expect(s.phase).toBe("active");
+    expect(s.activeMainId).toBe(b);
+    expect(s.startedAt).toBeGreaterThan(0);
+  });
+
   it("resumes the SAME work after the break", () => {
     const [a] = ids();
     startTask(a);

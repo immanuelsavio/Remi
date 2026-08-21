@@ -23,7 +23,7 @@
     toggleSubDone,
     track,
   } from "../../../store";
-  import { fmt, fmtEst, mainTotal, nowMs } from "../../../view";
+  import { fmt, fmtEst, isTiming, mainTotal, nowMs } from "../../../view";
   import type { Main, Sub } from "../../../view";
   import RemindControl from "../../shared/RemindControl.svelte";
   import ConfirmSubSheet from "../../shared/ConfirmSubSheet.svelte";
@@ -42,6 +42,15 @@
   let pendingRemove: { mainId: string; subId: string } | null = null;
 
   $: s = $app;
+  /**
+   * Whether anything is ACTUALLY on the clock - not merely assigned.
+   *
+   * A break keeps `activeMainId` so it can resume the same work while
+   * `startedAt` is 0. Keying the button off `activeMainId` made every row
+   * say "Switch" during a break, and a switch files an interruption, so
+   * the obvious way back to work invented evidence of being interrupted.
+   */
+  $: timing = isTiming(s);
   $: running = s.phase === "active" && !!thing;
   $: onBreak = s.phase === "break";
   $: openCount = s.mains.filter((m) => !m.done).length;
@@ -175,9 +184,9 @@
           {:else}
             <button
               class="startbtn"
-              on:click={() => (s.activeMainId ? switchToMain(m.id, true) : startTask(m.id))}
+              on:click={() => (timing ? switchToMain(m.id, true) : startTask(m.id))}
             >
-              {s.activeMainId ? "Switch" : "Start"} ▸
+              {timing ? "Switch" : "Start"} ▸
             </button>
           {/if}
         {/if}

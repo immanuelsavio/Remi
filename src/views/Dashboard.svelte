@@ -61,6 +61,8 @@
   import Notes from "../components/dashboard/tabs/Notes.svelte";
   import Settings from "../components/dashboard/tabs/Settings.svelte";
   import RemiMark from "../components/shared/RemiMark.svelte";
+  import Mascot from "../components/shared/Mascot.svelte";
+  import { mascotMood } from "../domain/mascot";
   import RemindSheet from "../components/shared/RemindSheet.svelte";
   import WhatsNew from "../components/dashboard/WhatsNew.svelte";
   import Tour from "../components/dashboard/Tour.svelte";
@@ -168,6 +170,14 @@
   $: tracked = todayTrackedMs(s, $nowMs);
   $: streaks = computeStreaks(s);
   $: breakLeft = Math.max(0, s.breakEndsAt - $nowMs);
+  /**
+   * The header mouse is the dashboard's equivalent of the menu-bar mark:
+   * always present, and reporting the same thing the tray icon does. Every
+   * other mount is tied to a screen you have to already be on, which left
+   * an ordinary working day - tasks on the list, one of them running -
+   * showing the mascot nowhere in this window at all.
+   */
+  $: headMood = mascotMood(s, $nowMs);
 
   /** Arrow keys move between tabs; Home/End jump to the ends. */
   function onTabKeydown(e: KeyboardEvent, i: number) {
@@ -194,7 +204,12 @@
         trackTab("today");
       }}
     >
-      <RemiMark size={22} /> Remi
+      {#if s.mascotOn}
+        <Mascot mood={headMood} size={34} />
+      {:else}
+        <RemiMark size={22} />
+      {/if}
+      Remi
     </button>
     <div class="dtabs" role="tablist" aria-label="Dashboard sections">
       {#each TABS as t, i (t.id)}

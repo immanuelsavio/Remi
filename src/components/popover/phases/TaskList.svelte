@@ -16,7 +16,7 @@
     switchToMain,
     toggleSubDone,
   } from "../../../store";
-  import { fmtEst, nowMs } from "../../../view";
+  import { fmtEst, isTiming, nowMs } from "../../../view";
   import RemindControl from "../../shared/RemindControl.svelte";
   import ConfirmSubSheet from "../../shared/ConfirmSubSheet.svelte";
   import Mascot from "../../shared/Mascot.svelte";
@@ -32,6 +32,15 @@
   let pendingRemove: { mainId: string; subId: string } | null = null;
 
   $: s = $app;
+  /**
+   * Whether anything is ACTUALLY on the clock - not merely assigned.
+   *
+   * A break keeps `activeMainId` so it can resume the same work while
+   * `startedAt` is 0. Keying the button off `activeMainId` made every row
+   * say "Switch" during a break, and a switch files an interruption, so
+   * the obvious way back to work invented evidence of being interrupted.
+   */
+  $: timing = isTiming(s);
 
   function commitTask() {
     if (draft.trim()) addMain(draft);
@@ -115,9 +124,9 @@
           </button>
           <button
             class="startbtn"
-            on:click={() => (s.activeMainId ? switchToMain(m.id, true) : startTask(m.id))}
+            on:click={() => (timing ? switchToMain(m.id, true) : startTask(m.id))}
           >
-            {s.activeMainId ? "Switch" : "Start"} ▸
+            {timing ? "Switch" : "Start"} ▸
           </button>
         {/if}
       </div>

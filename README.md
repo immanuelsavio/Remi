@@ -108,7 +108,12 @@ bash remi-install.sh --launch
 curl -fsSL https://raw.githubusercontent.com/immanuelsavio/remi/main/install.sh | bash
 ```
 
-Installs to `~/Applications/Remi.app` by default.
+**Installs to `~/Applications/Remi.app`** — your home folder's Applications, not the
+system-wide `/Applications`. This is why no password is needed. Finder's sidebar shortcut
+called **Applications** points at `/Applications`, so a default install will _not_ appear
+there; use Spotlight, Launchpad, or open `~/Applications` directly (in Finder:
+<kbd>⇧</kbd><kbd>⌘</kbd><kbd>G</kbd> → `~/Applications`). Pass `--system` to install to
+`/Applications` instead, which will prompt for your password.
 
 | Flag               | Effect                                                   |
 | ------------------ | -------------------------------------------------------- |
@@ -138,6 +143,9 @@ to approve it once, or run the `xattr` command above.
 
 **Look at your menu bar, not your Dock.** Remi has no Dock icon by design. Opening it from
 Finder or Spotlight brings up the dashboard; the menu-bar mark is always there.
+
+**Can't find the app itself?** A default install lives in `~/Applications`, not
+`/Applications` — see the note above. `ls ~/Applications/Remi.app` settles it.
 
 ---
 

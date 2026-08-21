@@ -270,6 +270,13 @@ export function beginSession(s: State, mainId: string, subId: string | null, now
   s.subsOpen = false;
   s.ciStage = 0; // a new episode restarts the bounded check-in sequence
   s.phase = "active";
+  // Starting work ENDS a break, whatever time was left on it. Every start
+  // path funnels through here, so this is the one place that has to know.
+  // Without it the clock ran while the app still believed it was on a
+  // break: `phase` said "active" but `breakEndsAt` sat in the future, so
+  // the break-over notification fired later at a task that had been
+  // running for minutes.
+  s.breakEndsAt = 0;
 }
 
 /** THE session transaction. See the file header; do not bypass it. */

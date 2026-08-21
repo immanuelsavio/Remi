@@ -37,6 +37,7 @@ export {
   completedToday,
   daySnapshot,
   elapsedOf,
+  isTiming,
   mainTotal,
   todayAsRecord,
   todayTrackedMs,

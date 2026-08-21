@@ -37,7 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs, asleep through a break, awake and waiting when nothing is timed,
   and a single burst of celebration when today's list is clear. It is a
   preference (**Settings → Appearance**), and `prefers-reduced-motion`
-  freezes it at the OS level regardless.
+  freezes it at the OS level regardless. It also has a permanent home in the
+  dashboard header, beside the wordmark — the window's equivalent of the
+  menu-bar mark. Without it, an ordinary working day (tasks on the list, one
+  of them running) showed the mascot nowhere in that window at all, since
+  every other mount is tied to a screen you have to already be on.
 - **Task map** — every task with its steps as branches. Switch to any node,
   or promote a step into a task of its own with `⤴`, keeping the time it
   already accrued.
@@ -108,6 +112,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-task decision reopens exactly as it was. Time already banked is never
   rewound — reopening undoes the dispositions, not the clock.
 - **The calendar shows today**, not only archived days.
+- **Every task offered "Switch" during a break, and never "Start".** A break
+  deliberately keeps `activeMainId` so the same work can be resumed while
+  `startedAt` is 0, but the task lists asked "is something running?" by
+  looking at `activeMainId` alone. So the one obvious way back to work
+  filed an interruption against a task that had not been running — the
+  break screen's own comment had documented this state for a while.
+  Answered with `isTiming()` in `domain/tasks.ts` instead.
+- **Starting a task during a break now ends the break.** `breakEndsAt` was
+  left in the future, so the clock ran while the app still believed it was
+  on a break and the break-over notification fired later at a task that had
+  been running for minutes. Cleared in `beginSession`, which every start
+  path funnels through.
 
 ### Changed
 

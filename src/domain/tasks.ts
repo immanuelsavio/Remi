@@ -12,6 +12,23 @@ import type {
 } from "./types";
 
 /** Live elapsed for one item: its banked time plus any running session. */
+/**
+ * Is a session GENUINELY on the clock right now?
+ *
+ * `activeMainId` alone is not the answer and never was: a break parks the
+ * task so it can be resumed, keeping `activeMainId` while setting
+ * `startedAt` to 0 because nothing is accruing. Recovery and
+ * awaiting-start do the same.
+ *
+ * Anything that asks "is something running?" must ask it this way. Asking
+ * it the other way is what made every task in the list offer **Switch**
+ * during a break - a switch files an interruption, so the one obvious way
+ * back to work also fabricated evidence of being interrupted.
+ */
+export function isTiming(s: State): boolean {
+  return !!s.activeMainId && s.startedAt > 0;
+}
+
 export function elapsedOf(
   item: Main | Sub | null,
   isActive: boolean,
