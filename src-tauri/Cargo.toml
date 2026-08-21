@@ -30,7 +30,7 @@ dirs = "6"
 # naive remove-then-rename would leave a window where the live state file is
 # absent.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
 
 # macOS-only: the popover has to draw over ANOTHER app's fullscreen Space.
 # That needs an NSPanel with NSWindowStyleMaskNonactivatingPanel (so giving
