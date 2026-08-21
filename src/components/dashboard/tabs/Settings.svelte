@@ -26,12 +26,10 @@
   import Mascot from "../../shared/Mascot.svelte";
   import TourSign from "../TourSign.svelte";
   import { FULL_NAME_MAX, NAME_MAX } from "../../../domain/name";
-  import { COSTUMES, COSTUME_GROUPS } from "../../../domain/types";
+  import { COSTUMES } from "../../../domain/types";
 
   /** A Svelte template cannot parse a TS `as` cast, so the narrowing lives
       here. Validated against the shared list rather than trusted. */
-  const labelFor = (key: string) => COSTUMES.find(([k]) => k === key)?.[1] ?? key;
-
   function pickCostume(v: string) {
     const found = COSTUMES.find(([k]) => k === v);
     if (found) setCostume(found[0]);
@@ -211,13 +209,8 @@
         value={s.mascotCostume}
         on:change={(e) => pickCostume(e.currentTarget.value)}
       >
-        <option value="none">No costume</option>
-        {#each COSTUME_GROUPS as [group, keys] (group)}
-          <optgroup label={group}>
-            {#each keys as key (key)}
-              <option value={key}>{labelFor(key)}</option>
-            {/each}
-          </optgroup>
+        {#each COSTUMES as [key, label] (key)}
+          <option value={key}>{label}</option>
         {/each}
       </select>
     </div>

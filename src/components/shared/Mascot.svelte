@@ -87,13 +87,6 @@
       <text class="z3" x="86" y="4">z</text>
     </g>
 
-    <!-- Behind the body: capes, which have to sit under the mouse or they
-         look like a bib. -->
-    <g class="behind" aria-hidden="true">
-      <path class="cape" d="M56 22 C 32 24, 8 40, 2 68 C 26 64, 48 50, 60 32 Z" />
-      <path class="cape-clasp" d="M52 24 h13" />
-    </g>
-
     <g class="whole">
       <!-- Tail: one stroke, anchored at the rump so it can sweep. -->
       <path class="tail" d="M24 45 C 13 46, 7 39, 11 33 C 13 30, 17 30, 18 33" />
@@ -203,27 +196,6 @@
         <path d="M39 8 a 14 10 0 0 1 28 -1 q -14 7 -28 1 Z" />
         <circle cx="67" cy="3" r="2.8" />
       </g>
-      <!-- Domino mask: the caped hero and the vigilante. -->
-      <g class="cs-mask">
-        <path d="M56 27 q 12 -5 24 0 q -1 8 -6 9 q -7 1 -12 -1 q -5 -2 -6 -8 Z" />
-        <circle class="cs-eyewhite" cx="65" cy="31.5" r="3" />
-        <circle class="cs-eyewhite" cx="75" cy="32" r="2.6" />
-      </g>
-      <!-- Visored helmet and a chest light: the armoured hero. -->
-      <g class="cs-armor">
-        <path class="cs-helm" d="M38 9 a 15 13 0 0 1 30 0 Z" />
-        <rect class="cs-helm" x="33" y="8" width="40" height="4.5" rx="2.2" />
-        <rect class="cs-visor" x="58" y="28" width="24" height="7" rx="3.5" />
-        <circle class="cs-core" cx="52" cy="43" r="6.5" />
-        <circle class="cs-core-in" cx="52" cy="43" r="2.8" />
-      </g>
-      <!-- Singlet and moustache: the strongman. -->
-      <g class="cs-strong">
-        <rect class="cs-belt" x="34" y="38" width="32" height="9" rx="4" />
-        <circle class="cs-buckle" cx="50" cy="42.5" r="5" />
-        <path class="cs-tash" d="M72 41 q 5 -3.5 9 -1.5" />
-        <path class="cs-tash" d="M72 41 q 4.5 2.5 8.5 1" />
-      </g>
       <!-- Pointed hat: the sorcerer. -->
       <g class="cs-sorcerer">
         <path d="M52 2 L68 24 L34 24 Z" />
@@ -232,7 +204,8 @@
           d="M50 14 l1.6 3.4 3.7 .4 -2.8 2.5 .8 3.6 -3.3 -1.9 -3.3 1.9 .8 -3.6 -2.8 -2.5 3.7 -.4 Z"
         />
       </g>
-      <!-- Bubble helmet: the ranger. -->
+      <!-- Bubble helmet: the astronaut. A helmet is a head prop, which is
+           why this one survived when the rest of the costume set did not. -->
       <g class="cs-ranger">
         <circle class="cs-dome" cx="68" cy="29" r="23" />
         <path class="cs-shine" d="M56 16 q 7 -6 16 -5" />
@@ -903,56 +876,17 @@
     stroke-linecap: round;
   }
 
-  .behind > * {
-    display: none;
-  }
-  .cape {
-    fill: var(--coral);
-    opacity: 0.92;
-  }
-  .cape-clasp {
-    stroke: var(--coral);
-    stroke-width: 3.4;
-    stroke-linecap: round;
-  }
-  .cs-mask path {
-    fill: var(--teal);
-  }
-  .cs-eyewhite {
-    fill: #fff;
-  }
-  .cs-helm {
-    fill: var(--teal);
-  }
-  .cs-visor {
-    fill: var(--coral);
-  }
-  .cs-core {
-    fill: var(--teal);
-  }
-  .cs-core-in {
-    fill: #fff;
-  }
-  .cs-belt {
-    fill: var(--teal);
-  }
-  .cs-buckle {
-    fill: var(--coral);
-    stroke: #fff;
-    stroke-width: 1.6;
-  }
-  .cs-tash {
-    stroke: var(--fur-line);
-    stroke-width: 2.4;
-    stroke-linecap: round;
-    fill: none;
-  }
   .cs-sorcerer path {
     fill: var(--teal);
   }
   .cs-sorcerer .cs-star {
     fill: var(--coral);
   }
+
+  .c-sorcerer .cs-sorcerer {
+    display: block;
+  }
+
   .cs-dome {
     fill: color-mix(in srgb, var(--teal) 14%, transparent);
     stroke: var(--teal);
@@ -967,28 +901,6 @@
   }
   .cs-collar {
     fill: var(--teal);
-  }
-
-  /* ---- heroes. Original designs: no borrowed emblem, silhouette or name. */
-  .c-caped .cs-mask {
-    display: block;
-  }
-  .c-caped .cape,
-  .c-caped .cape-clasp {
-    display: block;
-  }
-  .c-armored .cs-armor {
-    display: block;
-  }
-  .c-strongman .cs-strong {
-    display: block;
-  }
-  .c-sorcerer .cs-sorcerer {
-    display: block;
-  }
-  .c-sorcerer .cape,
-  .c-sorcerer .cape-clasp {
-    display: block;
   }
   .c-ranger .cs-ranger {
     display: block;

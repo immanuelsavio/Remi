@@ -28,6 +28,7 @@
     setAccent,
     setFlag,
     setMode,
+    setCostume,
     setFullName,
     setUserName,
     toggleWellness,
@@ -39,12 +40,19 @@
   import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
   import { ACCENTS } from "../../view";
   import { stepAt, TOUR_LENGTH } from "../../domain/tour";
+  import { COSTUMES } from "../../domain/types";
   import Mascot from "../shared/Mascot.svelte";
 
   $: s = $app;
   $: i = $tourStep;
   $: step = i === null ? null : stepAt(i);
   $: first = !s.tourSeen;
+
+  /** A Svelte template cannot parse a TS `as` cast, so narrow here. */
+  function pickCostume(v: string) {
+    const found = COSTUMES.find(([k]) => k === v);
+    if (found) setCostume(found[0]);
+  }
 
   // Shifts the dashboard clear of the docked panel while the tour is up, so
   // the demo tasks stay visible instead of hiding underneath it.
@@ -159,6 +167,22 @@
             <p class="tf-note">
               Printed at the top of a work record. Someone else reads that page, so a nickname is
               usually the wrong thing to put on it.
+            </p>
+
+            <label class="tf-lbl" for="tour-costume">What Remi wears</label>
+            <select
+              id="tour-costume"
+              class="tf-name"
+              disabled={!s.mascotOn}
+              value={s.mascotCostume}
+              on:change={(e) => pickCostume(e.currentTarget.value)}
+            >
+              {#each COSTUMES as [key, label] (key)}
+                <option value={key}>{label}</option>
+              {/each}
+            </select>
+            <p class="tf-note">
+              Changeable any time in Settings. The tour dresses itself regardless.
             </p>
           </div>
         {:else if step.ask === "look"}
