@@ -45,6 +45,23 @@ describe("the guided tour script", () => {
     expect(TOUR_STEPS[TOUR_LENGTH - 1].id).toBe("settings");
   });
 
+  it("asks for a name and for the on/off preferences", () => {
+    // These are the steps that WRITE something. If either disappears, a
+    // first run silently stops asking and the settings are never seen.
+    const asks = TOUR_STEPS.filter((s) => s.ask).map((s) => s.ask);
+    expect(asks).toContain("name");
+    expect(asks).toContain("prefs");
+  });
+
+  it("asks for the name early, before the walkthrough proper", () => {
+    // The name is used in the copy the rest of the tour shows, so asking
+    // late means the tour addresses you by name only after it stops
+    // talking to you.
+    const nameAt = TOUR_STEPS.findIndex((s) => s.ask === "name");
+    expect(nameAt).toBeGreaterThanOrEqual(0);
+    expect(nameAt).toBeLessThanOrEqual(2);
+  });
+
   it("clamps an out-of-range index instead of returning undefined", () => {
     expect(stepAt(-5)).toBe(TOUR_STEPS[0]);
     expect(stepAt(9999)).toBe(TOUR_STEPS[TOUR_LENGTH - 1]);

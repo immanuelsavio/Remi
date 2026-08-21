@@ -12,6 +12,15 @@
 
 import type { DashTab } from "./types";
 
+/**
+ * A step that ASKS rather than tells.
+ *
+ * "name" collects what to call the user; "prefs" is the on/off switches.
+ * Both write real settings, so both show the CURRENT value: on a retake the
+ * tour is a way to change your mind, not a form that resets you.
+ */
+export type TourAsk = "name" | "prefs";
+
 export interface TourStep {
   /** Stable id, so a step can be linked to or resumed by name. */
   id: string;
@@ -22,6 +31,8 @@ export interface TourStep {
   tab?: DashTab;
   /** Rendered as a small aside, for the "why" behind a feature. */
   aside?: string;
+  /** Show a control here instead of only prose. */
+  ask?: TourAsk;
 }
 
 export const TOUR_STEPS: TourStep[] = [
@@ -32,6 +43,15 @@ export const TOUR_STEPS: TourStep[] = [
       "Remi tracks where your day actually goes - not just what you worked on, but how long it really took and what kept getting in the way.",
       "This takes about a minute. You can close it any time and pick it up again from Settings.",
     ],
+  },
+  {
+    id: "your-name",
+    title: "What should Remi call you?",
+    ask: "name",
+    body: [
+      "Remi will use this in a few greetings. Skip it and nothing anywhere says a name - the app just talks to you without one.",
+    ],
+    aside: "You can change or clear this any time in Settings.",
   },
   {
     id: "menubar",
@@ -147,6 +167,17 @@ export const TOUR_STEPS: TourStep[] = [
       "Everything is a plain JSON file on this machine. Back it up, restore it, or open the folder and read it.",
       "Nothing is uploaded. If something's broken, the feedback box travels with your logs when you export them.",
     ],
+  },
+  {
+    id: "your-prefs",
+    title: "A few switches",
+    ask: "prefs",
+    tab: "settings",
+    body: [
+      "These are the ones worth deciding up front. Everything here is in Settings too, so nothing is locked in.",
+    ],
+    aside:
+      "Retaking the tour shows whatever you have now, so you can change your mind rather than start over.",
   },
   {
     id: "settings",
