@@ -4,7 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { get, writable } from "svelte/store";
 
 import type { DashTab, Overlay, Phase } from "../domain/types";
-import { commit, dashTab } from "./state";
+import { S, commit, dashTab, restoreFromDemo, sessionTx } from "./state";
+import { demoDay } from "../domain/demo";
 import { TOUR_LENGTH, TOUR_STEPS } from "../domain/tour";
 
 /**
@@ -40,9 +41,46 @@ export function closeRemind(): void {
  * state about their work, so it never reaches `state.json`. Only the
  * "already seen" flag is persisted.
  */
+export { restoreFromDemo };
+
 export const tourStep = writable<number | null>(null);
 
+/**
+ * Put the demo day on screen and hold the real one aside.
+ *
+ * Routed through `sessionTx` and not a bare `commit`, because replacing
+ * `mains` while a task is on the clock is exactly the mutation that
+ * transaction exists for: the running session has to be banked to the
+ * user's OWN task before the list is swapped, or its time is either lost or
+ * credited to a demo task that does not exist.
+ *
+ * The snapshot is written to state rather than kept in a module variable,
+ * so quitting mid-tour is recoverable - see `restoreFromDemo` on boot.
+ */
+function enterDemo(): void {
+  if (S().demoRestore) return; // already in it; never snapshot the demo
+  sessionTx((s, now) => {
+    const { mains, interruptions } = demoDay(now, s.dateISO);
+    s.demoRestore = JSON.parse(
+      JSON.stringify({
+        mains: s.mains,
+        interruptions: s.interruptions,
+        activeMainId: s.activeMainId,
+        activeSubId: s.activeSubId,
+        startedAt: s.startedAt,
+        phase: s.phase,
+      }),
+    );
+    s.mains = mains;
+    s.interruptions = interruptions;
+    s.activeMainId = null;
+    s.activeSubId = null;
+    return null;
+  });
+}
+
 export function startTour(): void {
+  enterDemo();
   tourStep.set(0);
   dashTab.set(TOUR_STEPS[0].tab ?? get(dashTab));
 }
@@ -69,9 +107,16 @@ export function tourBack(): void {
   if (tab) dashTab.set(tab);
 }
 
-/** Close the tour and remember that it ran, however it ended. */
+/**
+ * Close the tour and remember that it ran, however it ended.
+ *
+ * Finishing, skipping and the close button all land here, which is the
+ * point: there is exactly one way out, so the demo cannot survive an exit
+ * nobody thought about.
+ */
 export function endTour(): void {
   tourStep.set(null);
+  restoreFromDemo();
   commit((s) => void (s.tourSeen = true));
 }
 

@@ -94,6 +94,8 @@ import { computeStreaks } from "../domain/streaks";
 import { freshDay, mkMain } from "../domain/defaults";
 import { mainTotal } from "../domain/tasks";
 import { todayISO } from "../domain/dates";
+import { isDemoId } from "../domain/demo";
+import { forPersist } from "../domain/persistence-shape";
 import type { State } from "../domain/types";
 import {
   S,
@@ -1740,6 +1742,89 @@ describe("usage logging", () => {
 });
 
 // ===========================================================================
+describe("the tour's demo day", () => {
+  it("puts the demo in front of you and holds your real day aside", () => {
+    const [a] = ids();
+    startTask(a);
+
+    startTour();
+    const s = S();
+    expect(s.mains.map((m) => m.id)).toEqual(["demo-1", "demo-2", "demo-3"]);
+    expect(s.interruptions.length).toBeGreaterThan(0);
+    // The real day is kept, not discarded.
+    expect(s.demoRestore?.mains.some((m) => m.id === a)).toBe(true);
+  });
+
+  it("banks a running session BEFORE the demo replaces the list", () => {
+    // Swapping `mains` out from under a live session is exactly the
+    // mutation `sessionTx` exists for. Skipping it would attribute the
+    // elapsed time to a demo task, or lose it outright.
+    const [a] = ids();
+    startTask(a);
+    rewind(9_000);
+
+    startTour();
+    const held = S().demoRestore?.mains.find((m) => m.id === a);
+    expect(held?.accrued).toBeGreaterThanOrEqual(8_500);
+    // Nothing of the user's is left on the clock while the demo is up.
+    expect(S().activeMainId).not.toBe(a);
+  });
+
+  it("gives every task back when the tour ends, with no demo left behind", () => {
+    const [a, b] = ids();
+    addSub(a, "a real step");
+    startTour();
+    endTour();
+
+    const s = S();
+    expect(s.mains.map((m) => m.id)).toEqual([a, b]);
+    expect(s.mains[0].subs[0].title).toBe("a real step");
+    expect(s.mains.some((m) => isDemoId(m.id))).toBe(false);
+    expect(s.interruptions.some((i) => isDemoId(i.id))).toBe(false);
+    expect(s.demoRestore).toBeNull();
+  });
+
+  it("restores just the same when the tour is SKIPPED part-way", () => {
+    const [a, b] = ids();
+    startTour();
+    tourNext();
+    tourNext();
+    endTour(); // the Skip button is the same call
+
+    expect(S().mains.map((m) => m.id)).toEqual([a, b]);
+    expect(S().demoRestore).toBeNull();
+  });
+
+  it("shows the SAME demo every time it is run", () => {
+    startTour();
+    const first = S().mains.map((m) => `${m.id}:${m.title}:${m.subs.length}`);
+    endTour();
+    startTour();
+    const second = S().mains.map((m) => `${m.id}:${m.title}:${m.subs.length}`);
+    endTour();
+    expect(second).toEqual(first);
+  });
+
+  it("recovers a day stranded by quitting mid-tour", async () => {
+    // The demo lives in real state, so a crash or a quit while it is up
+    // would otherwise leave the user booting into someone else's tasks
+    // with their own day nowhere in sight.
+    const [a] = ids();
+    startTour();
+    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
+
+    // Persist mid-tour, then boot from exactly that.
+    const stranded = JSON.parse(JSON.stringify(forPersist(S(), Date.now())));
+    loadResult = { kind: "loaded", state: stranded };
+    await boot();
+
+    const s = S();
+    expect(s.mains.some((m) => isDemoId(m.id))).toBe(false);
+    expect(s.mains.some((m) => m.id === a)).toBe(true);
+    expect(s.demoRestore).toBeNull();
+  });
+});
+
 describe("settings", () => {
   it("flips each boolean preference", () => {
     for (const key of [

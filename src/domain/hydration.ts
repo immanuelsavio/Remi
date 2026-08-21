@@ -115,6 +115,9 @@ export function normalizeBacklog(v: unknown): BacklogItem[] {
     }));
 }
 
+/** Hoisted to module scope: `hydrate` reads it before its old position. */
+const PHASES: Phase[] = ["startday", "today", "active", "break", "recovery"];
+
 export function hydrate(raw: unknown): State {
   const base = freshDay();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
@@ -285,9 +288,25 @@ export function hydrate(raw: unknown): State {
   s.wakeAnimation = s.wakeAnimation !== false;
   s.roamOn = s.roamOn === true;
   s.userName = normalizeName(s.userName);
+  // A demo snapshot off disk is restored on boot, so a malformed one would
+  // hand the user garbage as their real day. Drop it instead: the worst
+  // case becomes "the demo stayed", which is visible and fixable, rather
+  // than "my tasks turned into nonsense".
+  if (isObj(s.demoRestore)) {
+    const d = s.demoRestore as Record<string, unknown>;
+    s.demoRestore = {
+      mains: normalizeMains(arr(d.mains)),
+      interruptions: arr<unknown>(d.interruptions).filter(isObj).map(normalizeInterruption),
+      activeMainId: typeof d.activeMainId === "string" ? d.activeMainId : null,
+      activeSubId: typeof d.activeSubId === "string" ? d.activeSubId : null,
+      startedAt: Math.max(0, num(d.startedAt)),
+      phase: PHASES.includes(d.phase as State["phase"]) ? (d.phase as State["phase"]) : "today",
+    };
+  } else {
+    s.demoRestore = null;
+  }
   s.privateNotifications = s.privateNotifications === true;
 
-  const PHASES: Phase[] = ["startday", "today", "active", "break", "recovery"];
   s.phase = PHASES.includes(s.phase) ? s.phase : "today";
   if (!s.dateISO) s.dateISO = todayISO();
 

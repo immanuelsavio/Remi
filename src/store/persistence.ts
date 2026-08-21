@@ -17,6 +17,7 @@ import {
   loadKind,
   loadMessage,
   registerSaveScheduler,
+  restoreFromDemo,
   rolloverIfNewDay,
   setSaveTimerHandle,
   setState,
@@ -269,6 +270,11 @@ export async function boot(): Promise<void> {
   } catch {
     /* settings unreadable - keep whatever the state file had */
   }
+
+  // A demo stranded by quitting mid-tour would otherwise boot the user into
+  // someone else's tasks with their own day nowhere in sight. Undone before
+  // anything is shown.
+  restoreFromDemo();
 
   const s = S();
   applyTheme(s.mode, s.accent);

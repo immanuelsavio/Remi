@@ -257,6 +257,28 @@ export function bankActive(s: State, now: number): void {
   target.accrued += Math.max(0, now - s.startedAt);
 }
 
+/**
+ * Give the real day back, exactly as it was.
+ *
+ * Safe to call when no demo is up, which is what lets both the boot path
+ * and every tour exit share one route out.
+ */
+export function restoreFromDemo(): void {
+  if (!S().demoRestore) return;
+  sessionTx((s) => {
+    const d = s.demoRestore!;
+    s.mains = d.mains;
+    s.interruptions = d.interruptions;
+    s.activeMainId = d.activeMainId;
+    s.activeSubId = d.activeSubId;
+    s.phase = d.phase;
+    s.demoRestore = null;
+    // `sessionTx` re-stamps `startedAt` itself; handing back the old
+    // absolute value would bank the whole tour as worked time.
+    return d.activeMainId ? { mainId: d.activeMainId, subId: d.activeSubId } : null;
+  });
+}
+
 /** Drop active/return-stack references to things that no longer exist. */
 export function repairActiveRefs(s: State): void {
   const m = s.activeMainId ? s.mains.find((x) => x.id === s.activeMainId) : null;

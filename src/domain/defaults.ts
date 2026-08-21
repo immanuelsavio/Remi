@@ -79,6 +79,7 @@ export function freshDay(dayNum = 1, carry: CarrySnapshot[] = []): State {
     wakeAnimation: true,
     roamOn: false,
     userName: "",
+    demoRestore: null,
     trayTimer: true,
     pto: [],
     life: 1,

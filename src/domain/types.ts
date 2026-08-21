@@ -280,6 +280,16 @@ export interface Metrics {
 }
 
 /** A snapshot of the day End Day just closed, so it can be reopened. */
+/** What the tour's demo replaces, kept so it can be put back exactly. */
+export interface DemoSnapshot {
+  mains: Main[];
+  interruptions: InterruptionEvent[];
+  activeMainId: string | null;
+  activeSubId: string | null;
+  startedAt: number;
+  phase: Phase;
+}
+
 export interface ResumableDay {
   dayNum: number;
   dateISO: string;
@@ -475,6 +485,20 @@ export interface State {
    * bar, and nothing downstream clamps it.
    */
   userName: string;
+  /**
+   * The real day, held aside while the tour's demo is on screen.
+   *
+   * The demo lives in ordinary state rather than a parallel preview mode,
+   * because a tour that points at a fake screen is not pointing at the app.
+   * The price is that quitting mid-tour would otherwise strand someone in
+   * someone else's tasks, so this snapshot is PERSISTED and restored on the
+   * next boot, not merely held in memory.
+   *
+   * Non-null means "a demo is currently up". There is no separate flag: two
+   * sources of truth for the same fact is how you end up restoring twice or
+   * never.
+   */
+  demoRestore: DemoSnapshot | null;
   /**
    * Show the running task's elapsed time next to the menu-bar icon.
    *
