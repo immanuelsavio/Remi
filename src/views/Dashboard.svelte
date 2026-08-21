@@ -62,6 +62,7 @@
   import Settings from "../components/dashboard/tabs/Settings.svelte";
   import RemiMark from "../components/shared/RemiMark.svelte";
   import Mascot from "../components/shared/Mascot.svelte";
+  import StartDayGate from "../components/dashboard/StartDayGate.svelte";
   import { mascotMood } from "../domain/mascot";
   import RemindSheet from "../components/shared/RemindSheet.svelte";
   import WhatsNew from "../components/dashboard/WhatsNew.svelte";
@@ -221,6 +222,7 @@
           aria-controls="panel"
           tabindex={tab === t.id ? 0 : -1}
           bind:this={tabRefs[i]}
+          disabled={s.awaitingStart}
           on:click={() => {
             dashTab.set(t.id);
             trackTab(t.id);
@@ -242,6 +244,10 @@
   <div class="dash-body" id="panel" role="tabpanel" aria-labelledby="tab-{tab}">
     {#if !ready}
       <div class="dsec-sub">Loading…</div>
+    {:else if s.awaitingStart}
+      <!-- The day has not begun. Nothing behind this gate is meaningful
+           yet, and the carried tasks are the one thing that is. -->
+      <StartDayGate />
     {:else if tab === "plan"}
       <Plan bind:stepDrafts bind:estDrafts />
     {:else if tab === "today"}
