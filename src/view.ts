@@ -35,6 +35,7 @@ export {
 export { fmt, fmtEst, hoursStr } from "./domain/time";
 export {
   completedToday,
+  daySnapshot,
   elapsedOf,
   mainTotal,
   todayAsRecord,

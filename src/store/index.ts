@@ -49,6 +49,7 @@ export {
   endDay,
   pruneEmpty,
   restartDay,
+  resumeDay,
   startDay,
   togglePto,
   useRevive,

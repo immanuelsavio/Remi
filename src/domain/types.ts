@@ -248,6 +248,18 @@ export interface Metrics {
   errors: { at: number; day: number; where: string; msg: string }[];
 }
 
+/** A snapshot of the day End Day just closed, so it can be reopened. */
+export interface ResumableDay {
+  dayNum: number;
+  dateISO: string;
+  mains: Main[];
+  interruptions: InterruptionEvent[];
+  /** End Day can move tasks here, so undoing must put the list back. */
+  backlog: BacklogItem[];
+  /** End Day can award a revive at a 5-day streak; undoing takes it back. */
+  life: number;
+}
+
 /** The complete persisted product state. */
 export interface State {
   /** Schema version, for future migrations. */
@@ -385,6 +397,24 @@ export interface State {
   breakPausedTitle: string;
 
   metrics: Metrics;
+
+  /**
+   * Everything needed to undo the last End Day.
+   *
+   * Ending the day empties `mains` and archives the day, which is correct -
+   * but it is also the single most destructive-looking thing the app does,
+   * and it is one click away with no confirmation of what happened. Without
+   * this, a mis-click costs you the shape of your whole day: which tasks
+   * were done, what time each had accrued, what interrupted you.
+   *
+   * A snapshot rather than a derivation because the archive cannot be run
+   * backwards - a `CompletedRecord` keeps a title and a duration, not the
+   * `Main` it came from, so completed tasks could never be rebuilt from
+   * `history` and `carrySeed` alone.
+   *
+   * Cleared the moment the next day actually starts.
+   */
+  resumable?: ResumableDay | null;
 
   /** Wall-clock ms of the last successful save. See `bankOrphanSession`. */
   savedAt: number;

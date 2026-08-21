@@ -88,6 +88,8 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 import { buildLogs } from "../domain/usage-logs";
+import { hydrate } from "../domain/hydration";
+import { daySnapshot } from "../domain/tasks";
 import { computeStreaks } from "../domain/streaks";
 import { freshDay, mkMain } from "../domain/defaults";
 import { mainTotal } from "../domain/tasks";
@@ -119,6 +121,7 @@ import {
   removeMain,
   removeSub,
   restartDay,
+  resumeDay,
   restoreBackup,
   resumeFromBreak,
   resumeWelcomeBack,
@@ -1839,5 +1842,100 @@ describe("feedback and the usage log", () => {
     writtenFileNames.length = 0;
     await exportLogs();
     expect(writtenFileNames).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+describe("reopening a day that was ended", () => {
+  it("puts the tasks back with their accrued time", () => {
+    const [a, b] = ids();
+    startTask(a);
+    rewind(90_000);
+    completeMain(a);
+    const doneMs = S().mains.find((m) => m.id === a)?.accrued ?? 0;
+    expect(doneMs).toBeGreaterThanOrEqual(89_000);
+
+    endDay();
+    expect(S().mains).toHaveLength(0); // the day is closed
+    expect(S().resumable).not.toBeNull();
+
+    resumeDay();
+
+    const s = S();
+    expect(s.mains.map((m) => m.title)).toEqual(["Alpha", "Beta"]);
+    // The COMPLETED task comes back too - it could never be rebuilt from
+    // carrySeed, which only holds unfinished work.
+    expect(s.mains.find((m) => m.id === a)?.done).toBe(true);
+    expect(s.mains.find((m) => m.id === a)?.accrued).toBe(doneMs);
+    expect(s.mains.find((m) => m.id === b)?.done).toBe(false);
+  });
+
+  it("un-archives the day so the calendar stops calling it finished", () => {
+    const before = S().dateISO;
+    endDay();
+    expect(S().history.map((h) => h.dateISO)).toContain(before);
+
+    resumeDay();
+    expect(S().history.map((h) => h.dateISO)).not.toContain(before);
+    expect(S().dayNum).toBe(1);
+    expect(S().awaitingStart).toBe(false);
+    expect(S().phase).toBe("today");
+    expect(S().carrySeed).toHaveLength(0);
+  });
+
+  it("undoes a per-task backlog move made on the way out", () => {
+    const [a] = ids();
+    endDay({ [a]: "backlog" });
+    expect(S().backlog.map((x) => x.title)).toEqual(["Alpha"]);
+
+    resumeDay();
+    expect(S().backlog).toHaveLength(0);
+    expect(S().mains.map((m) => m.title)).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("stops offering a reopen once the next day has actually started", () => {
+    endDay();
+    expect(S().resumable).not.toBeNull();
+    startDay();
+    expect(S().resumable).toBeNull();
+  });
+
+  it("is a no-op, not a crash, when there is nothing to reopen", () => {
+    expect(S().resumable ?? null).toBeNull();
+    resumeDay();
+    expect(S().mains.map((m) => m.title)).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("survives a round trip through the persisted shape", () => {
+    endDay();
+    const onDisk = JSON.parse(JSON.stringify(S()));
+    const back = hydrate(onDisk);
+    expect(back.resumable?.dayNum).toBe(1);
+    expect(back.resumable?.mains.map((m) => m.title)).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("drops a malformed snapshot rather than trusting it", () => {
+    const back = hydrate({ ...freshDay(), resumable: { dayNum: "junk", mains: "nope" } });
+    expect(back.resumable?.mains).toEqual([]);
+    expect(back.resumable?.dayNum).toBe(1);
+  });
+});
+
+// ===========================================================================
+describe("today on the calendar", () => {
+  it("is visible from live state, before End Day archives anything", () => {
+    const [a] = ids();
+    startTask(a);
+    rewind(120_000);
+    completeMain(a);
+
+    const s = S();
+    expect(s.history).toHaveLength(0); // nothing archived yet
+    // The calendar folds today in from `daySnapshot` rather than history.
+    const today = daySnapshot(s, Date.now());
+    expect(today.dateISO).toBe(s.dateISO);
+    expect(today.completed.map((c) => c.title)).toContain("Alpha");
+    expect(today.unfinished.map((u) => u.title)).toContain("Beta");
+    expect(today.totalMs).toBeGreaterThanOrEqual(119_000);
   });
 });

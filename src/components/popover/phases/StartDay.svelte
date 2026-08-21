@@ -11,7 +11,7 @@
    * If the choice was already made at End Day (`carryDecided`), it is not
    * asked again.
    */
-  import { app, openDashboard, startDay } from "../../../store";
+  import { app, openDashboard, resumeDay, startDay } from "../../../store";
   import type { SeedChoice } from "../../../store";
   import { fmtEst } from "../../../view";
   import type { computeStreaks } from "../../../view";
@@ -97,6 +97,16 @@
         <span class="ico" aria-hidden="true">▸</span>
         {deciding ? `Start with ${keeping}` : "Start my day"}
       </button>
+      {#if s.resumable && !deciding}
+        <button
+          class="btn"
+          style="margin-top:9px; max-width:220px; width:100%;"
+          title="Put yesterday's tasks and their time back"
+          on:click={resumeDay}
+        >
+          ↺ Reopen day {s.resumable.dayNum}
+        </button>
+      {/if}
       {#if canDecide && !deciding}
         <button
           class="btn"

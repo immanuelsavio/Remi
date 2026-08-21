@@ -14,9 +14,11 @@
   import {
     canMarkPto,
     computeStreaks,
+    daySnapshot,
     fmtEst,
     hoursStr,
     MONTHS_FULL,
+    nowMs,
     todayISO,
   } from "../../../view";
 
@@ -28,7 +30,18 @@
   $: streaks = computeStreaks(s);
   $: year = Number(monthCursor.split("-")[0]);
   $: month = Number(monthCursor.split("-")[1]) - 1;
-  $: byDate = new Map(s.history.filter((h) => h.dateISO).map((h) => [h.dateISO, h]));
+  /**
+   * The month's records, INCLUDING today.
+   *
+   * `history` only gains a day once End Day archives it, so a calendar
+   * built from history alone shows today as blank until the evening - the
+   * one day you most want to see. Today is folded in from live state
+   * instead, using the same snapshot End Day will eventually store.
+   */
+  $: byDate = new Map([
+    ...s.history.filter((h) => h.dateISO).map((h) => [h.dateISO, h] as const),
+    ...(s.awaitingStart ? [] : [[s.dateISO, daySnapshot(s, $nowMs)] as const]),
+  ]);
   $: today = todayISO();
 
   const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -97,12 +110,13 @@
       {@const rec = byDate.get(iso)}
       {@const pto = s.pto.includes(iso)}
       {@const unfinished = !!rec && rec.unfinished.length > 0}
+      {@const isToday = iso === s.dateISO}
       <button
         class="cal-cell clickable"
         class:pto
-        class:done={!pto && !!rec && !unfinished}
+        class:done={!pto && !!rec && !unfinished && (!isToday || !!rec.completed.length)}
         class:unfinished={!pto && unfinished}
-        class:today={iso === s.dateISO}
+        class:today={isToday}
         title={rec
           ? `${rec.completed.length} done · ${fmtEst(rec.totalMs)}`
           : pto

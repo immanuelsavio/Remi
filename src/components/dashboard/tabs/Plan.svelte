@@ -21,6 +21,7 @@
     removeSub,
     setEstimate,
     setMainTitle,
+    resumeDay,
     setOverlay,
     setSubTitle,
     startDay,
@@ -88,6 +89,13 @@
     </div>
     <div class="gb-acts">
       <button class="bk-btn" on:click={() => startDay()}>▸ Start my day</button>
+      {#if s.resumable}
+        <button
+          class="bk-btn ghost"
+          title="Put the tasks and time from day {s.resumable.dayNum} back"
+          on:click={resumeDay}>↺ Reopen day {s.resumable.dayNum}</button
+        >
+      {/if}
     </div>
   </div>
 {:else if activeThing}

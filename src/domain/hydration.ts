@@ -14,7 +14,9 @@ import { todayISO } from "./dates";
 import { nid } from "./ids";
 import { ACCENTS } from "./types";
 import type {
+  BacklogItem,
   InterruptionEvent,
+  Main,
   Metrics,
   Phase,
   Remind,
@@ -47,21 +49,24 @@ export function looksLikeRemiState(raw: unknown): raw is Record<string, unknown>
   );
 }
 
-export function hydrate(raw: unknown): State {
-  const base = freshDay();
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
-  const s = { ...base, ...(raw as Partial<State>) } as State;
+// Only real objects are tasks. `filter(Boolean)` is NOT enough: a bare
+// string in the array is truthy and would survive as a phantom
+// "Untitled" task.
+const isObj = (x: unknown): x is Record<string, unknown> =>
+  !!x && typeof x === "object" && !Array.isArray(x);
+const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+const num = (v: unknown, f = 0) => (Number.isFinite(Number(v)) ? Number(v) : f);
+const str = (v: unknown, f = "") => (typeof v === "string" ? v : f);
 
-  // Only real objects are tasks. `filter(Boolean)` is NOT enough: a bare
-  // string in the array is truthy and would survive as a phantom
-  // "Untitled" task.
-  const isObj = (x: unknown): x is Record<string, unknown> =>
-    !!x && typeof x === "object" && !Array.isArray(x);
-  const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
-  const num = (v: unknown, f = 0) => (Number.isFinite(Number(v)) ? Number(v) : f);
-  const str = (v: unknown, f = "") => (typeof v === "string" ? v : f);
-
-  s.mains = arr<unknown>(s.mains)
+/**
+ * Coerce anything into a well-formed task list.
+ *
+ * Module-level and exported because the resume snapshot holds a second
+ * `Main[]` off disk, and a value that is only validated in one of the two
+ * places it is read is not validated at all.
+ */
+export function normalizeMains(v: unknown): Main[] {
+  return arr<unknown>(v)
     .filter(isObj)
     .map((m) => {
       const out = mkMain(str(m.title, "Untitled"));
@@ -91,8 +96,11 @@ export function hydrate(raw: unknown): State {
         });
       return out;
     });
+}
 
-  s.backlog = arr<unknown>(s.backlog)
+/** Coerce anything into a well-formed backlog. */
+export function normalizeBacklog(v: unknown): BacklogItem[] {
+  return arr<unknown>(v)
     .filter(isObj)
     .map((b) => ({
       id: str(b.id) || nid(),
@@ -100,6 +108,15 @@ export function hydrate(raw: unknown): State {
       remind: normalizeRemind(b.remind),
       note: str(b.note),
     }));
+}
+
+export function hydrate(raw: unknown): State {
+  const base = freshDay();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
+  const s = { ...base, ...(raw as Partial<State>) } as State;
+
+  s.mains = normalizeMains(s.mains);
+  s.backlog = normalizeBacklog(s.backlog);
 
   s.carrySeed = arr<unknown>(s.carrySeed)
     .filter(isObj)
@@ -276,6 +293,22 @@ export function hydrate(raw: unknown): State {
   // Absent means "not decided": a file written before this field existed
   // came from a build that never asked, so asking once is the safe default.
   s.carryDecided = (raw as Record<string, unknown>).carryDecided === true;
+
+  // The resume snapshot is a convenience, not durable work: anything that
+  // does not look right is dropped rather than repaired.
+  const rawResume = (raw as Record<string, unknown>).resumable;
+  s.resumable = isObj(rawResume)
+    ? {
+        dayNum: Math.max(1, num(rawResume.dayNum, 1)),
+        dateISO: str(rawResume.dateISO),
+        mains: normalizeMains(rawResume.mains),
+        interruptions: arr<unknown>(rawResume.interruptions)
+          .filter(isObj)
+          .map(normalizeInterruption),
+        backlog: normalizeBacklog(rawResume.backlog),
+        life: Math.max(0, Math.min(1, num(rawResume.life))),
+      }
+    : null;
 
   // Transient fields always start clean.
   s.overlay = null;

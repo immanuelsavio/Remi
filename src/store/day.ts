@@ -5,7 +5,7 @@ import { daySnapshot, enrichSnapshot, carrySnapshot } from "../domain/tasks";
 import { computeStreaks } from "../domain/streaks";
 import { todayISO } from "../domain/dates";
 import { nid } from "../domain/ids";
-import type { BacklogItem, CarrySnapshot } from "../domain/types";
+import type { BacklogItem, CarrySnapshot, ResumableDay } from "../domain/types";
 import {
   S,
   bankActive,
@@ -73,6 +73,8 @@ export function startDay(choices: SeedChoice[] = []): void {
     s.mains = seeded;
     s.carrySeed = [];
     s.carryDecided = false; // consumed; the next carry starts undecided again
+    // The new day has begun; yesterday is no longer reopenable.
+    s.resumable = null;
     s.dateISO = todayISO();
     s.awaitingStart = false; // the day has begun; rollover may act normally again
     s.phase = "today";
@@ -110,10 +112,40 @@ export function endDay(choices: Record<string, CarryChoice> = {}): void {
     else carry.push(carrySnapshot(m));
   });
 
+  // TWO commits, with the resume snapshot taken between them, because the
+  // two halves must be undone differently:
+  //
+  //   settle  - bank the running session, close any open interruption, stop
+  //             the clock. Reopening the day must NOT rewind this: the time
+  //             was worked, and restarting a timer that has been stopped for
+  //             hours would invent time nobody spent.
+  //   apply   - the per-task choices (mark done, move to backlog). These ARE
+  //             the decision being undone, so they land after the snapshot.
   commit((s) => {
     bankActive(s, now);
     // An interruption still open at End Day would archive with a 0 duration.
     closeOpenInterruption(s, now);
+    s.activeMainId = null;
+    s.activeSubId = null;
+    s.startedAt = 0;
+  });
+
+  const settled = S();
+  // Deep copy: the commit below mutates these task objects in place, and a
+  // snapshot that aliased them would be quietly rewritten by the very
+  // changes it exists to undo.
+  const resumable: ResumableDay = JSON.parse(
+    JSON.stringify({
+      dayNum: settled.dayNum,
+      dateISO: settled.dateISO,
+      mains: settled.mains,
+      interruptions: settled.interruptions,
+      backlog: settled.backlog,
+      life: settled.life,
+    }),
+  );
+
+  commit((s) => {
     s.mains.forEach((m) => {
       if (doneIds.has(m.id)) {
         m.done = true;
@@ -121,9 +153,6 @@ export function endDay(choices: Record<string, CarryChoice> = {}): void {
       }
     });
     s.backlog = [...s.backlog, ...backlogAdds];
-    s.activeMainId = null;
-    s.activeSubId = null;
-    s.startedAt = 0;
   });
 
   const s1 = S();
@@ -150,6 +179,7 @@ export function endDay(choices: Record<string, CarryChoice> = {}): void {
   // survive.
   next.dateISO = s1.dateISO;
   next.awaitingStart = true;
+  next.resumable = resumable;
   // Only a real per-task decision counts. A plain "wrap up the day" carries
   // everything by default, which is not the same as being asked - so Start
   // Day should still offer the choice in the morning.
@@ -160,7 +190,42 @@ export function endDay(choices: Record<string, CarryChoice> = {}): void {
     (carry.length
       ? `Day ${endedDay} ended · ${carry.length} task${carry.length > 1 ? "s" : ""} waiting for tomorrow`
       : `Day ${endedDay} ended - see you tomorrow`) + (earned ? " · ❤️ revive earned!" : ""),
+    "Undo",
+    resumeDay,
   );
+}
+
+/**
+ * Reopen the day End Day just closed.
+ *
+ * Puts back the tasks with their accrued time, un-archives the day record,
+ * and undoes anything End Day did on the way out - backlog moves, an earned
+ * revive, the carry list. A no-op when there is nothing to resume.
+ */
+export function resumeDay(): void {
+  const s0 = S();
+  const r = s0.resumable;
+  if (!r) {
+    showToast("There's no ended day to reopen");
+    return;
+  }
+  commit((s) => {
+    s.dayNum = r.dayNum;
+    s.dateISO = r.dateISO;
+    s.mains = r.mains;
+    s.interruptions = [...r.interruptions];
+    s.backlog = r.backlog;
+    s.life = r.life;
+    // The day is live again, so its archived record must go - otherwise
+    // the calendar would show it finished while it is still being worked.
+    s.history = s.history.filter((h) => h.dateISO !== r.dateISO);
+    s.carrySeed = [];
+    s.carryDecided = false;
+    s.awaitingStart = false;
+    s.phase = "today";
+    s.resumable = null;
+  });
+  showToast(`Day ${r.dayNum} reopened`);
 }
 
 /** Restart the day: clear today's work, keep backlog, history and preferences. */
