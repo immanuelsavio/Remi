@@ -41,7 +41,18 @@ export const ACCENTS: ReadonlyArray<readonly [Accent, string]> = [
 ] as const;
 
 export type Costume =
-  "none" | "guide" | "planner" | "worker" | "timekeeper" | "detective" | "artist";
+  | "none"
+  | "guide"
+  | "planner"
+  | "worker"
+  | "timekeeper"
+  | "detective"
+  | "artist"
+  | "caped"
+  | "armored"
+  | "strongman"
+  | "sorcerer"
+  | "ranger";
 
 /**
  * What Remi can wear, with the label the picker shows.
@@ -49,6 +60,15 @@ export type Costume =
  * A costume is a layer OVER a pose, never a pose of its own: the mouse
  * still runs, sleeps and holds its pad while dressed. Two axes rather than
  * one combined list, or each new outfit would multiply the poses.
+ *
+ * The hero outfits are ORIGINAL designs on purpose. Licensed characters
+ * were asked for and declined: their designs are copyrighted and their
+ * names are trademarks, being open source and free is not a defence, and
+ * the realistic consequence is a DMCA takedown of the repository - which
+ * would take the releases and the install script's URL with it. So: a
+ * generic cape and domino mask, a visored helmet with a plain round chest
+ * light, a circus strongman, a pointed hat, a bubble helmet. No borrowed
+ * emblem, silhouette, colour scheme or name.
  */
 export const COSTUMES: ReadonlyArray<readonly [Costume, string]> = [
   ["none", "No costume"],
@@ -58,6 +78,22 @@ export const COSTUMES: ReadonlyArray<readonly [Costume, string]> = [
   ["timekeeper", "Timekeeper"],
   ["detective", "Detective"],
   ["artist", "Artist"],
+  ["caped", "Caped hero"],
+  ["armored", "Armoured hero"],
+  ["strongman", "Strongman"],
+  ["sorcerer", "Sorcerer"],
+  ["ranger", "Space ranger"],
+] as const;
+
+/**
+ * How the picker groups the outfits.
+ *
+ * "none" is deliberately outside a group: it is the absence of a costume,
+ * not a member of a set.
+ */
+export const COSTUME_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<Costume>]> = [
+  ["Everyday", ["guide", "planner", "worker", "timekeeper", "detective", "artist"]],
+  ["Heroes", ["caped", "armored", "strongman", "sorcerer", "ranger"]],
 ] as const;
 
 /** 8h default workday; drives the "time given back" stat. */
