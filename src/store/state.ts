@@ -270,6 +270,13 @@ export function beginSession(s: State, mainId: string, subId: string | null, now
   s.subsOpen = false;
   s.ciStage = 0; // a new episode restarts the bounded check-in sequence
   s.phase = "active";
+  // The "you were on X" offer is stale the instant anything is genuinely
+  // on the clock - taking it then would switch you OFF the work you just
+  // started. Cleared here rather than in each action, because every start
+  // path funnels through this function. Cross-window staleness is handled
+  // separately in the overlay: `welcomeBack` is a per-window store and is
+  // deliberately NOT part of State, so it does not sync.
+  welcomeBack.set(null);
   // Starting work ENDS a break, whatever time was left on it. Every start
   // path funnels through here, so this is the one place that has to know.
   // Without it the clock ran while the app still believed it was on a

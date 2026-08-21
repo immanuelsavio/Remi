@@ -1086,6 +1086,18 @@ describe("welcome back", () => {
     expect(S().activeMainId).toBeNull();
   });
 
+  it("a stale welcome-back offer clears the moment work actually starts", () => {
+    // Reported from real use: the dashboard was timing a task while the
+    // popover still showed "You were on X - Pick it up". `welcomeBack` is a
+    // per-window store and is NOT part of State, so it never syncs and
+    // nothing was clearing it. Pressing the stale offer then switched the
+    // user off the task they were genuinely running.
+    const [a] = ids();
+    welcomeBack.set({ mainId: "gone", subId: null, title: "gi" });
+    startTask(a);
+    expect(get(welcomeBack)).toBeNull();
+  });
+
   it("can be dismissed", () => {
     welcomeBack.set({ mainId: "x", subId: null, title: "t" });
     dismissWelcomeBack();

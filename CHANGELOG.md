@@ -119,6 +119,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filed an interruption against a task that had not been running — the
   break screen's own comment had documented this state for a while.
   Answered with `isTiming()` in `domain/tasks.ts` instead.
+- **A stale "Welcome back" offer no longer switches you off live work.**
+  `welcomeBack` is a per-window store and is deliberately not part of
+  `State`, so it never synced and nothing retired it. Starting a task in the
+  dashboard left the popover still offering to resume a _different_ task,
+  and taking that offer switched away from the work actually on the clock.
+  Retired in `beginSession` for the window that starts the work, and in the
+  overlay — via `isTiming` — for the window that merely watches it happen.
 - **Starting a task during a break now ends the break.** `breakEndsAt` was
   left in the future, so the clock ran while the app still believed it was
   on a break and the break-over notification fired later at a task that had
