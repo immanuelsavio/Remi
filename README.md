@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/app_logo_wide.png" width="440" alt="Remi" />
+<img src="assets/app_logo_transparent.png" width="400" alt="Remi" />
 
 ### A menu-bar day tracker for ADHD brains — built around the time you _lose_, not just the time you spend.
 
