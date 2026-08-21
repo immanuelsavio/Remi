@@ -454,6 +454,19 @@ export interface State {
    */
   wakeAnimation: boolean;
   /**
+   * Let Remi wander the dashboard, and scurry to wherever you click.
+   *
+   * Purely for fun — it tracks nothing and reports nothing, which is why it
+   * is the one mascot behaviour that defaults OFF. Everything else the
+   * mouse does is a readout of real state; this is movement for its own
+   * sake, in the periphery, inside an app built for people whose attention
+   * is the scarce resource. That is a deliberate choice to opt in to, not
+   * one to discover and have to switch off.
+   *
+   * Also skipped under `prefers-reduced-motion`, which no toggle overrides.
+   */
+  roamOn: boolean;
+  /**
    * Show the running task's elapsed time next to the menu-bar icon.
    *
    * Ambient time awareness with nothing to click - the single most useful

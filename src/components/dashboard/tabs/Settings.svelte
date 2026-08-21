@@ -129,6 +129,23 @@
   </div>
   <div class="settrow">
     <div>
+      <div class="st">Let Remi wander</div>
+      <div class="sd">
+        A mouse pottering along the bottom of this window that scurries to wherever you click.
+        Purely for fun — it never covers anything and never swallows a click. Off by default,
+        because movement in the corner of your eye is the exact thing this app is meant to protect.
+      </div>
+    </div>
+    <input
+      type="checkbox"
+      checked={s.roamOn}
+      disabled={!s.mascotOn}
+      aria-label="Let Remi wander the dashboard"
+      on:change={() => setFlag("roamOn", !s.roamOn)}
+    />
+  </div>
+  <div class="settrow">
+    <div>
       <div class="st">Wake-up sequence</div>
       <div class="sd">
         Starting your day wakes Remi first — it rubs its eyes and settles at its desk before the

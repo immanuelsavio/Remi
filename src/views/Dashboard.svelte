@@ -63,6 +63,7 @@
   import RemiMark from "../components/shared/RemiMark.svelte";
   import Mascot from "../components/shared/Mascot.svelte";
   import StartDayGate from "../components/dashboard/StartDayGate.svelte";
+  import RoamingRemi from "../components/dashboard/RoamingRemi.svelte";
   import { mascotMood } from "../domain/mascot";
   import RemindSheet from "../components/shared/RemindSheet.svelte";
   import WhatsNew from "../components/dashboard/WhatsNew.svelte";
@@ -264,6 +265,10 @@
       <Settings {autoUpdate} bind:routinesText bind:confirmWipe />
     {/if}
   </div>
+
+  <!-- Wanders the bottom edge. Self-gating on `roamOn`, and its layer is
+       pointer-events:none so it can never swallow a click. -->
+  <RoamingRemi />
 
   <!-- ================= OVERLAYS =================
        Shared, so any tab can open them. "checkin" is deliberately absent: the

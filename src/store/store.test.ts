@@ -821,6 +821,7 @@ describe("day lifecycle", () => {
     setFlag("trainerOn", true);
     setFlag("mascotOn", false);
     setFlag("wakeAnimation", false);
+    setFlag("roamOn", true);
     togglePto("2030-01-01");
     addBacklog("keep me");
 
@@ -832,6 +833,7 @@ describe("day lifecycle", () => {
     // not hand it back to someone who put it away.
     expect(s.mascotOn).toBe(false);
     expect(s.wakeAnimation).toBe(false);
+    expect(s.roamOn).toBe(true);
     expect(s.pto).toContain("2030-01-01");
     expect(s.backlog.map((b) => b.title)).toContain("keep me");
   });
@@ -1750,6 +1752,7 @@ describe("settings", () => {
       "trayTimer",
       "mascotOn",
       "wakeAnimation",
+      "roamOn",
     ] as const) {
       setFlag(key, true);
       expect(S()[key]).toBe(true);

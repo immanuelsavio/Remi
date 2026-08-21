@@ -38,6 +38,7 @@ export type BoolPref =
   | "trayTimer"
   | "mascotOn"
   | "wakeAnimation"
+  | "roamOn"
   | "loggingOptIn";
 
 export function setFlag(key: BoolPref, on: boolean): void {

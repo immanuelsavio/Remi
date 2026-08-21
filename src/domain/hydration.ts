@@ -282,6 +282,7 @@ export function hydrate(raw: unknown): State {
   s.trayTimer = s.trayTimer !== false;
   s.mascotOn = s.mascotOn !== false;
   s.wakeAnimation = s.wakeAnimation !== false;
+  s.roamOn = s.roamOn === true;
   s.privateNotifications = s.privateNotifications === true;
 
   const PHASES: Phase[] = ["startday", "today", "active", "break", "recovery"];
