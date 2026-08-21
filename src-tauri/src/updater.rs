@@ -58,10 +58,7 @@ pub fn current_version() -> String {
 /// pre-release suffix (`1.2.3-beta.1` sorts as `1.2.3`).
 fn parse_semver(raw: &str) -> Option<(u64, u64, u64)> {
     let cleaned = raw.trim().trim_start_matches(['v', 'V']);
-    let core = cleaned
-        .split(['-', '+'])
-        .next()
-        .unwrap_or(cleaned);
+    let core = cleaned.split(['-', '+']).next().unwrap_or(cleaned);
     let mut parts = core.split('.');
     let major = parts.next()?.parse().ok()?;
     // A tag may legitimately be `v1` or `v1.2`; treat the missing parts as 0
@@ -198,7 +195,10 @@ mod tests {
 
     #[test]
     fn compares_versions_numerically_not_as_text() {
-        assert!(is_newer("0.9.0", "0.10.0"), "0.10 > 0.9 despite sorting lower as text");
+        assert!(
+            is_newer("0.9.0", "0.10.0"),
+            "0.10 > 0.9 despite sorting lower as text"
+        );
         assert!(is_newer("1.2.3", "1.2.4"));
         assert!(is_newer("1.2.3", "2.0.0"));
         assert!(!is_newer("1.2.3", "1.2.3"));
@@ -231,12 +231,18 @@ mod tests {
     #[test]
     fn the_helper_waits_for_exit_then_pins_the_version() {
         let script = helper_script(4242, "0.2.0");
-        assert!(script.contains("kill -0 4242"), "must wait for THIS process to exit");
+        assert!(
+            script.contains("kill -0 4242"),
+            "must wait for THIS process to exit"
+        );
         assert!(
             script.contains("--version 0.2.0"),
             "must pin the version the user was shown, not whatever is latest at download time"
         );
-        assert!(script.contains("--launch"), "should come back up afterwards");
+        assert!(
+            script.contains("--launch"),
+            "should come back up afterwards"
+        );
     }
 
     #[test]
