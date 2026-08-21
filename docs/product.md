@@ -42,6 +42,14 @@ trap). Notes on tasks and steps. Estimates. Reminders. Promote a step to
 its own task keeping all its time. Delete with undo. Revive a completed
 task. Prune blanks.
 
+**Tags.** Free-form labels on a task, for project or kind. Normalised on
+entry — lower-cased, leading `#` stripped, whitespace collapsed, 32
+characters max, deduplicated, 12 per task — so the same label typed three
+ways is one tag and the filter lists stay short. Tags travel into the
+archived record, which is what makes a tag-filtered report over history
+possible. They apply going forward only: days archived before tags existed
+carry none.
+
 **Working.** Start / switch (remembered or not) / interrupt with a
 brand-new task / work a specific step. Timed breaks with extend and
 resume-the-same-work.
@@ -54,8 +62,18 @@ resumes.
 **The day.** Start Day seeds carried tasks + daily routines (skipping
 duplicates). End Day takes a per-task disposition — `done` / `carry` /
 `backlog` — archives an enriched snapshot, and awards a revive heart at
-each 5-day streak multiple. Restart Day clears today but keeps backlog,
-history and preferences.
+each 5-day streak multiple. Skipping the per-task step carries everything;
+that is the default because the alternative reads as "wrapping up deleted
+my tasks". Restart Day clears today but keeps backlog, history and
+preferences.
+
+**Reopening a day.** End Day writes a `resumable` snapshot taken _after_
+the session is banked and the clock stopped, but _before_ the per-task
+dispositions are applied. Reopening therefore undoes the dispositions and
+nothing else — a task sent to tomorrow returns flagged `deferred`, one
+parked in the backlog stays parked, one dropped stays dropped, and a day
+closed with no decisions reopens exactly as it was. Banked time is never
+rewound, because it was really spent.
 
 **Streaks.** A day counts when it has completed work. Weekends, PTO and
 revived days bridge a gap for free. The first genuinely missed weekday
@@ -63,7 +81,10 @@ ends the streak. Dates before day 1 are never misses. PTO can only be set
 for today or later — never retroactively.
 
 **Evidence.** Interruption count / total / longest / per focused hour /
-top causes by time cost / stretched tasks. Plus the time-sense trainer:
+top causes by time cost / stretched tasks. Search over every archived day
+plus today, by title or tag, newest first with a running total —
+deliberately _not_ over notes, and the empty state says so. The calendar
+includes today rather than only archived days. Plus the time-sense trainer:
 logs estimate-vs-actual on completion when `trainerOn`, and gives a
 verdict — accurate ≤1.1×, "a bit over" <1.5×, otherwise "you underestimate
 a lot… try estimating, then doubling."
@@ -72,7 +93,36 @@ a lot… try estimating, then doubling."
 prompt. JSON backup export + restore. Opt-in anonymous usage logging.
 Reset & Uninstall with a keep-history option.
 
-**Preferences.** Light/dark × six accents. Workday target. Check-in
+**Work record.** A standalone HTML report built by a pure function in
+`domain/report.ts`: brand mark, per-day task tables with focused time,
+anything left open, and an optional interruption section naming the cause
+and the task charged for it. Range is all / this year / this month /
+explicit `from`–`to` (reversed dates are tolerated), and it can be filtered
+by tag. **Filtering rewrites each day rather than merely hiding rows** —
+`totalMs` is recomputed and interruptions charged to excluded work are
+dropped — so the header can never claim hours the body does not show.
+
+**The tour.** Fourteen steps declared as pure data in `domain/tour.ts` and
+rendered by a corner-pinned panel, not a modal: each step switches the
+dashboard to the tab it is describing, and a scrim would cover the exact
+thing being pointed at. Auto-runs once per install (`tourSeen`), and is
+re-runnable from Settings → Help. The steps are data so they can be
+tested — required ids present, ids unique, every step has body copy, no
+step points at a tab that does not exist.
+
+**The mascot.** Remi is a mouse — the icon, the wordmark and the menu-bar
+silhouette all agree — and `components/shared/Mascot.svelte` draws it as
+live SVG so the pose can carry state: `run` while the clock runs, `sleep`
+during a break, `idle` when the day is open but nothing is timed, `cheer`
+once when today's list is clear. It is a status readout in the periphery,
+which is the same argument as the menu-bar timer. Two independent ways to
+stop it, composing rather than overriding: `mascotOn` hides it entirely
+(the component self-gates, so call sites don't each repeat the check), and
+`prefers-reduced-motion` freezes it mid-pose via the global rule. Its
+palette is hard-coded brand colours rather than theme tokens — a mouse that
+changes colour with the accent picker stops being the animal on the icon.
+
+**Preferences.** Light/dark × seven accents. Workday target. Check-in
 interval. Five wellness nudges (water / stand / walk / lunch / break) —
 opt-in, one at a time, never during a break, never touch the clock. Daily
 routines. Private notifications, which keeps task names out of OS

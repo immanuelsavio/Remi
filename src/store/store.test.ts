@@ -798,6 +798,7 @@ describe("day lifecycle", () => {
     // The bug this guards: one new-day path reset toggles another preserved.
     setFlag("notifyReminders", false);
     setFlag("trainerOn", true);
+    setFlag("mascotOn", false);
     togglePto("2030-01-01");
     addBacklog("keep me");
 
@@ -805,6 +806,9 @@ describe("day lifecycle", () => {
     const s = S();
     expect(s.notifyReminders).toBe(false);
     expect(s.trainerOn).toBe(true);
+    // Turning the mascot off is a preference like any other: a new day must
+    // not hand it back to someone who put it away.
+    expect(s.mascotOn).toBe(false);
     expect(s.pto).toContain("2030-01-01");
     expect(s.backlog.map((b) => b.title)).toContain("keep me");
   });
@@ -1589,6 +1593,7 @@ describe("settings", () => {
       "welcomeBack",
       "privateNotifications",
       "trayTimer",
+      "mascotOn",
     ] as const) {
       setFlag(key, true);
       expect(S()[key]).toBe(true);

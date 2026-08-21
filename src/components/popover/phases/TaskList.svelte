@@ -19,6 +19,7 @@
   import { fmtEst, nowMs } from "../../../view";
   import RemindControl from "../../shared/RemindControl.svelte";
   import ConfirmSubSheet from "../../shared/ConfirmSubSheet.svelte";
+  import Mascot from "../../shared/Mascot.svelte";
 
   /** Which card's steps are open. Lifted to the router so it survives the
       component being recreated when the phase changes away and back. */
@@ -169,6 +170,7 @@
     </div>
   {:else}
     <div class="empty">
+      <Mascot mood="idle" size={78} />
       <p class="empty-t">Nothing lined up yet</p>
       <p class="empty-sub">Add a task below, or build the day out in the dashboard's Plan tab.</p>
     </div>

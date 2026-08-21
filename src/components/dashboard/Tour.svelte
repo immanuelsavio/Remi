@@ -8,6 +8,7 @@
    * clicking the app while it is open.
    */
   import { endTour, tourBack, tourNext, tourStep, stepAt, TOUR_LENGTH } from "../../store";
+  import Mascot from "../shared/Mascot.svelte";
 
   $: i = $tourStep;
   $: step = i === null ? null : stepAt(i);
@@ -26,6 +27,7 @@
 {#if i !== null && step}
   <div class="tour" role="dialog" aria-live="polite" aria-label="Guided tour">
     <div class="head">
+      <Mascot mood="idle" size={40} />
       <span class="count">{i + 1} of {TOUR_LENGTH}</span>
       <button class="x" title="Close the tour" aria-label="Close the tour" on:click={endTour}
         >✕</button
@@ -87,7 +89,12 @@
   .head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
+  }
+  /* Pushes the close button to the far edge whether or not the mascot is
+     rendered, so turning it off does not re-centre the row. */
+  .head .count {
+    margin-right: auto;
   }
   .count {
     font-family: var(--font-num);

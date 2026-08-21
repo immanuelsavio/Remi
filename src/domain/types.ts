@@ -424,6 +424,20 @@ export interface State {
    */
   privateNotifications: boolean;
   /**
+   * Show the animated mascot.
+   *
+   * Remi is a mouse - it is on the icon, in the menu bar and on the wordmark
+   * - and the animated version of it reports what the app is doing without
+   * words: running while the clock runs, asleep during a break, awake and
+   * waiting when nothing is timed.
+   *
+   * It is a preference and not a decoration because motion in the corner of
+   * the eye is exactly the kind of thing this app's audience may not want.
+   * Defaults ON; `prefers-reduced-motion` already freezes it at the OS level
+   * whatever this says, so the two controls compose rather than fight.
+   */
+  mascotOn: boolean;
+  /**
    * Show the running task's elapsed time next to the menu-bar icon.
    *
    * Ambient time awareness with nothing to click - the single most useful

@@ -27,6 +27,7 @@
   import { fmt, fmtEst, mainTotal, nowMs } from "../../../view";
   import type { Main, Sub } from "../../../view";
   import RemindControl from "../../shared/RemindControl.svelte";
+  import Mascot from "../../shared/Mascot.svelte";
   import ConfirmSubSheet from "../../shared/ConfirmSubSheet.svelte";
 
   export let active: Main;
@@ -91,9 +92,17 @@
   {#if activeSub}
     <span class="subtag"><span aria-hidden="true">◈</span> Step of {active.title}</span>
   {/if}
-  <div class="timer">
-    <span>{fmt(thingMs)}</span>
-    {#if activeSub}<span class="tot">{fmt(total)} on {active.title}</span>{/if}
+  <!-- The mouse runs while the clock runs. Peripheral, deliberately: it is
+       the thing you notice without reading, which is the whole reason a
+       timer lives in the menu bar in the first place. Wrapped in a row of
+       its own rather than dropped inside `.timer`, so the digits keep the
+       block layout (and the baseline `.tot` sits on) that they had. -->
+  <div class="timer-row">
+    <Mascot mood="run" size={46} />
+    <div class="timer">
+      <span>{fmt(thingMs)}</span>
+      {#if activeSub}<span class="tot">{fmt(total)} on {active.title}</span>{/if}
+    </div>
   </div>
   {#if s.trainerOn && active.estMs}
     <div class="est-budget" class:over={estOver}>
@@ -205,3 +214,15 @@
 </div>
 
 <ConfirmSubSheet bind:pending={pendingRemove} />
+
+<style>
+  .timer-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  /* The row owns the spacing now; the timer's own top margin would double it. */
+  .timer-row :global(.timer) {
+    margin-top: 0;
+  }
+</style>

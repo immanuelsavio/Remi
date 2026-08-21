@@ -16,6 +16,7 @@
   import { fmtEst } from "../../../view";
   import type { computeStreaks } from "../../../view";
   import RemiMark from "../../shared/RemiMark.svelte";
+  import Mascot from "../../shared/Mascot.svelte";
   import CarryDecisions from "../../shared/CarryDecisions.svelte";
 
   export let streaks: ReturnType<typeof computeStreaks>;
@@ -38,7 +39,14 @@
 <div class="popover">
   <div class="pop-body">
     <div class="startday">
-      <RemiMark size={54} />
+      <!-- The animated mouse where the static icon was: same animal,
+           awake and waiting for the day to start. Falls back to the flat
+           mark when the mascot is off, so the screen still has a brand. -->
+      {#if s.mascotOn}
+        <Mascot mood="idle" size={92} />
+      {:else}
+        <RemiMark size={54} />
+      {/if}
       <div class="eyebrow">Day {s.dayNum}</div>
       <h1 class="big">{s.dayNum > 1 ? "New day." : "Good morning."}</h1>
 

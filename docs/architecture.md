@@ -45,7 +45,8 @@ src/
   domain/                    pure functions + types, no store/Tauri/DOM
     types.ts, defaults.ts, ids.ts, dates.ts, time.ts, hydration.ts,
     persistence-shape.ts, tasks.ts, streaks.ts, reminders.ts, trainer.ts,
-    imports.ts, usage-logs.ts, theme.ts
+    imports.ts, usage-logs.ts, theme.ts, tags.ts, search.ts, report.ts,
+    tour.ts
   store/                     the Svelte store + everything that mutates
     index.ts                 public facade - the ONLY module components import from
     state.ts                 the writable, sessionTx, commit, snapshot readers
@@ -60,11 +61,16 @@ src/
     ui-state.ts               phase/overlay navigation
     settings-actions.ts      preferences, data folder, quit/uninstall
     import-export.ts         structured-text import, JSON backup export/restore
+    report-actions.ts        range/tag selection + writing the work record out
+    updates.ts               release check, install, and the what's-new card
   infrastructure/            (Tauri API + notification wrappers, where present)
   components/
-    popover/phases/          Recovery, Break, StartDay, Active, TaskList
+    shared/                  RemiMark, Mascot, TagEditor, RemindControl/Sheet,
+                              CarryDecisions, ConfirmSubSheet
+    popover/phases/          Recovery, Break, StartDay, Active, TaskList, TaskMap
     popover/overlays/        Checkin, Switch, DoneChoose, EndDay, Restart, Backlog, Wellness, WelcomeBack
-    dashboard/tabs/          Plan, Today, Calendar, Stats, Data, Settings
+    dashboard/               Tour, ImportSheet, UpdateCard, WhatsNew
+    dashboard/tabs/          Plan, Today, Calendar, Stats, Data, Notes, Settings
   views/
     Popover.svelte           thin router: lifecycle, derived state, phase/overlay dispatch
     Dashboard.svelte         thin router: tab strip (WAI-ARIA), lifecycle, tab dispatch
@@ -100,10 +106,16 @@ src-tauri/
     state_io.rs             the durability contract: atomic writes, .bak recovery
     settings.rs              generic JSON settings.json read-modify-write
     migration.rs             one-time legacy Dopamigo MVP -> Remi data migration
-    commands.rs               the 16 IPC commands the frontend calls
-                               (the original 15, plus quit_listener_ready)
+    commands.rs               the IPC commands the frontend calls
     tray.rs                   menu-bar icon + tray menu/event handling
-    windows.rs                popover/dashboard positioning and lifecycle
+    updater.rs                release check, semver compare, detached installer
+    windows/                  window lifecycle, split by concern
+      mod.rs                   the facade the rest of the shell calls
+      popover.rs               placement (a pure, unit-tested function) + show/hide
+      dashboard.rs             the ordinary dashboard window
+      panel.rs                 NSPanel conversion — what makes the popover
+                                draw over other apps' fullscreen Spaces
+      anchor.rs                tray-rect anchor + the re-entrancy guard
 ```
 
 See [data-durability.md](data-durability.md) for the state I/O contract

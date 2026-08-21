@@ -5,6 +5,7 @@
    */
   import { app, extendBreak, resumeFromBreak } from "../../../store";
   import { fmt } from "../../../view";
+  import Mascot from "../../shared/Mascot.svelte";
 
   export let breakLeft: number;
 
@@ -13,7 +14,14 @@
 
 <div class="popover">
   <div class="breakscreen">
-    <div class="cup" aria-hidden="true">☕</div>
+    <!-- Asleep, because the clock genuinely is. The cup stays as the
+         fallback for anyone who has turned the mascot off, so the screen
+         never loses its focal point. -->
+    {#if s.mascotOn}
+      <Mascot mood="sleep" size={104} />
+    {:else}
+      <div class="cup" aria-hidden="true">☕</div>
+    {/if}
     <div class="eyebrow">On break · clock paused</div>
     <div class="btimer">{breakLeft > 0 ? fmt(breakLeft) : "Break's up"}</div>
     <div class="paused">Paused: <b>{s.breakPausedTitle || "your work"}</b></div>

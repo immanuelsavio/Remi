@@ -2901,6 +2901,13 @@ h2.mid {
   padding: 26px 20px;
   color: var(--ink-faint);
 }
+/* The mascot is display:block, so `text-align: center` above does not move
+   it. Centred here rather than with an auto margin inside the component,
+   because an auto margin on a flex item (the tour header) eats free space
+   and shoves the row apart. */
+.empty .mascot {
+  margin: 0 auto 8px;
+}
 .empty-t {
   font-family: var(--font-serif);
   font-weight: 600;

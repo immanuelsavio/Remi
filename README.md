@@ -59,6 +59,8 @@ just the first small step,"_ never **OVERDUE**.
 - **Break timer** — pauses the clock properly; a break is a quiet corner, not another button on the main screen.
 - **Backlog** — a parking lot, so "I should also…" can leave your head without derailing today.
 - **Reminders** — three ways to say _when_, because people think about later in three different ways: **in** 30 minutes, **by** 2pm, or **on** a date and time.
+- **Tags** — label a task by project or kind (`#acme`, `#coding`). Normalised on the way in, so `#Acme`, `Acme` and `#acme ` are one tag, not three.
+- **Reopen a day you ended** — and it comes back the way you left it: what you sent to tomorrow returns marked as such, what you parked stays parked. Time already banked is never rewound.
 
 **Understanding the day**
 
@@ -68,6 +70,8 @@ just the first small step,"_ never **OVERDUE**.
 - **Streaks** — weekends and days off bridge them; they never break them. One revive heart to rescue a genuinely missed day, spent deliberately.
 - **Calendar** — a record of what actually happened, not a planner. Green finished, orange left something open.
 - **Notes** — free text beside any task or step; it travels with the task across days and into your backup.
+- **Search** — every finished task, by title or tag, across all history and today, newest first with a running total. Unfinished work is one toggle away.
+- **Work record** — a printable report of what you actually finished: per-task focused time, anything left open, and optionally the interruptions that cost it. Whole history, this year, this month or an explicit date range, filterable by tag. **Print → Save as PDF** and it's a file you can hand over.
 
 **Living with it**
 
@@ -77,6 +81,8 @@ just the first small step,"_ never **OVERDUE**.
 - **Private notifications** — keep task names out of banners, so a screen share doesn't leak your day.
 - **In-app updates** — Remi checks GitHub for a newer release and offers it as a button. The
   download is checksum-verified before it replaces anything, and you see what changed afterwards.
+- **A guided tour** — fourteen steps through the whole app, run once on a first launch and re-runnable any time from **Settings → Help**. Pinned to a corner rather than shown as a modal, so it can point at a thing without covering it.
+- **Remi, animated** — the mouse from the icon, live: running while your clock runs, asleep through a break, waiting when nothing is timed, cheering once when today's list is clear. One switch in Settings turns it off, and `prefers-reduced-motion` stops it at the OS level regardless.
 - **Tell us what's wrong** — a feedback box in Data that travels with your exported logs.
 
 ---
@@ -163,7 +169,13 @@ where you were, brings you back afterwards, and quietly records how long the det
 which task lost the time.
 
 **At the end**, **Wrap up the day**. Anything unfinished carries to tomorrow with its notes,
-steps and reminders intact — only the clock resets, because tomorrow is new work.
+steps and reminders intact — only the clock resets, because tomorrow is new work. You can decide
+per task instead (tomorrow / backlog / drop), and if you wrap up without deciding, everything
+carries. Ended it too early? **Reopen the day** and it returns the way you left it.
+
+**Afterwards**, Calendar holds the record and search finds any finished task by title or tag.
+When someone needs to see the work rather than take your word for it, **Data → Export a work
+record** builds a printable page for any date range or tag.
 
 ### The two windows
 
@@ -289,6 +301,20 @@ security problem? Please follow [SECURITY.md](SECURITY.md) rather than opening a
 | [docs/development.md](docs/development.md)                           | Setup, commands, troubleshooting                           |
 | [docs/manual-smoke-test.md](docs/manual-smoke-test.md)               | What only a human clicking the real app can verify         |
 | [CHANGELOG.md](CHANGELOG.md)                                         | What changed, per release                                  |
+
+## About the mouse
+
+Remi is a mouse. It's on the app icon, curled over the check-ring in the wordmark, and it is the
+silhouette in your menu bar. Inside the app it's drawn as live SVG so it can move — and the pose
+is a readout, not decoration: **running** while the clock runs, **asleep** during a break,
+**awake and waiting** when nothing is timed, **cheering** once when today's list is clear.
+
+That's the same reason the timer lives in the menu bar. A running mouse in the corner of your eye
+says _time is being spent_ faster than a number does, which matters when the whole app exists for
+people whose sense of elapsed time is unreliable.
+
+If that's the last thing you need in your peripheral vision, **Settings → Appearance → Remi the
+mouse** turns it off, and the app respects `prefers-reduced-motion` whatever that switch says.
 
 ## About the name
 

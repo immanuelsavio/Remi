@@ -20,6 +20,7 @@
   } from "../../../store";
   import { ACCENTS, clockLabel } from "../../../view";
   import type { WellnessKey } from "../../../view";
+  import Mascot from "../../shared/Mascot.svelte";
 
   export let autoUpdate: boolean;
 
@@ -104,6 +105,26 @@
           on:click={() => setAccent(name)}
         ></button>
       {/each}
+    </div>
+  </div>
+  <div class="settrow">
+    <div>
+      <div class="st">Remi the mouse</div>
+      <div class="sd">
+        The mascot runs while your clock runs, sleeps through a break and cheers when the list is
+        clear. Turn it off if movement in the corner of your eye is the last thing you need.
+      </div>
+    </div>
+    <div class="mascot-pref">
+      <!-- Live, not a still: the control shows you exactly what you are
+           switching on, and disappears when you switch it off. -->
+      <Mascot mood="run" size={56} />
+      <input
+        type="checkbox"
+        checked={s.mascotOn}
+        aria-label="Show the mascot"
+        on:change={() => setFlag("mascotOn", !s.mascotOn)}
+      />
     </div>
   </div>
 </div>
@@ -313,3 +334,11 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .mascot-pref {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+</style>

@@ -38,7 +38,30 @@ install).
         elapsed time was banked only up to the last save (not credited
         for the time the app was closed), and the "Welcome back" offer
         appears if `welcomeBack` is on.
-16. [ ] Verify the built macOS `.app`'s `Info.plist` contains
+16. [ ] The guided tour runs by itself on a genuinely fresh install,
+        and does **not** run again on the next launch. Settings → Help →
+        "Start the tour" brings it back. Each step switches to the tab it
+        describes, and the app is still clickable while it is open.
+17. [ ] Tag a task, then filter the work record by that tag (Data →
+        Export a work record) — confirm the daily totals shown match the
+        tasks listed, not the untagged day total.
+18. [ ] Export a work record with interruptions on and off; confirm it
+        opens in the browser and Print → Save as PDF produces a file.
+19. [ ] Search in Calendar finds a task completed on an earlier day by
+        title, and by tag.
+20. [ ] Wrap up the day WITHOUT choosing per task — confirm nothing is
+        lost and everything carries. Then reopen the day and confirm it
+        comes back as it was, with banked time unchanged.
+21. [ ] Wrap up again choosing per task (one to tomorrow, one to the
+        backlog), reopen, and confirm the tomorrow task is marked as such
+        while the backlogged one stays in the backlog.
+22. [ ] The mascot runs while a task is timed, sleeps on the break screen,
+        and cheers once when today's list is clear. Switching it off in
+        Settings → Appearance removes it everywhere without leaving a gap
+        in any layout.
+23. [ ] With macOS "Reduce motion" on (System Settings → Accessibility →
+        Display), the mascot holds a still pose rather than animating.
+24. [ ] Verify the built macOS `.app`'s `Info.plist` contains
         `LSUIElement = true`:
         `bash
 /usr/libexec/PlistBuddy -c "Print :LSUIElement" \

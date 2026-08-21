@@ -46,14 +46,23 @@ describe("hydrate", () => {
     expect(s.notifyBreakEnd).toBe(true);
     expect(s.welcomeBack).toBe(true);
     expect(s.trayTimer).toBe(true);
+    // The mascot is part of the app's character, not a notification - an
+    // existing install should meet it rather than have it silently absent.
+    expect(s.mascotOn).toBe(true);
     // …but privacy redaction defaults OFF, since it changes what banners say.
     expect(s.privateNotifications).toBe(false);
   });
 
   it("honours an explicit false", () => {
-    const s = hydrate({ notifyReminders: false, trayTimer: false, privateNotifications: true });
+    const s = hydrate({
+      notifyReminders: false,
+      trayTimer: false,
+      mascotOn: false,
+      privateNotifications: true,
+    });
     expect(s.notifyReminders).toBe(false);
     expect(s.trayTimer).toBe(false);
+    expect(s.mascotOn).toBe(false);
     expect(s.privateNotifications).toBe(true);
   });
 

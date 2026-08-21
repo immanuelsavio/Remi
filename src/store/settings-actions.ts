@@ -36,6 +36,7 @@ export type BoolPref =
   | "welcomeBack"
   | "privateNotifications"
   | "trayTimer"
+  | "mascotOn"
   | "loggingOptIn";
 
 export function setFlag(key: BoolPref, on: boolean): void {

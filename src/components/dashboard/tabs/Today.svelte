@@ -27,6 +27,7 @@
   import type { Main, Sub } from "../../../view";
   import RemindControl from "../../shared/RemindControl.svelte";
   import ConfirmSubSheet from "../../shared/ConfirmSubSheet.svelte";
+  import Mascot from "../../shared/Mascot.svelte";
 
   export let active: Main | null;
   export let activeSub: Sub | null;
@@ -45,6 +46,8 @@
   $: onBreak = s.phase === "break";
   $: openCount = s.mains.filter((m) => !m.done).length;
   $: doneCount = s.mains.filter((m) => m.done).length;
+  /** Every task on today's list is finished - and there was a list. */
+  $: allDone = s.mains.length > 0 && openCount === 0;
 
   function commitTask() {
     if (taskDraft.trim()) addMain(taskDraft);
@@ -228,6 +231,7 @@
     </div>
   {:else}
     <div class="empty">
+      <Mascot mood="idle" size={92} />
       <p class="empty-t">Nothing lined up yet</p>
       <p class="empty-sub">Add a task below, or build the day out in Plan.</p>
     </div>
@@ -262,9 +266,50 @@
   {/if}
 </div>
 
+{#if allDone}
+  <!-- The one place the mouse celebrates. Gated on there having BEEN work:
+       an empty day is not an achievement, and a mascot that cheers for
+       nothing is a mascot nobody believes. -->
+  <div class="alldone">
+    <Mascot mood="cheer" size={96} label="Everything on today's list is done" />
+    <div>
+      <p class="ad-t">That's everything.</p>
+      <p class="ad-s">
+        {doneCount} task{doneCount === 1 ? "" : "s"} finished. Wrap up the day when you're ready — anything
+        you add later still counts.
+      </p>
+    </div>
+  </div>
+{/if}
+
 <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
   <button class="bk-btn ghost" on:click={() => setOverlay("backlog")}>▤ Backlog</button>
   <button class="bk-btn ghost" on:click={() => setOverlay("endday")}>Wrap up the day ›</button>
 </div>
 
 <ConfirmSubSheet bind:pending={pendingRemove} />
+
+<style>
+  .alldone {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 18px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  }
+  .ad-t {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--ink);
+    margin: 0;
+  }
+  .ad-s {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    margin: 3px 0 0;
+  }
+</style>
