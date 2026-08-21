@@ -240,7 +240,7 @@
     </div>
   {:else}
     <div class="empty">
-      <Mascot mood="idle" size={92} />
+      <Mascot mood="ready" size={92} />
       <p class="empty-t">Nothing lined up yet</p>
       <p class="empty-sub">Add a task below, or build the day out in Plan.</p>
     </div>

@@ -32,7 +32,7 @@
 
   /** Local, not exported: a Svelte instance script cannot export a type,
       and no call site needs to name it - they all pass a literal. */
-  type Mood = "run" | "idle" | "sleep" | "cheer" | "wake" | "desk";
+  type Mood = "run" | "idle" | "sleep" | "cheer" | "wake" | "desk" | "ready";
 
   /** What the mouse is doing. Mirrors the app's own state at the call site. */
   export let mood: Mood = "idle";
@@ -127,6 +127,23 @@
       <g class="leg front">
         <path class="l-f1" d="M62 51 L59 59" />
         <path class="l-f2" d="M69 49 L72 57" />
+      </g>
+    </g>
+
+    <!-- Pad and pen: the "ready to take your order" pose, for an empty
+         list. Painted AFTER the mouse so the pad sits in FRONT of it and
+         covers the whiskers — held up, the way a waiter holds one. -->
+    <g class="notepad" aria-hidden="true">
+      <rect class="np-sheet" x="64" y="21" width="25" height="27" rx="2.5" />
+      <path class="np-rule" d="M68 29 H85" />
+      <path class="np-rule" d="M68 35 H85" />
+      <path class="np-rule" d="M68 41 H82" />
+      <!-- The paw underneath, holding it up. -->
+      <ellipse class="np-paw" cx="62.5" cy="45" rx="4.4" ry="3.2" />
+      <g class="pen">
+        <path class="pn-body" d="M95 15 L87 26" />
+        <path class="pn-tip" d="M87 26 L85.6 28" />
+        <ellipse class="np-paw" cx="93" cy="18" rx="4" ry="3" />
       </g>
     </g>
 
@@ -260,6 +277,41 @@
     stroke: var(--fur-line);
     stroke-width: 1.6;
   }
+  /* Pad and pen: hidden unless the mouse is taking your order. */
+  .notepad {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .np-sheet {
+    fill: var(--card, #fff);
+    stroke: var(--fur-line);
+    stroke-width: 2;
+  }
+  .np-rule {
+    fill: none;
+    stroke: var(--teal);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    opacity: 0.65;
+  }
+  .np-paw {
+    fill: var(--fur);
+    stroke: var(--fur-line);
+    stroke-width: 1.6;
+  }
+  .pn-body {
+    fill: none;
+    stroke: var(--teal);
+    stroke-width: 3.2;
+    stroke-linecap: round;
+  }
+  .pn-tip {
+    fill: none;
+    stroke: var(--coral);
+    stroke-width: 3.2;
+    stroke-linecap: round;
+  }
+
   /* The eye-rubbing paw: hidden except during `wake`. */
   .rubpaw {
     fill: var(--fur);
@@ -426,6 +478,56 @@
     }
     50% {
       transform: translateY(-2.2px);
+    }
+  }
+
+  /* -------------------------------------------------------------- ready */
+  /* Attentive, not asleep: eye open, ear up, and the pen tapping the pad
+     the way someone does while waiting for you to decide. */
+  .ready .notepad {
+    opacity: 1;
+  }
+  /* Shifted left to make room for the pad it is holding out. */
+  .ready .whole {
+    transform: translate(-16px, 1px) scale(0.94);
+  }
+  .ready .eye-open {
+    opacity: 1;
+  }
+  .ready .eye-shut {
+    opacity: 0;
+  }
+  .ready .body {
+    animation: m-breathe 3.4s ease-in-out infinite;
+  }
+  .ready .ear {
+    animation: m-twitch 4.1s ease-in-out infinite;
+  }
+  .ready .tail {
+    animation: m-tail-slow 3.4s ease-in-out infinite;
+  }
+  .ready .pen {
+    animation: m-pentap 1.9s ease-in-out infinite;
+  }
+  .pen {
+    transform-box: view-box;
+    transform-origin: 93px 18px;
+  }
+
+  @keyframes m-pentap {
+    0%,
+    62%,
+    100% {
+      transform: rotate(0deg);
+    }
+    70% {
+      transform: rotate(9deg);
+    }
+    78% {
+      transform: rotate(0deg);
+    }
+    86% {
+      transform: rotate(9deg);
     }
   }
 
