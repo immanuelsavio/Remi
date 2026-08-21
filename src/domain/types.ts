@@ -40,6 +40,26 @@ export const ACCENTS: ReadonlyArray<readonly [Accent, string]> = [
   ["blue", "#3b7dd8"],
 ] as const;
 
+export type Costume =
+  "none" | "guide" | "planner" | "worker" | "timekeeper" | "detective" | "artist";
+
+/**
+ * What Remi can wear, with the label the picker shows.
+ *
+ * A costume is a layer OVER a pose, never a pose of its own: the mouse
+ * still runs, sleeps and holds its pad while dressed. Two axes rather than
+ * one combined list, or each new outfit would multiply the poses.
+ */
+export const COSTUMES: ReadonlyArray<readonly [Costume, string]> = [
+  ["none", "No costume"],
+  ["guide", "Guide"],
+  ["planner", "Planner"],
+  ["worker", "Builder"],
+  ["timekeeper", "Timekeeper"],
+  ["detective", "Detective"],
+  ["artist", "Artist"],
+] as const;
+
 /** 8h default workday; drives the "time given back" stat. */
 export const DEFAULT_TARGET_MINS = 480;
 
@@ -485,6 +505,8 @@ export interface State {
    * bar, and nothing downstream clamps it.
    */
   userName: string;
+  /** What Remi wears day to day. The tour dresses itself per page regardless. */
+  mascotCostume: Costume;
   /**
    * The real day, held aside while the tour's demo is on screen.
    *

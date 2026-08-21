@@ -14,7 +14,7 @@ import { todayISO } from "./dates";
 import { nid } from "./ids";
 import { DEFAULT_NAME, normalizeName } from "./name";
 import { normalizeTags } from "./tags";
-import { ACCENTS } from "./types";
+import { ACCENTS, COSTUMES } from "./types";
 import type {
   BacklogItem,
   CarryChoice,
@@ -291,6 +291,7 @@ export function hydrate(raw: unknown): State {
   // the user deliberately cleared it, and that has to survive.
   s.userName = typeof s.userName === "string" ? normalizeName(s.userName) : DEFAULT_NAME;
   s.leftAt = Math.max(0, num(s.leftAt));
+  s.mascotCostume = COSTUMES.some(([k]) => k === s.mascotCostume) ? s.mascotCostume : "none";
   // A demo snapshot off disk is restored on boot, so a malformed one would
   // hand the user garbage as their real day. Drop it instead: the worst
   // case becomes "the demo stayed", which is visible and fixable, rather

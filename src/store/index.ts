@@ -121,6 +121,7 @@ export {
   quitApp,
   resetAndUninstall,
   setAccent,
+  setCostume,
   setAutoUpdate,
   setDayTarget,
   setFlag,

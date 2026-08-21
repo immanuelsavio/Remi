@@ -5,6 +5,7 @@
     resetAndUninstall,
     startTour,
     setAccent,
+    setCostume,
     setAutoUpdate,
     setDayTarget,
     setFlag,
@@ -23,6 +24,7 @@
   import type { WellnessKey } from "../../../view";
   import Mascot from "../../shared/Mascot.svelte";
   import { NAME_MAX } from "../../../domain/name";
+  import { COSTUMES } from "../../../domain/types";
 
   export let autoUpdate: boolean;
 
@@ -74,10 +76,17 @@
       <div class="st">Take the tour again</div>
       <div class="sd">
         A quick walk through adding tasks and steps, tagging, the clock, ending the day, reports and
-        search. Runs once on a first launch; this is how you get it back.
+        search. It runs on a sample day, so nothing you do in it touches your own. Runs once on a
+        first launch; this is how you get it back.
       </div>
     </div>
-    <button class="set-btn" on:click={startTour}>▸ Start the tour</button>
+    <div class="tour-cta">
+      <div class="tc-guide">
+        <span class="tc-bubble">Tour's this way</span>
+        <Mascot mood="ready" costume="guide" size={92} />
+      </div>
+      <button class="set-btn" on:click={startTour}>▸ Start the tour</button>
+    </div>
   </div>
 </div>
 
@@ -152,6 +161,34 @@
         aria-label="Show the mascot"
         on:change={() => setFlag("mascotOn", !s.mascotOn)}
       />
+    </div>
+  </div>
+  <div class="settrow">
+    <div>
+      <div class="st">Remi's outfit</div>
+      <div class="sd">
+        Cosmetic only. Remi wears this everywhere except during the tour, which dresses itself for
+        each page.
+      </div>
+    </div>
+    <div class="cos-pick">
+      {#each COSTUMES as [key, label] (key)}
+        <button
+          class="cos-opt"
+          class:on={s.mascotCostume === key}
+          disabled={!s.mascotOn}
+          title={label}
+          aria-label={label}
+          aria-pressed={s.mascotCostume === key}
+          on:click={() => setCostume(key)}
+        >
+          {#if key === "none"}
+            <span class="cos-none">none</span>
+          {:else}
+            <Mascot mood="idle" costume={key} size={54} />
+          {/if}
+        </button>
+      {/each}
     </div>
   </div>
   <div class="settrow">
@@ -454,5 +491,60 @@
     font-size: 11.5px;
     color: var(--ink-soft);
     margin-top: 3px;
+  }
+
+  .tour-cta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .tc-guide {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tc-bubble {
+    position: relative;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--accent-ink);
+    background: color-mix(in srgb, var(--accent) 12%, var(--card));
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 5px 10px;
+    white-space: nowrap;
+  }
+  .cos-pick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    max-width: 260px;
+    justify-content: flex-end;
+  }
+  .cos-opt {
+    border: 1px solid var(--line);
+    background: var(--card);
+    border-radius: 10px;
+    padding: 2px;
+    cursor: pointer;
+    line-height: 0;
+  }
+  .cos-opt:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+  .cos-opt.on {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .cos-opt:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .cos-none {
+    display: inline-block;
+    line-height: 1;
+    padding: 14px 10px;
+    font-size: 11px;
+    color: var(--ink-faint);
   }
 </style>

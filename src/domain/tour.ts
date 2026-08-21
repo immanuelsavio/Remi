@@ -10,7 +10,7 @@
  * text with extra clicks.
  */
 
-import type { DashTab } from "./types";
+import type { Costume, DashTab } from "./types";
 
 /**
  * A step that ASKS rather than tells.
@@ -33,11 +33,22 @@ export interface TourStep {
   aside?: string;
   /** Show a control here instead of only prose. */
   ask?: TourAsk;
+  /**
+   * What Remi wears on this page, and how it is standing.
+   *
+   * Omit the costume and it falls through to whatever the user picked in
+   * Settings - which is deliberate on the "look" step, where they are
+   * choosing one and should see it on the mouse as they do.
+   */
+  costume?: Costume;
+  pose?: "idle" | "ready" | "run" | "desk" | "cheer";
 }
 
 export const TOUR_STEPS: TourStep[] = [
   {
     id: "welcome",
+    costume: "guide",
+    pose: "ready",
     title: "Welcome to Remi",
     ask: "name",
     body: [
@@ -48,6 +59,8 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "plan",
+    costume: "planner",
+    pose: "idle",
     title: "Tasks, steps and tags",
     tab: "plan",
     body: [
@@ -58,6 +71,8 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "work",
+    costume: "timekeeper",
+    pose: "run",
     title: "Working, and being interrupted",
     tab: "today",
     body: [
@@ -69,6 +84,8 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "endday",
+    costume: "worker",
+    pose: "idle",
     title: "Ending a day",
     tab: "today",
     body: [
@@ -78,6 +95,8 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "calendar",
+    costume: "detective",
+    pose: "idle",
     title: "History, search and time off",
     tab: "calendar",
     body: [
@@ -87,6 +106,8 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "evidence",
+    costume: "artist",
+    pose: "desk",
     title: "The evidence, and the report",
     tab: "stats",
     body: [
@@ -96,6 +117,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "look",
+    pose: "idle",
     title: "How it should look",
     ask: "look",
     tab: "settings",
@@ -103,6 +125,8 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "settings",
+    costume: "guide",
+    pose: "cheer",
     title: "A few switches",
     ask: "prefs",
     tab: "settings",

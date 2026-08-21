@@ -47,6 +47,11 @@ export function setUserName(raw: string): void {
   commit((s) => void (s.userName = normalizeName(raw)));
 }
 
+/** Dress Remi. Validated against the shared list on the way in. */
+export function setCostume(c: State["mascotCostume"]): void {
+  commit((s) => void (s.mascotCostume = c));
+}
+
 export function setFlag(key: BoolPref, on: boolean): void {
   commit((s) => void (s[key] = on));
   // Clearing the tray title immediately makes the toggle feel real, instead

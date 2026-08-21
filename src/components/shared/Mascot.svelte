@@ -29,6 +29,7 @@
    * what keeps a cream body visible on a white background.
    */
   import { app } from "../../store";
+  import type { Costume } from "../../domain/types";
 
   /** Local, not exported: a Svelte instance script cannot export a type,
       and no call site needs to name it - they all pass a literal. */
@@ -38,6 +39,17 @@
   export let mood: Mood = "idle";
   /** Rendered width in px; the drawing scales with it. */
   export let size = 64;
+  /**
+   * Worn over the pose.
+   *
+   * Defaults to whatever the user picked in Settings, so every appearance
+   * of Remi is dressed the same without each call site having to thread the
+   * preference through. The tour passes its own per-page costume and simply
+   * overrides it.
+   */
+  export let costume: Costume | null = null;
+
+  $: worn = costume ?? $app.mascotCostume;
   /**
    * Accessible label. Empty (the default) marks it decorative - which is
    * usually right, because every screen that shows it also *says* in text
@@ -51,7 +63,7 @@
 
 {#if on}
   <svg
-    class="mascot {mood}"
+    class="mascot {mood} c-{worn}"
     viewBox="0 0 96 64"
     width={size}
     height={(size * 64) / 96}
@@ -144,6 +156,52 @@
         <path class="pn-body" d="M95 15 L87 26" />
         <path class="pn-tip" d="M87 26 L85.6 28" />
         <ellipse class="np-paw" cx="93" cy="18" rx="4" ry="3" />
+      </g>
+    </g>
+
+    <!-- Costumes. Every piece is present in the markup and revealed by
+         CSS, so changing outfit never rebuilds the tree mid-animation. -->
+    <g class="dress" aria-hidden="true">
+      <!-- Round spectacles, shared by several outfits. -->
+      <g class="cs-specs">
+        <circle cx="66" cy="32" r="7" />
+        <circle cx="80" cy="33" r="6" />
+        <path d="M73 32.5 L74 32.8" />
+      </g>
+      <!-- Bow tie: worn at the throat, where the head meets the body, not
+           on the belly. -->
+      <g class="cs-suit">
+        <path class="cs-bow" d="M58 39 L63 42.5 L58 46 Z" />
+        <path class="cs-bow" d="M68 39 L63 42.5 L68 46 Z" />
+        <circle class="cs-knot" cx="63" cy="42.5" r="2.1" />
+      </g>
+      <!-- Hard hat: ABOVE the ear, not over it. The ear is the highest part
+           of the silhouette and covering it loses the animal. -->
+      <g class="cs-hat">
+        <path d="M38 9 a 15 13 0 0 1 30 0 Z" />
+        <rect x="33" y="8" width="40" height="4.5" rx="2.2" />
+      </g>
+      <!-- Pencil tucked behind the ear: the planner. -->
+      <g class="cs-pencil">
+        <path class="cs-pbody" d="M40 13 L54 5" />
+        <path class="cs-ptip" d="M54 5 L57.5 3" />
+      </g>
+      <!-- Deerstalker: the detective. -->
+      <g class="cs-deer">
+        <path d="M38 8 a 15 12 0 0 1 30 0 Z" />
+        <ellipse cx="53" cy="8.5" rx="22" ry="3.6" />
+      </g>
+      <!-- Beret, worn at an angle: the artist. -->
+      <g class="cs-beret">
+        <path d="M39 8 a 14 10 0 0 1 28 -1 q -14 7 -28 1 Z" />
+        <circle cx="67" cy="3" r="2.8" />
+      </g>
+      <!-- Pocket watch on a chain: the timekeeper. -->
+      <g class="cs-watch">
+        <path class="cs-chain" d="M46 40 q 10 9 18 5" />
+        <circle class="cs-face" cx="67" cy="48" r="7" />
+        <circle class="cs-pin" cx="67" cy="40.5" r="1.8" />
+        <path class="cs-hands" d="M67 48 L67 44 M67 48 L70 49.5" />
       </g>
     </g>
 
@@ -734,5 +792,106 @@
     60% {
       transform: translateY(0) rotate(2deg);
     }
+  }
+
+  /* ------------------------------------------------------------ costumes */
+  /* Everything is hidden by default and switched on per outfit, so a new
+     costume is one selector rather than a change to the markup. */
+  .dress > g {
+    display: none;
+  }
+  .cs-specs circle {
+    fill: none;
+    stroke: var(--teal);
+    stroke-width: 2;
+  }
+  .cs-specs path {
+    stroke: var(--teal);
+    stroke-width: 2;
+  }
+  .cs-suit .cs-bow {
+    fill: var(--coral);
+  }
+  .cs-suit .cs-knot {
+    fill: var(--coral);
+  }
+  .cs-hat path {
+    fill: var(--coral);
+  }
+  .cs-hat rect {
+    fill: var(--coral);
+  }
+  .cs-pencil .cs-pbody {
+    stroke: var(--teal);
+    stroke-width: 3.4;
+    stroke-linecap: round;
+  }
+  .cs-pencil .cs-ptip {
+    stroke: var(--coral);
+    stroke-width: 3.4;
+    stroke-linecap: round;
+  }
+  .cs-deer path,
+  .cs-deer ellipse {
+    fill: var(--teal);
+    opacity: 0.88;
+  }
+  .cs-beret path {
+    fill: var(--coral);
+  }
+  .cs-beret circle {
+    fill: var(--coral);
+  }
+  .cs-watch .cs-chain {
+    fill: none;
+    stroke: var(--fur-line);
+    stroke-width: 1.8;
+  }
+  .cs-watch .cs-pin {
+    fill: var(--fur-line);
+  }
+  .cs-watch .cs-face {
+    fill: var(--card, #fff);
+    stroke: var(--teal);
+    stroke-width: 2;
+  }
+  .cs-watch .cs-hands {
+    stroke: var(--teal);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+
+  .c-guide .cs-suit,
+  .c-guide .cs-specs {
+    display: block;
+  }
+  .c-planner .cs-pencil,
+  .c-planner .cs-specs {
+    display: block;
+  }
+  .c-worker .cs-hat {
+    display: block;
+  }
+  .c-timekeeper .cs-watch,
+  .c-timekeeper .cs-specs {
+    display: block;
+  }
+  .c-detective .cs-deer {
+    display: block;
+  }
+  .c-artist .cs-beret {
+    display: block;
+  }
+
+  /* The dress layer rides along with the body's transform, so an outfit
+     never detaches from the mouse mid-pose. */
+  .desk .dress,
+  .ready .dress {
+    transform: translate(-20px, -8px) scale(0.9);
+    transform-box: view-box;
+    transform-origin: center;
+  }
+  .ready .dress {
+    transform: translate(-16px, 1px) scale(0.94);
   }
 </style>

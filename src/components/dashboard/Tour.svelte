@@ -101,12 +101,23 @@
   <div class="tourfull" role="dialog" aria-modal="true" aria-label="Guided tour">
     <div class="tf-top">
       <span class="tf-count">Step {i + 1} of {TOUR_LENGTH}</span>
+      <!-- A named way out at the top as well as the bottom. Someone who has
+           decided not to do this should not have to read to the end of the
+           page to find that out. -->
+      <button class="tf-skip" on:click={endTour}>Skip tour</button>
       <button class="tf-x" aria-label="Close the tour" on:click={endTour}>✕</button>
     </div>
 
     <div class="tf-body">
       <div class="tf-card">
-        <Mascot mood={step.ask ? "ready" : "idle"} size={110} />
+        <!-- A different outfit and stance each page. `costume` falls
+             through to the user's own pick when a step does not set one,
+             which is what makes the "look" page show their choice live. -->
+        <Mascot
+          mood={step.pose ?? (step.ask ? "ready" : "idle")}
+          costume={step.costume ?? null}
+          size={120}
+        />
         <h2>{step.title}</h2>
         {#each step.body as para (para)}
           <p>{para}</p>
@@ -222,9 +233,6 @@
     </div>
 
     <div class="tf-acts">
-      <button class="tf-ghost" on:click={endTour}>
-        {i === TOUR_LENGTH - 1 ? "Done" : "Skip the tour"}
-      </button>
       <span class="tf-spacer"></span>
       {#if i > 0}
         <button class="tf-ghost" on:click={tourBack}>Back</button>
@@ -258,8 +266,25 @@
   .tf-top {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     padding: 14px 18px 0;
+  }
+  .tf-count {
+    margin-right: auto;
+  }
+  .tf-skip {
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink-soft);
+    border-radius: 999px;
+    padding: 4px 11px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tf-skip:hover {
+    color: var(--ink);
+    border-color: var(--accent);
   }
   .tf-count {
     font-family: var(--font-num);
