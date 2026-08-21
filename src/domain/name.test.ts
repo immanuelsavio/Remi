@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { NAME_MAX, greeting, normalizeName, withName } from "./name";
+import { FULL_NAME_MAX, NAME_MAX, greeting, normalizeName, withName } from "./name";
 
 describe("normalizeName", () => {
   it("keeps an ordinary name unchanged", () => {
@@ -31,6 +31,19 @@ describe("normalizeName", () => {
     expect(normalizeName("   ")).toBe("");
     expect(normalizeName(undefined as unknown as string)).toBe("");
     expect(normalizeName(42 as unknown as string)).toBe("");
+  });
+});
+
+describe("a full name", () => {
+  it("gets a roomier cap than the nickname", () => {
+    // It appears only in a printed report header, not in a heading inside a
+    // menu-bar-width popover, so the tight limit would be pointless there.
+    expect(FULL_NAME_MAX).toBeGreaterThan(NAME_MAX);
+    expect(normalizeName("b".repeat(200), FULL_NAME_MAX)).toHaveLength(FULL_NAME_MAX);
+  });
+
+  it("is cleaned exactly like the nickname", () => {
+    expect(normalizeName("  Sam   R.  Taylor ", FULL_NAME_MAX)).toBe("Sam R. Taylor");
   });
 });
 

@@ -125,6 +125,7 @@ export {
   setAutoUpdate,
   setDayTarget,
   setFlag,
+  setFullName,
   setMode,
   setPingMin,
   setStandardDaily,

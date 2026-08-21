@@ -28,6 +28,7 @@
     setAccent,
     setFlag,
     setMode,
+    setFullName,
     setUserName,
     toggleWellness,
     wellnessCopy,
@@ -35,7 +36,7 @@
     tourNext,
     tourStep,
   } from "../../store";
-  import { NAME_MAX } from "../../domain/name";
+  import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
   import { ACCENTS } from "../../view";
   import { stepAt, TOUR_LENGTH } from "../../domain/tour";
   import Mascot from "../shared/Mascot.svelte";
@@ -125,13 +126,15 @@
 
         {#if step.ask === "name"}
           <div class="tf-ask">
+            <label class="tf-lbl" for="tour-nick">What Remi should call you</label>
             <!-- svelte-ignore a11y-autofocus -->
             <input
+              id="tour-nick"
               class="tf-name"
               autofocus
               type="text"
               maxlength={NAME_MAX}
-              placeholder="your name (optional)"
+              placeholder="a nickname"
               value={s.userName}
               on:input={(e) => setUserName(e.currentTarget.value)}
             />
@@ -141,6 +144,21 @@
               {:else}
                 Left empty, nothing anywhere says a name.
               {/if}
+            </p>
+
+            <label class="tf-lbl" for="tour-full">Your full name</label>
+            <input
+              id="tour-full"
+              class="tf-name"
+              type="text"
+              maxlength={FULL_NAME_MAX}
+              placeholder="for exported reports"
+              value={s.fullName}
+              on:input={(e) => setFullName(e.currentTarget.value)}
+            />
+            <p class="tf-note">
+              Printed at the top of a work record. Someone else reads that page, so a nickname is
+              usually the wrong thing to put on it.
             </p>
           </div>
         {:else if step.ask === "look"}
@@ -368,7 +386,16 @@
   .tf-note {
     font-size: 11.5px;
     color: var(--ink-faint);
-    margin: 8px 0 0;
+    margin: 10px 0 18px;
+  }
+  .tf-lbl {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 6px;
   }
   .tf-prefs {
     display: flex;

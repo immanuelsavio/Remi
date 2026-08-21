@@ -84,6 +84,7 @@ export async function exportWorkRecord(
     includeInterruptions,
     logoDataUri: await logoDataUri(),
     generatedAt: Date.now(),
+    fullName: S().fullName,
     rangeLabel: tags.length ? `${label} · ${tags.map((t) => `#${t}`).join(" ")}` : label,
   });
 

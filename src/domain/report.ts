@@ -27,6 +27,14 @@ export interface ReportOptions {
   logoDataUri?: string;
   /** Stamped in the footer so a printout says when it was produced. */
   generatedAt: number;
+  /**
+   * Whose record this is, shown under the title.
+   *
+   * The FULL name, not the nickname: this page is read by someone else, and
+   * "Sam" at the top of a work record sent to a client is not an
+   * attribution. Empty simply omits the line.
+   */
+  fullName?: string;
   /** Human label for the range, e.g. "August 2026". */
   rangeLabel: string;
 }
@@ -171,6 +179,7 @@ export function buildReport(days: DayRecord[], opts: ReportOptions): string {
   section.day { border-top:1px solid var(--line); padding-top:16px; margin-top:22px; page-break-inside:avoid; }
   h2 { font-size:16px; margin:0; font-weight:600; }
   .daynum { font-size:11px; color:var(--faint); font-weight:400; }
+  .who { font-size:14px; font-weight:600; margin-top:2px; }
   .meta { font-size:12px; color:var(--soft); margin:2px 0 10px; }
   .sub { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--faint); margin:14px 0 4px; }
   table.t { width:100%; border-collapse:collapse; }
@@ -185,7 +194,7 @@ export function buildReport(days: DayRecord[], opts: ReportOptions): string {
   @media print { body { padding:0; } @page { margin:18mm; } }
 </style></head>
 <body>
-<header>${logo}<div><h1>Work record</h1><div class="range">${esc(opts.rangeLabel)}</div></div></header>
+<header>${logo}<div><h1>Work record</h1>${opts.fullName ? `<div class="who">${esc(opts.fullName)}</div>` : ""}<div class="range">${esc(opts.rangeLabel)}</div></div></header>
 <div class="stats">
   <div class="stat"><b>${t.days}</b><span>days</span></div>
   <div class="stat"><b>${t.completed}</b><span>completed</span></div>

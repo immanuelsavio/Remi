@@ -9,6 +9,7 @@
     setAutoUpdate,
     setDayTarget,
     setFlag,
+    setFullName,
     setUserName,
     setMode,
     setPingMin,
@@ -24,8 +25,15 @@
   import type { WellnessKey } from "../../../view";
   import Mascot from "../../shared/Mascot.svelte";
   import TourSign from "../TourSign.svelte";
-  import { NAME_MAX } from "../../../domain/name";
+  import { FULL_NAME_MAX, NAME_MAX } from "../../../domain/name";
   import { COSTUMES } from "../../../domain/types";
+
+  /** A Svelte template cannot parse a TS `as` cast, so the narrowing lives
+      here. Validated against the shared list rather than trusted. */
+  function pickCostume(v: string) {
+    const found = COSTUMES.find(([k]) => k === v);
+    if (found) setCostume(found[0]);
+  }
 
   export let autoUpdate: boolean;
 
@@ -103,10 +111,29 @@
       style="width:190px;"
       type="text"
       maxlength={NAME_MAX}
-      placeholder="your name"
+      placeholder="a nickname"
       value={s.userName}
       on:change={(e) => setUserName(e.currentTarget.value)}
       on:blur={(e) => setUserName(e.currentTarget.value)}
+    />
+  </div>
+  <div class="settrow">
+    <div>
+      <div class="st">Your full name</div>
+      <div class="sd">
+        Printed at the top of an exported work record. Someone else reads that page, so a nickname
+        is usually the wrong thing to put on it. Leave it empty and the line is omitted.
+      </div>
+    </div>
+    <input
+      class="num-in"
+      style="width:190px;"
+      type="text"
+      maxlength={FULL_NAME_MAX}
+      placeholder="for reports"
+      value={s.fullName}
+      on:change={(e) => setFullName(e.currentTarget.value)}
+      on:blur={(e) => setFullName(e.currentTarget.value)}
     />
   </div>
 </div>
@@ -170,23 +197,22 @@
       </div>
     </div>
     <div class="cos-pick">
-      {#each COSTUMES as [key, label] (key)}
-        <button
-          class="cos-opt"
-          class:on={s.mascotCostume === key}
-          disabled={!s.mascotOn}
-          title={label}
-          aria-label={label}
-          aria-pressed={s.mascotCostume === key}
-          on:click={() => setCostume(key)}
-        >
-          {#if key === "none"}
-            <span class="cos-none">none</span>
-          {:else}
-            <Mascot mood="idle" costume={key} size={54} />
-          {/if}
-        </button>
-      {/each}
+      <!-- One mouse, wearing whatever is selected. A grid of thumbnails
+           made the row about the outfits; this makes it about Remi, and
+           the list names them better than a 54px drawing can. -->
+      <Mascot mood="idle" size={72} />
+      <select
+        class="num-in"
+        style="width:180px;"
+        disabled={!s.mascotOn}
+        aria-label="Remi's outfit"
+        value={s.mascotCostume}
+        on:change={(e) => pickCostume(e.currentTarget.value)}
+      >
+        {#each COSTUMES as [key, label] (key)}
+          <option value={key}>{label}</option>
+        {/each}
+      </select>
     </div>
   </div>
   <div class="settrow">
@@ -498,35 +524,7 @@
   }
   .cos-pick {
     display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    max-width: 260px;
-    justify-content: flex-end;
-  }
-  .cos-opt {
-    border: 1px solid var(--line);
-    background: var(--card);
-    border-radius: 10px;
-    padding: 2px;
-    cursor: pointer;
-    line-height: 0;
-  }
-  .cos-opt:hover:not(:disabled) {
-    border-color: var(--accent);
-  }
-  .cos-opt.on {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
-  }
-  .cos-opt:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  .cos-none {
-    display: inline-block;
-    line-height: 1;
-    padding: 14px 10px;
-    font-size: 11px;
-    color: var(--ink-faint);
+    align-items: center;
+    gap: 10px;
   }
 </style>

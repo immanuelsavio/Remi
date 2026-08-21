@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import { normalizeName } from "../domain/name";
+import { FULL_NAME_MAX, normalizeName } from "../domain/name";
 import { applyTheme } from "../domain/theme";
 import type { State, WellnessKey } from "../domain/types";
 import { resetTrayTitleCache } from "./clock";
@@ -45,6 +45,11 @@ export type BoolPref =
 /** Remember what to call the user. Normalised and length-capped on the way in. */
 export function setUserName(raw: string): void {
   commit((s) => void (s.userName = normalizeName(raw)));
+}
+
+/** The name that goes on an exported work record. */
+export function setFullName(raw: string): void {
+  commit((s) => void (s.fullName = normalizeName(raw, FULL_NAME_MAX)));
 }
 
 /** Dress Remi. Validated against the shared list on the way in. */

@@ -52,9 +52,9 @@ export type Costume =
  */
 export const COSTUMES: ReadonlyArray<readonly [Costume, string]> = [
   ["none", "No costume"],
-  ["guide", "Guide"],
-  ["planner", "Planner"],
-  ["worker", "Builder"],
+  ["guide", "Tour guide"],
+  ["planner", "Professor"],
+  ["worker", "Construction worker"],
   ["timekeeper", "Timekeeper"],
   ["detective", "Detective"],
   ["artist", "Artist"],
@@ -505,6 +505,15 @@ export interface State {
    * bar, and nothing downstream clamps it.
    */
   userName: string;
+  /**
+   * The name that appears on an exported work record.
+   *
+   * Separate from `userName` because they are read by different people:
+   * the nickname is what Remi calls you in your own app, and this is what
+   * a manager or a client sees at the top of a printed page. "Sam" is right
+   * for one and wrong for the other.
+   */
+  fullName: string;
   /** What Remi wears day to day. The tour dresses itself per page regardless. */
   mascotCostume: Costume;
   /**

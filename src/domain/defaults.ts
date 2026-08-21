@@ -80,6 +80,7 @@ export function freshDay(dayNum = 1, carry: CarrySnapshot[] = []): State {
     wakeAnimation: true,
     roamOn: false,
     userName: DEFAULT_NAME,
+    fullName: "",
     mascotCostume: "none",
     demoRestore: null,
     leftAt: 0,

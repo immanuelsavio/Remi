@@ -27,13 +27,22 @@ export const NAME_MAX = 24;
 export const DEFAULT_NAME = "User";
 
 /**
+ * Longest FULL name we will store.
+ *
+ * Roomier than the nickname because it lives in one place only - the
+ * header of an exported work record, which is a wide printed page rather
+ * than a heading in a 380px popover.
+ */
+export const FULL_NAME_MAX = 60;
+
+/**
  * Clean a typed name: no control characters, no runs of whitespace, no
  * leading or trailing space, and never longer than `NAME_MAX`.
  *
  * Returns "" for anything unusable, which every caller treats as "no name
  * set" rather than as a name that happens to be blank.
  */
-export function normalizeName(raw: string): string {
+export function normalizeName(raw: string, max: number = NAME_MAX): string {
   if (typeof raw !== "string") return "";
   return (
     raw
@@ -42,7 +51,7 @@ export function normalizeName(raw: string): string {
       .replace(/[\u0000-\u001f\u007f]+/g, " ")
       .replace(/\s+/g, " ")
       .trim()
-      .slice(0, NAME_MAX)
+      .slice(0, max)
       // Slicing can land mid-word and leave a dangling space.
       .trim()
   );
