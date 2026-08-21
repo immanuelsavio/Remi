@@ -57,6 +57,15 @@ describe("hydrate", () => {
     expect(s.privateNotifications).toBe(false);
   });
 
+  it("names a file that never had a name, but keeps a cleared one cleared", () => {
+    // Absent means "never asked" and gets the default. An empty STRING is a
+    // deliberate act - the user emptied the field - and handing the default
+    // back would make clearing it impossible.
+    expect(hydrate({ dayNum: 2 }).userName).toBe("User");
+    expect(hydrate({ dayNum: 2, userName: "" }).userName).toBe("");
+    expect(hydrate({ dayNum: 2, userName: "  Sam  " }).userName).toBe("Sam");
+  });
+
   it("honours an explicit false", () => {
     const s = hydrate({
       notifyReminders: false,

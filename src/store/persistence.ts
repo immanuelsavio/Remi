@@ -18,6 +18,7 @@ import {
   loadMessage,
   registerSaveScheduler,
   restoreFromDemo,
+  returning,
   rolloverIfNewDay,
   setSaveTimerHandle,
   setState,
@@ -275,6 +276,17 @@ export async function boot(): Promise<void> {
   // someone else's tasks with their own day nowhere in sight. Undone before
   // anything is shown.
   restoreFromDemo();
+
+  // They uninstalled, kept their history, and have come back. Say so once,
+  // then clear the marker so the next launch is an ordinary one.
+  //
+  // Set unconditionally rather than only when the marker is present: a boot
+  // must ESTABLISH this, not leave whatever a previous boot decided. The
+  // same process can boot twice (a restore reloads everything), and a stale
+  // `true` would greet someone who had merely restored a backup.
+  const wasAway = S().leftAt > 0;
+  returning.set(wasAway);
+  if (wasAway) commit((s) => void (s.leftAt = 0));
 
   const s = S();
   applyTheme(s.mode, s.accent);

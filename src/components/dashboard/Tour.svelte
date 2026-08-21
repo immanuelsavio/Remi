@@ -2,22 +2,41 @@
   /**
    * The guided tour, full screen.
    *
-   * It began as a corner panel so it could point at a live screen without
-   * covering it. That stopped being the right trade once the tour got its
-   * own demo day: there is now nothing behind it worth peeking at during a
-   * step, and a small box asking you to name yourself and set five
-   * preferences reads like a cookie banner. Full screen gives the questions
-   * room and makes the tour feel like a thing you are doing rather than a
-   * thing nagging at you.
+   * A full-height panel docked to one side, with the app live beside it.
+   *
+   * It was briefly a true full-screen overlay, which was a mistake: the
+   * tour seeds a demo day precisely so there is something real to point at,
+   * and covering the whole window hid the very thing being pointed at. It
+   * was also a corner box before that, which was too cramped to ask
+   * anything in.
+   *
+   * Docked full height is the resolution: room for the questions, and the
+   * demo tasks stay visible and clickable the whole way through, so "try
+   * adding a step" is an instruction you can actually follow.
    *
    * Two steps ASK instead of tell. Both bind straight to real settings, so
    * they always show what is currently true - which is what makes retaking
    * the tour a way to change your mind rather than a form that resets you.
-   * "Leave these as they are" is just Next; it is spelled out because a
-   * screen full of switches otherwise implies you must touch them.
+   * Nothing on those steps is required: Next moves on whether or not
+   * anything was touched.
    */
-  import { app, endTour, setFlag, setUserName, tourBack, tourNext, tourStep } from "../../store";
+  import { onDestroy } from "svelte";
+
+  import {
+    app,
+    endTour,
+    setAccent,
+    setFlag,
+    setMode,
+    setUserName,
+    toggleWellness,
+    wellnessCopy,
+    tourBack,
+    tourNext,
+    tourStep,
+  } from "../../store";
   import { NAME_MAX } from "../../domain/name";
+  import { ACCENTS } from "../../view";
   import { stepAt, TOUR_LENGTH } from "../../domain/tour";
   import Mascot from "../shared/Mascot.svelte";
 
@@ -25,6 +44,16 @@
   $: i = $tourStep;
   $: step = i === null ? null : stepAt(i);
   $: first = !s.tourSeen;
+
+  // Shifts the dashboard clear of the docked panel while the tour is up, so
+  // the demo tasks stay visible instead of hiding underneath it.
+  $: if (typeof document !== "undefined") {
+    document.body.classList.toggle("touring", i !== null);
+  }
+
+  onDestroy(() => {
+    if (typeof document !== "undefined") document.body.classList.remove("touring");
+  });
 
   /** The switches worth deciding up front. Everything else lives in Settings. */
   const PREFS = [
@@ -44,16 +73,13 @@
       hint: "Ambient time awareness with nothing to click.",
     },
     {
-      key: "mascotOn",
-      label: "Show Remi",
-      hint: "The mouse that reports what the app is doing.",
-    },
-    {
       key: "loggingOptIn",
       label: "Anonymous usage counts",
       hint: "Buttons and screens only. Never task titles, notes or reminders. Nothing is transmitted.",
     },
   ] as const;
+
+  const WELLNESS = ["water", "stand", "walk", "lunch", "breakr"] as const;
 
   function onKey(e: KeyboardEvent) {
     if (i === null) return;
@@ -106,6 +132,45 @@
               {/if}
             </p>
           </div>
+        {:else if step.ask === "look"}
+          <div class="tf-ask tf-prefs">
+            <div class="tf-row">
+              <span class="tp-l">Mode</span>
+              <span class="seg-inline">
+                <button class:on={s.mode === "light"} on:click={() => setMode("light")}>
+                  ☀ Light
+                </button>
+                <button class:on={s.mode === "dark"} on:click={() => setMode("dark")}>☾ Dark</button
+                >
+              </span>
+            </div>
+            <div class="tf-row">
+              <span class="tp-l">Colour</span>
+              <span class="tf-sw">
+                {#each ACCENTS as [name, hex] (name)}
+                  <button
+                    class="acc-sw"
+                    class:on={s.accent === name}
+                    style="background:{hex}"
+                    title={name}
+                    aria-label={name}
+                    on:click={() => setAccent(name)}
+                  ></button>
+                {/each}
+              </span>
+            </div>
+            <label class="tf-pref">
+              <input
+                type="checkbox"
+                checked={s.mascotOn}
+                on:change={() => setFlag("mascotOn", !s.mascotOn)}
+              />
+              <span>
+                <span class="tp-l">Show Remi</span>
+                <span class="tp-h">The mouse that reports what the app is doing.</span>
+              </span>
+            </label>
+          </div>
         {:else if step.ask === "prefs"}
           <div class="tf-ask tf-prefs">
             {#each PREFS as pref (pref.key)}
@@ -121,11 +186,28 @@
                 </span>
               </label>
             {/each}
-            {#if !first}
-              <p class="tf-note">
+            <p class="tf-sub">Wellness nudges</p>
+            {#each WELLNESS as key (key)}
+              {@const copy = wellnessCopy(key)}
+              <label class="tf-pref">
+                <input
+                  type="checkbox"
+                  checked={s.wellness[key].on}
+                  on:change={() => toggleWellness(key, !s.wellness[key].on)}
+                />
+                <span>
+                  <span class="tp-l">{copy.icon} {copy.title}</span>
+                  <span class="tp-h">{copy.msg}</span>
+                </span>
+              </label>
+            {/each}
+            <p class="tf-note">
+              {#if first}
+                All off unless you say otherwise. They never touch your task clock.
+              {:else}
                 These are your current settings. Change what you like, or leave them and carry on.
-              </p>
-            {/if}
+              {/if}
+            </p>
           </div>
         {/if}
 
@@ -148,13 +230,7 @@
         <button class="tf-ghost" on:click={tourBack}>Back</button>
       {/if}
       <button class="tf-next" on:click={tourNext}>
-        {#if i === TOUR_LENGTH - 1}
-          Finish
-        {:else if step.ask}
-          Leave these as they are
-        {:else}
-          Next
-        {/if}
+        {i === TOUR_LENGTH - 1 ? "Finish" : "Next"}
       </button>
     </div>
   </div>
@@ -163,11 +239,21 @@
 <style>
   .tourfull {
     position: fixed;
-    inset: 0;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(420px, 46vw);
     z-index: 300;
     display: flex;
     flex-direction: column;
     background: var(--bg);
+    border-right: 1px solid var(--line);
+    box-shadow: 6px 0 26px rgba(0, 0, 0, 0.12);
+  }
+  /* Pushes the app clear of the panel so nothing important hides behind it,
+     while leaving it fully visible and clickable. */
+  :global(body.touring .dash-body) {
+    padding-left: min(444px, calc(46vw + 24px));
   }
   .tf-top {
     display: flex;
@@ -205,7 +291,6 @@
   }
   .tf-card {
     width: 100%;
-    max-width: 560px;
     text-align: center;
   }
   .tf-card :global(.mascot) {
@@ -214,7 +299,7 @@
   .tf-card h2 {
     font-family: var(--font-serif);
     font-weight: 600;
-    font-size: 26px;
+    font-size: 21px;
     color: var(--ink);
     margin: 0 0 10px;
   }
@@ -329,5 +414,28 @@
     background: var(--accent);
     border-color: var(--accent);
     color: #fff;
+  }
+
+  .tf-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+  }
+  .tf-sw {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+  .tf-sub {
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 12px 0 2px;
   }
 </style>

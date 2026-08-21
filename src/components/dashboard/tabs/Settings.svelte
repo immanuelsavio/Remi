@@ -36,6 +36,8 @@
   // component may be recreated many times after that initial seed.
   export let routinesText = "";
   export let confirmWipe = false;
+  /** Ticked = the destructive path. Defaults off, deliberately. */
+  let wipeHistory = false;
 
   const FLAGS: { key: BoolPref; label: string; hint: string }[] = [
     { key: "trainerOn", label: "Time-sense trainer", hint: "Estimate tasks, then compare." },
@@ -382,11 +384,34 @@
     <div class="bk-card" style="border-color:var(--danger);">
       <h4>Remove Remi's data from this machine?</h4>
       <p>This quits the app. Drag it to the Trash afterwards to finish removing it.</p>
+
+      <!-- One question, asked plainly, rather than two buttons whose
+           difference you have to infer from their labels. The destructive
+           choice has to be TICKED before the destructive button appears. -->
+      <label class="wipe-ask" class:armed={wipeHistory}>
+        <input type="checkbox" bind:checked={wipeHistory} />
+        <span>
+          <span class="wa-l">Delete my history too</span>
+          <span class="wa-h">
+            {#if wipeHistory}
+              Everything goes: days, streaks, backlog, notes, exports, your name and every setting.
+              This cannot be undone.
+            {:else}
+              Your history, streaks, name and settings stay on this machine. Reinstall Remi and it
+              picks up exactly where you left off.
+            {/if}
+          </span>
+        </span>
+      </label>
+
       <div class="bk-actions">
         <button class="set-btn" on:click={() => (confirmWipe = false)}>Cancel</button>
-        <button class="set-btn" on:click={() => resetAndUninstall(true)}>Wipe, keep history</button>
-        <button class="set-btn danger" on:click={() => resetAndUninstall(false)}>
-          Remove everything
+        <button
+          class="set-btn"
+          class:danger={wipeHistory}
+          on:click={() => resetAndUninstall(!wipeHistory)}
+        >
+          {wipeHistory ? "Delete everything and quit" : "Uninstall, keep my history"}
         </button>
       </div>
     </div>
@@ -398,5 +423,36 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+
+  .wipe-ask {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding: 11px 13px;
+    margin: 12px 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+    cursor: pointer;
+  }
+  .wipe-ask.armed {
+    border-color: var(--danger);
+  }
+  .wipe-ask input {
+    margin-top: 2px;
+    flex: none;
+  }
+  .wa-l {
+    display: block;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .wa-h {
+    display: block;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    margin-top: 3px;
   }
 </style>

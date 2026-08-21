@@ -7,7 +7,7 @@ import { normalizeName } from "../domain/name";
 import { applyTheme } from "../domain/theme";
 import type { State, WellnessKey } from "../domain/types";
 import { resetTrayTitleCache } from "./clock";
-import { requestQuit, StaleWriteError } from "./persistence";
+import { flushSave, requestQuit, StaleWriteError } from "./persistence";
 import { S, commit, showToast } from "./state";
 
 export function setMode(mode: State["mode"]): void {
@@ -143,5 +143,15 @@ export async function quitApp(): Promise<void> {
 }
 
 export async function resetAndUninstall(keepHistory: boolean): Promise<void> {
+  if (keepHistory) {
+    // Stamped and FLUSHED before the wipe, not after: `keep_history` leaves
+    // state.json in place, so this is the one thing that can survive into
+    // the reinstall - and a process that has already been told to exit is
+    // in no position to write anything.
+    commit((s) => void (s.leftAt = Date.now()));
+    await flushSave().catch(() => {
+      /* a failed stamp costs a greeting, never the data */
+    });
+  }
   await invoke("reset_and_uninstall_app", { keepHistory }).catch((e) => showToast(String(e)));
 }

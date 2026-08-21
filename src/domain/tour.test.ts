@@ -6,16 +6,18 @@ describe("the guided tour script", () => {
   it("covers the features someone has to be shown", () => {
     // A tour that silently loses a step is the kind of regression nobody
     // notices until a new user is confused, so the shape is pinned here.
+    // Updated deliberately when the tour was condensed from sixteen pages
+    // to eight: the SUBJECTS are what must survive, not the page count, so
+    // this pins the merged step that now covers each of them.
     const ids = TOUR_STEPS.map((s) => s.id);
     for (const required of [
-      "plan-task",
-      "plan-steps",
-      "plan-tags",
-      "today-start",
-      "interrupt",
+      "welcome",
+      "plan",
+      "work",
       "endday",
       "calendar",
-      "report",
+      "evidence",
+      "look",
       "settings",
     ]) {
       expect(ids).toContain(required);
@@ -45,11 +47,12 @@ describe("the guided tour script", () => {
     expect(TOUR_STEPS[TOUR_LENGTH - 1].id).toBe("settings");
   });
 
-  it("asks for a name and for the on/off preferences", () => {
-    // These are the steps that WRITE something. If either disappears, a
-    // first run silently stops asking and the settings are never seen.
+  it("asks for a name, for the look, and for the on/off preferences", () => {
+    // These are the steps that WRITE something. If one disappears, a first
+    // run silently stops asking and those settings are never seen.
     const asks = TOUR_STEPS.filter((s) => s.ask).map((s) => s.ask);
     expect(asks).toContain("name");
+    expect(asks).toContain("look");
     expect(asks).toContain("prefs");
   });
 
@@ -58,8 +61,13 @@ describe("the guided tour script", () => {
     // late means the tour addresses you by name only after it stops
     // talking to you.
     const nameAt = TOUR_STEPS.findIndex((s) => s.ask === "name");
-    expect(nameAt).toBeGreaterThanOrEqual(0);
-    expect(nameAt).toBeLessThanOrEqual(2);
+    expect(nameAt).toBe(0);
+  });
+
+  it("stays short enough that people actually finish it", () => {
+    // It was sixteen pages and nobody would have. The cap is the point of
+    // the rewrite, so it is pinned rather than left to drift back.
+    expect(TOUR_LENGTH).toBeLessThanOrEqual(9);
   });
 
   it("clamps an out-of-range index instead of returning undefined", () => {

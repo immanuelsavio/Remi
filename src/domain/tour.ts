@@ -19,7 +19,7 @@ import type { DashTab } from "./types";
  * Both write real settings, so both show the CURRENT value: on a retake the
  * tour is a way to change your mind, not a form that resets you.
  */
-export type TourAsk = "name" | "prefs";
+export type TourAsk = "name" | "look" | "prefs";
 
 export interface TourStep {
   /** Stable id, so a step can be linked to or resumed by name. */
@@ -39,154 +39,78 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "welcome",
     title: "Welcome to Remi",
-    body: [
-      "Remi tracks where your day actually goes - not just what you worked on, but how long it really took and what kept getting in the way.",
-      "This takes about a minute. You can close it any time and pick it up again from Settings.",
-    ],
-  },
-  {
-    id: "your-name",
-    title: "What should Remi call you?",
     ask: "name",
     body: [
-      "Remi will use this in a few greetings. Skip it and nothing anywhere says a name - the app just talks to you without one.",
+      "Remi tracks where your day actually goes: not just what you worked on, but how long it really took and what kept getting in the way.",
+      "The tasks you can see are a sample, put there so you have something real to poke at. They disappear when the tour ends and your own day comes back untouched.",
     ],
-    aside: "You can change or clear this any time in Settings.",
+    aside: "Two minutes. Close it whenever you like and pick it up again from Settings.",
   },
   {
-    id: "menubar",
-    title: "It lives in your menu bar",
-    body: [
-      "Look up, not at your Dock - Remi has no Dock icon. The mark near your clock opens a small popover, which is where you work the day.",
-      "This bigger window is for planning it and looking at the evidence afterwards.",
-    ],
-    aside: "The popover floats above everything, including other apps in fullscreen.",
-  },
-  {
-    id: "plan-task",
-    title: "Add a task",
+    id: "plan",
+    title: "Tasks, steps and tags",
     tab: "plan",
     body: [
-      "Type a task and press Enter. The box stays focused, so you can list a whole day without touching the mouse.",
-      "There's always an empty row at the bottom waiting for the next one.",
+      "A task can hold steps, one level deep on purpose - deeper nesting turns planning into procrastination. If a step turns out to be the real work, promote it with the arrow and it keeps the time it already earned.",
+      "Tags label a task by project or kind. They are what let you pull a report for one client or one sort of work later.",
     ],
+    aside: "Try it: add a task below, press Enter, then add a step under it.",
   },
   {
-    id: "plan-steps",
-    title: "Break it into steps",
-    tab: "plan",
+    id: "work",
+    title: "Working, and being interrupted",
+    tab: "today",
     body: [
-      "Under any task, “＋ add steps” opens an indented list. Steps are one level deep on purpose - deeper nesting turns into planning instead of doing.",
-      "If a step turns out to be the real work, you can promote it into a task of its own later, and it keeps the time it already earned.",
-    ],
-  },
-  {
-    id: "plan-tags",
-    title: "Tag by project or type",
-    tab: "plan",
-    body: [
-      "Tags sit under each task. Use them for a client, a project, or a kind of work like “coding”.",
-      "Later you can filter a report to one tag, or search everything you've ever finished with it.",
+      "Press Start and the clock runs, in the window and in your menu bar. When something pulls you away, press Interrupt rather than just switching: Remi saves your place, records what took you, and charges the time to the task that lost it.",
+      "Breaks pause the clock properly. Remi goes to sleep while you are gone.",
     ],
     aside:
-      "Tags are case-folded, so “Coding” and “coding” stay one tag rather than two that never match.",
-  },
-  {
-    id: "today-start",
-    title: "Start the clock",
-    tab: "today",
-    body: [
-      "Press Start on a task and Remi begins timing it. The elapsed time can show next to the menu-bar icon, so you can see it without clicking anything.",
-      "That's the point: time blindness is easier to fight when the number is just there.",
-    ],
-  },
-  {
-    id: "interrupt",
-    title: "When something pulls you away",
-    tab: "today",
-    body: [
-      "Press “Something came up” and pick what you moved to. Remi saves your place and brings you back afterwards.",
-      "It also records what interrupted you, for how long, and which task paid for it.",
-    ],
-    aside:
-      "This is the number most trackers miss: a two-hour task can occupy five hours of your day.",
-  },
-  {
-    id: "break",
-    title: "Take a break properly",
-    tab: "today",
-    body: [
-      "The ☕ button pauses the clock and starts a break timer. Breaks are a quiet corner, not another thing to manage.",
-      "Optional wellness nudges - water, stand up, lunch - are off by default and never touch your task clock.",
-    ],
+      "That interruption record is the thing other trackers do not keep, and the reason a two-hour task can eat a whole day.",
   },
   {
     id: "endday",
-    title: "Wrap up the day",
+    title: "Ending a day",
     tab: "today",
     body: [
-      "Ending the day archives it and carries anything unfinished to tomorrow.",
-      "“Decide per task” lets you send each one to Tomorrow, the Backlog, or mark it Done. Changed your mind? Reopen the day and everything comes back.",
+      "Wrap up when you are done. Anything unfinished carries to tomorrow with its notes, steps and reminders intact; only the clock resets.",
+      "You can decide task by task instead, and you can reopen a day you ended by mistake.",
     ],
   },
   {
     id: "calendar",
-    title: "Look back, and search",
+    title: "History, search and time off",
     tab: "calendar",
     body: [
-      "Green means the day finished clean, orange means something was left open. Today shows up live, not only after you end it.",
-      "The search box finds anything you've ever finished, by title or tag.",
+      "Every finished day is here, searchable by title or tag. Green finished, orange left something open.",
+      "Add time off from the button above the calendar. Days off bridge a streak rather than breaking it, so a holiday never costs you one.",
     ],
   },
   {
-    id: "stats",
-    title: "The evidence",
+    id: "evidence",
+    title: "The evidence, and the report",
     tab: "stats",
     body: [
-      "Time given back against your target day, your streak, and how your estimates compare with reality.",
-      "The interruptions section shows what interrupts you most and which tasks lost the most time to it.",
-    ],
-    aside: "Weekends and days off bridge a streak - they never break it.",
-  },
-  {
-    id: "report",
-    title: "Export a work record",
-    tab: "data",
-    body: [
-      "A printable record of what you finished - pick a date range, filter to a tag, and choose whether to include the interruption detail.",
-      "It opens in your browser, where Print → Save as PDF gives you a file to keep or send.",
-    ],
-    aside:
-      "Leave interruptions off if the record is going to someone who doesn't need that detail.",
-  },
-  {
-    id: "data",
-    title: "Your data is yours",
-    tab: "data",
-    body: [
-      "Everything is a plain JSON file on this machine. Back it up, restore it, or open the folder and read it.",
-      "Nothing is uploaded. If something's broken, the feedback box travels with your logs when you export them.",
+      "What interrupts you most, how much time it costs, and which tasks ran longest past their focused time.",
+      "When someone needs to see the work rather than take your word for it, Data gives you a printable record for any date range or tag.",
     ],
   },
   {
-    id: "your-prefs",
+    id: "look",
+    title: "How it should look",
+    ask: "look",
+    tab: "settings",
+    body: ["Light or dark, an accent colour, and whether Remi appears at all."],
+  },
+  {
+    id: "settings",
     title: "A few switches",
     ask: "prefs",
     tab: "settings",
     body: [
-      "These are the ones worth deciding up front. Everything here is in Settings too, so nothing is locked in.",
+      "The ones worth deciding now. Everything here lives in Settings too, so nothing is locked in.",
     ],
     aside:
-      "Retaking the tour shows whatever you have now, so you can change your mind rather than start over.",
-  },
-  {
-    id: "settings",
-    title: "Make it yours",
-    tab: "settings",
-    body: [
-      "Light or dark, seven accent colours, how often Remi checks in, your workday length, and daily routines.",
-      "The tour lives here too - “Take the tour again” is at the top whenever you want it.",
-    ],
+      "Retaking the tour shows whatever you have set, so it is a way to change your mind rather than start over.",
   },
 ];
 

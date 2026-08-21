@@ -17,6 +17,16 @@
 export const NAME_MAX = 24;
 
 /**
+ * What Remi calls you until you say otherwise.
+ *
+ * A neutral placeholder rather than an empty string, so the greeting reads
+ * as a greeting out of the box instead of a bare "Good morning." Clearing
+ * the field in Settings still leaves it genuinely empty - the default is a
+ * starting point, not a floor.
+ */
+export const DEFAULT_NAME = "User";
+
+/**
  * Clean a typed name: no control characters, no runs of whitespace, no
  * leading or trailing space, and never longer than `NAME_MAX`.
  *

@@ -57,6 +57,15 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
  * last save) before this is set, so accepting or ignoring it cannot change
  * any number.
  */
+/**
+ * True when this launch follows an uninstall that kept the history.
+ *
+ * A one-shot: `boot` sets it and clears the stored marker in the same
+ * breath, so the greeting appears once rather than on every launch for the
+ * rest of time.
+ */
+export const returning = writable(false);
+
 export const welcomeBack = writable<{
   mainId: string;
   subId: string | null;
@@ -174,6 +183,7 @@ export function copyDurablePreferences(old: State, next: State): void {
   next.wakeAnimation = old.wakeAnimation;
   next.roamOn = old.roamOn;
   next.userName = old.userName;
+  next.leftAt = old.leftAt;
   next.trayTimer = old.trayTimer;
   next.backlog = old.backlog;
   next.estimateLog = old.estimateLog;

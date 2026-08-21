@@ -64,6 +64,7 @@
   import Mascot from "../components/shared/Mascot.svelte";
   import StartDayGate from "../components/dashboard/StartDayGate.svelte";
   import RoamingRemi from "../components/dashboard/RoamingRemi.svelte";
+  import ReturningCard from "../components/dashboard/ReturningCard.svelte";
   import { mascotMood } from "../domain/mascot";
   import RemindSheet from "../components/shared/RemindSheet.svelte";
   import WhatsNew from "../components/dashboard/WhatsNew.svelte";
@@ -243,6 +244,8 @@
   </div>
 
   <div class="dash-body" id="panel" role="tabpanel" aria-labelledby="tab-{tab}">
+    <!-- Shown once, after an uninstall that kept the history. -->
+    <ReturningCard />
     {#if !ready}
       <div class="dsec-sub">Loading…</div>
     {:else if s.awaitingStart}

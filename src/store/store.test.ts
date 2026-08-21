@@ -95,6 +95,7 @@ import { freshDay, mkMain } from "../domain/defaults";
 import { mainTotal } from "../domain/tasks";
 import { todayISO } from "../domain/dates";
 import { isDemoId } from "../domain/demo";
+import { TOUR_STEPS } from "../domain/tour";
 import { forPersist } from "../domain/persistence-shape";
 import type { State } from "../domain/types";
 import {
@@ -126,12 +127,15 @@ import {
   resumeDay,
   reloadFromDisk,
   setOverlay,
+  resetAndUninstall,
+  returning,
   restoreBackup,
   resumeFromBreak,
   resumeWelcomeBack,
   reviveMain,
   setEstimate,
   setFlag,
+  setUserName,
   setMainTitle,
   setNote,
   setFeedback,
@@ -1742,6 +1746,58 @@ describe("usage logging", () => {
 });
 
 // ===========================================================================
+describe("uninstalling but keeping history", () => {
+  it("stamps a marker BEFORE the wipe, and persists it", async () => {
+    // The marker has to be on disk before Rust deletes anything: the whole
+    // point is that it survives into the reinstall. Setting it after the
+    // command would be setting it in a process that is already exiting.
+    const [a] = ids();
+    addSub(a, "step");
+    await resetAndUninstall(true);
+
+    const written = saved[saved.length - 1];
+    expect(written.leftAt).toBeGreaterThan(0);
+  });
+
+  it("does NOT stamp one when everything is being removed", async () => {
+    // There will be no state file to read it back from, and a marker in a
+    // file about to be deleted is just a lie waiting for a failed delete.
+    await resetAndUninstall(false);
+    expect(S().leftAt).toBe(0);
+  });
+
+  it("greets a returning install, then forgets it happened", async () => {
+    loadResult = {
+      kind: "loaded",
+      state: { ...freshDay(9), dateISO: todayISO(), leftAt: 1_700_000_000_000 },
+    };
+    await boot();
+
+    // The greeting is offered once...
+    expect(get(returning)).toBe(true);
+    // ...and the marker is cleared so the next launch is ordinary.
+    expect(S().leftAt).toBe(0);
+  });
+
+  it("says nothing on an ordinary launch", async () => {
+    loadResult = { kind: "loaded", state: { ...freshDay(9), dateISO: todayISO() } };
+    await boot();
+    expect(get(returning)).toBe(false);
+  });
+
+  it("keeps the name, the preferences and the history through it all", () => {
+    // This is the promise the checkbox makes. If any of these were stored
+    // outside state.json they would not survive, since `keep_history`
+    // deletes settings.json outright.
+    setUserName("Sam");
+    setFlag("trainerOn", true);
+    const s = S();
+    expect(s.userName).toBe("Sam");
+    expect(s.trainerOn).toBe(true);
+    expect("history" in s).toBe(true);
+  });
+});
+
 describe("the tour's demo day", () => {
   it("puts the demo in front of you and holds your real day aside", () => {
     const [a] = ids();
@@ -2296,13 +2352,20 @@ describe("the guided tour", () => {
   });
 
   it("walks forward, switching tabs as it goes", () => {
+    // Deliberately position-independent. This used to assert "step 3 is
+    // Plan", which broke the moment the script was reordered - and a test
+    // that fails when the wording changes teaches people to edit the test
+    // rather than read it. What matters is that landing on a step with a
+    // tab takes you to that tab.
     startTour();
     expect(get(tourStep)).toBe(0);
-    tourNext();
-    expect(get(tourStep)).toBe(1);
-    // Step 3 is the Plan tab; the tour should have taken us there.
-    tourNext();
-    expect(get(dashTab)).toBe("plan");
+
+    for (let i = 1; i < TOUR_STEPS.length; i++) {
+      tourNext();
+      expect(get(tourStep)).toBe(i);
+      const tab = TOUR_STEPS[i].tab;
+      if (tab) expect(get(dashTab)).toBe(tab);
+    }
   });
 
   it("will not step back off the front", () => {

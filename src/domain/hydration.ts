@@ -12,7 +12,7 @@
 import { freshDay, freshWellness, mkMain, mkSub } from "./defaults";
 import { todayISO } from "./dates";
 import { nid } from "./ids";
-import { normalizeName } from "./name";
+import { DEFAULT_NAME, normalizeName } from "./name";
 import { normalizeTags } from "./tags";
 import { ACCENTS } from "./types";
 import type {
@@ -287,7 +287,10 @@ export function hydrate(raw: unknown): State {
   s.mascotOn = s.mascotOn !== false;
   s.wakeAnimation = s.wakeAnimation !== false;
   s.roamOn = s.roamOn === true;
-  s.userName = normalizeName(s.userName);
+  // Absent means "never asked" and gets the default; an empty STRING means
+  // the user deliberately cleared it, and that has to survive.
+  s.userName = typeof s.userName === "string" ? normalizeName(s.userName) : DEFAULT_NAME;
+  s.leftAt = Math.max(0, num(s.leftAt));
   // A demo snapshot off disk is restored on boot, so a malformed one would
   // hand the user garbage as their real day. Drop it instead: the worst
   // case becomes "the demo stayed", which is visible and fixable, rather

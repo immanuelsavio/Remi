@@ -1,6 +1,7 @@
 /** Constructors: how a fresh Main/Sub/State/Wellness comes into being. */
 
 import { nid } from "./ids";
+import { DEFAULT_NAME } from "./name";
 import { todayISO } from "./dates";
 import { ACCENTS, DEFAULT_TARGET_MINS } from "./types";
 import type { CarrySnapshot, Main, State, Sub, Wellness } from "./types";
@@ -78,8 +79,9 @@ export function freshDay(dayNum = 1, carry: CarrySnapshot[] = []): State {
     mascotOn: true,
     wakeAnimation: true,
     roamOn: false,
-    userName: "",
+    userName: DEFAULT_NAME,
     demoRestore: null,
+    leftAt: 0,
     trayTimer: true,
     pto: [],
     life: 1,

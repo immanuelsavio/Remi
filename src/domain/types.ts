@@ -500,6 +500,18 @@ export interface State {
    */
   demoRestore: DemoSnapshot | null;
   /**
+   * When the user uninstalled while choosing to keep their history.
+   *
+   * Written to `state.json` immediately BEFORE the wipe, because the wipe
+   * is what makes it meaningful: `keep_history` deletes settings.json and
+   * leaves the state file, so this survives into the reinstall and is the
+   * only trace that the app was ever gone. 0 means an ordinary launch.
+   *
+   * Cleared the moment it has been read, so a returning greeting happens
+   * once and not on every launch afterwards.
+   */
+  leftAt: number;
+  /**
    * Show the running task's elapsed time next to the menu-bar icon.
    *
    * Ambient time awareness with nothing to click - the single most useful
