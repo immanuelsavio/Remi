@@ -37,6 +37,7 @@ export type BoolPref =
   | "privateNotifications"
   | "trayTimer"
   | "mascotOn"
+  | "wakeAnimation"
   | "loggingOptIn";
 
 export function setFlag(key: BoolPref, on: boolean): void {

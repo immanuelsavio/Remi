@@ -22,6 +22,7 @@
   import { fmtEst } from "../../view";
   import CarryDecisions from "../shared/CarryDecisions.svelte";
   import Mascot from "../shared/Mascot.svelte";
+  import WakeSequence from "./WakeSequence.svelte";
 
   let deciding = false;
   /** Keyed by index: a carried task is a snapshot and has no id yet. */
@@ -39,74 +40,95 @@
     { value: "drop", label: "Drop" },
   ];
 
+  /** True while the wake-up sequence is playing and the gate is hidden. */
+  let waking = false;
+
+  /**
+   * Pressing Start plays the sequence FIRST and commits after.
+   *
+   * The order matters: the day starting is what the animation is about, so
+   * committing up front would reveal the dashboard behind a mouse still
+   * pretending to wake up. `WakeSequence` skips itself instantly when the
+   * setting is off or reduced motion is on, so this path is the same one
+   * either way and there is no second code route to keep correct.
+   */
   function begin() {
+    waking = true;
+  }
+
+  function commit() {
     startDay(deciding ? carried.map((_, i) => choices[String(i)] ?? "keep") : []);
     openDashboard("plan");
   }
 </script>
 
-<div class="sdgate">
-  <Mascot mood="idle" size={104} />
-  <div class="eyebrow">Day {s.dayNum}</div>
-  <h1 class="big">{s.dayNum > 1 ? "New day." : "Good morning."}</h1>
+{#if waking}
+  <WakeSequence on:done={commit} />
+{:else}
+  <div class="sdgate">
+    <!-- Asleep until you say so. -->
+    <Mascot mood="sleep" size={132} />
+    <div class="eyebrow">Day {s.dayNum}</div>
+    <h1 class="big">{s.dayNum > 1 ? "New day." : "Good morning."}</h1>
 
-  {#if deciding}
-    <p class="lede">
-      {carried.length} task{carried.length === 1 ? "" : "s"} came over from yesterday. What happens to
-      each?
-    </p>
-    <div class="sd-list">
-      <CarryDecisions
-        items={carried.map((c, i) => ({
-          key: String(i),
-          title: c.title,
-          detail: c.estMs ? fmtEst(c.estMs) : undefined,
-          warn: (c.carries ?? 0) >= 3,
-        }))}
-        bind:choices
-        options={OPTIONS}
-      />
-    </div>
-    <div class="sd-acts">
-      <button class="bk-btn ghost" on:click={() => (deciding = false)}>Back</button>
-      <button class="bk-btn" on:click={begin}>
-        Start with {keeping} task{keeping === 1 ? "" : "s"} ›
-      </button>
-    </div>
-  {:else}
-    {#if carried.length}
+    {#if deciding}
       <p class="lede">
-        {carried.length} task{carried.length === 1 ? "" : "s"} carried over from yesterday.
+        {carried.length} task{carried.length === 1 ? "" : "s"} came over from yesterday. What happens
+        to each?
       </p>
-      <!-- Show WHAT carried, before the decision. The whole complaint was
-           that the count was visible but the tasks were not. -->
-      <ul class="sd-preview">
-        {#each carried as c, i (i)}
-          <li>
-            <span class="sp-t">{c.title}</span>
-            {#if (c.carries ?? 0) >= 3}
-              <span class="sp-warn">moved {c.carries} days running</span>
-            {:else if c.estMs}
-              <span class="sp-d">{fmtEst(c.estMs)}</span>
-            {/if}
-          </li>
-        {/each}
-      </ul>
+      <div class="sd-list">
+        <CarryDecisions
+          items={carried.map((c, i) => ({
+            key: String(i),
+            title: c.title,
+            detail: c.estMs ? fmtEst(c.estMs) : undefined,
+            warn: (c.carries ?? 0) >= 3,
+          }))}
+          bind:choices
+          options={OPTIONS}
+        />
+      </div>
+      <div class="sd-acts">
+        <button class="bk-btn ghost" on:click={() => (deciding = false)}>Back</button>
+        <button class="bk-btn" on:click={begin}>
+          Start with {keeping} task{keeping === 1 ? "" : "s"} ›
+        </button>
+      </div>
     {:else}
-      <p class="lede">Nothing carried over. A clean start.</p>
-    {/if}
+      {#if carried.length}
+        <p class="lede">
+          {carried.length} task{carried.length === 1 ? "" : "s"} carried over from yesterday.
+        </p>
+        <!-- Show WHAT carried, before the decision. The whole complaint was
+           that the count was visible but the tasks were not. -->
+        <ul class="sd-preview">
+          {#each carried as c, i (i)}
+            <li>
+              <span class="sp-t">{c.title}</span>
+              {#if (c.carries ?? 0) >= 3}
+                <span class="sp-warn">moved {c.carries} days running</span>
+              {:else if c.estMs}
+                <span class="sp-d">{fmtEst(c.estMs)}</span>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="lede">Nothing carried over. A clean start.</p>
+      {/if}
 
-    <div class="sd-acts">
-      <button class="bk-btn" on:click={begin}>▸ Start my day</button>
-      {#if canDecide}
-        <button class="bk-btn ghost" on:click={() => (deciding = true)}>Decide per task</button>
-      {/if}
-      {#if s.resumable}
-        <button class="bk-btn ghost" on:click={resumeDay}>Reopen yesterday</button>
-      {/if}
-    </div>
-  {/if}
-</div>
+      <div class="sd-acts">
+        <button class="bk-btn" on:click={begin}>▸ Start my day</button>
+        {#if canDecide}
+          <button class="bk-btn ghost" on:click={() => (deciding = true)}>Decide per task</button>
+        {/if}
+        {#if s.resumable}
+          <button class="bk-btn ghost" on:click={resumeDay}>Reopen yesterday</button>
+        {/if}
+      </div>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .sdgate {

@@ -32,7 +32,7 @@
 
   /** Local, not exported: a Svelte instance script cannot export a type,
       and no call site needs to name it - they all pass a literal. */
-  type Mood = "run" | "idle" | "sleep" | "cheer";
+  type Mood = "run" | "idle" | "sleep" | "cheer" | "wake" | "desk";
 
   /** What the mouse is doing. Mirrors the app's own state at the call site. */
   export let mood: Mood = "idle";
@@ -112,6 +112,11 @@
 
         <path class="nose" d="M83.4 38 a 2.5 2.5 0 1 0 0.01 0" />
 
+        <!-- The eye-rubbing paw. A dedicated shape, not a rotated leg: a
+             limb swung from the hip never actually reaches the face, it
+             just waves somewhere near it. This lands on the eye. -->
+        <ellipse class="rubpaw" cx="66" cy="40" rx="4.6" ry="3.6" />
+
         <g class="whiskers">
           <path d="M82 36 L 95 30" />
           <path d="M83 39 L 96 39" />
@@ -123,6 +128,21 @@
         <path class="l-f1" d="M62 51 L59 59" />
         <path class="l-f2" d="M69 49 L72 57" />
       </g>
+    </g>
+
+    <!-- The desk, painted AFTER the mouse so it OCCLUDES the lower body -
+         that overlap is the whole reason it reads as "sitting at" rather
+         than "lying next to". The paws rest on top of it. -->
+    <g class="deskset" aria-hidden="true">
+      <rect class="dk-screen" x="72" y="18" width="22" height="18" rx="2.5" />
+      <rect class="dk-stand" x="81" y="36" width="4" height="8" rx="1" />
+      <rect class="dk-top" x="26" y="44" width="70" height="4.5" rx="2.2" />
+      <rect class="dk-leg" x="31" y="48" width="3.4" height="14" rx="1.7" />
+      <rect class="dk-leg" x="89" y="48" width="3.4" height="14" rx="1.7" />
+      <!-- Paws on the desktop, clear of the body so they read as paws and
+           not as part of the silhouette. -->
+      <ellipse class="dk-paw p1" cx="63" cy="41.5" rx="4.2" ry="3" />
+      <ellipse class="dk-paw p2" cx="72" cy="41.5" rx="4.2" ry="3" />
     </g>
   </svg>
 {/if}
@@ -199,7 +219,9 @@
   .tail,
   .leg path,
   .dust circle,
-  .zzz text {
+  .zzz text,
+  .rubpaw,
+  .dk-paw {
     transform-box: view-box;
     transform-origin: center;
   }
@@ -216,6 +238,195 @@
   .l-f1,
   .l-f2 {
     transform-origin: 65px 50px;
+  }
+
+  /* The desk is hidden unless the mouse is actually at it. */
+  .deskset {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .dk-top,
+  .dk-leg,
+  .dk-stand {
+    fill: var(--fur-line);
+  }
+  .dk-screen {
+    fill: var(--card, #fff);
+    stroke: var(--teal);
+    stroke-width: 2.4;
+  }
+  .dk-paw {
+    fill: var(--fur);
+    stroke: var(--fur-line);
+    stroke-width: 1.6;
+  }
+  /* The eye-rubbing paw: hidden except during `wake`. */
+  .rubpaw {
+    fill: var(--fur);
+    stroke: var(--fur-line);
+    stroke-width: 1.6;
+    opacity: 0;
+  }
+
+  /* --------------------------------------------------------------- wake */
+  /* Stirs, stretches, and rubs one eye with a front paw. The eye opens
+     partway through - waking up is the transition, so it has to show both
+     ends of it. */
+  .wake .body {
+    animation: m-stir 1.9s ease-in-out both;
+  }
+  .wake .ear {
+    animation: m-perk 1.9s ease-out both;
+  }
+  .wake .rubpaw {
+    animation: m-rub 1.9s ease-in-out both;
+  }
+  .wake .tail {
+    animation: m-tail-slow 1.9s ease-in-out both;
+  }
+  .wake .eye-shut {
+    animation: m-eye-close-out 1.9s steps(1, end) both;
+  }
+  .wake .eye-open {
+    animation: m-eye-open-in 1.9s steps(1, end) both;
+  }
+
+  @keyframes m-stir {
+    0% {
+      transform: translateY(3px) scale(1);
+    }
+    35% {
+      transform: translateY(1px) scale(1.06, 0.95);
+    }
+    70% {
+      transform: translateY(-1px) scale(0.98, 1.05);
+    }
+    100% {
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes m-perk {
+    0%,
+    30% {
+      transform: rotate(-16deg);
+    }
+    60% {
+      transform: rotate(6deg);
+    }
+    100% {
+      transform: rotate(0deg);
+    }
+  }
+  /* The paw rises to the eye, scrubs twice in a small circle, drops. */
+  @keyframes m-rub {
+    0%,
+    16% {
+      opacity: 0;
+      transform: translate(0, 6px);
+    }
+    26% {
+      opacity: 1;
+      transform: translate(0, -5px);
+    }
+    40% {
+      transform: translate(3px, -7px);
+    }
+    52% {
+      transform: translate(-2px, -5px);
+    }
+    64% {
+      transform: translate(3px, -7px);
+    }
+    76% {
+      opacity: 1;
+      transform: translate(0, -5px);
+    }
+    92%,
+    100% {
+      opacity: 0;
+      transform: translate(0, 6px);
+    }
+  }
+  @keyframes m-eye-close-out {
+    0%,
+    64% {
+      opacity: 1;
+    }
+    65%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes m-eye-open-in {
+    0%,
+    64% {
+      opacity: 0;
+    }
+    65%,
+    100% {
+      opacity: 1;
+    }
+  }
+
+  /* --------------------------------------------------------------- desk */
+  .desk .deskset {
+    opacity: 1;
+    animation: m-fade-in 0.45s ease-out both;
+  }
+  /* Shifted left and up so the head clears the desk line and the snout
+     points at the screen instead of through it. */
+  .desk .whole {
+    transform: translate(-20px, -8px) scale(0.9);
+  }
+  .desk .p1 {
+    animation: m-tap 0.44s ease-in-out infinite;
+  }
+  .desk .p2 {
+    animation: m-tap 0.44s ease-in-out infinite;
+    animation-delay: -0.22s;
+  }
+  .desk .eye-open {
+    opacity: 1;
+  }
+  .desk .eye-shut {
+    opacity: 0;
+  }
+  .desk .body {
+    animation: m-type-lean 1.6s ease-in-out infinite;
+  }
+
+  .desk .ear {
+    animation: m-twitch 5.3s ease-in-out infinite;
+  }
+  .desk .tail {
+    animation: m-tail-slow 3.4s ease-in-out infinite;
+  }
+
+  @keyframes m-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes m-type-lean {
+    0%,
+    100% {
+      transform: rotate(0deg) translateY(0);
+    }
+    50% {
+      transform: rotate(-1.5deg) translateY(-0.8px);
+    }
+  }
+  @keyframes m-tap {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-2.2px);
+    }
   }
 
   /* ---------------------------------------------------------------- run */

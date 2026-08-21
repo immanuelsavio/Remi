@@ -11,7 +11,7 @@
    * If the choice was already made at End Day (`carryDecided`), it is not
    * asked again.
    */
-  import { app, openDashboard, resumeDay, startDay } from "../../../store";
+  import { app, openDashboard, resumeDay } from "../../../store";
   import type { SeedChoice } from "../../../store";
   import { fmtEst } from "../../../view";
   import type { computeStreaks } from "../../../view";
@@ -30,8 +30,17 @@
   $: canDecide = carried.length > 0 && !s.carryDecided;
   $: keeping = carried.filter((_, i) => (choices[String(i)] ?? "keep") === "keep").length;
 
+  /**
+   * The tray OPENS the door; the dashboard walks through it.
+   *
+   * Starting the day is now a two-step move on purpose: tray → dashboard
+   * gate → Start. The gate is where the carried tasks are actually listed
+   * and decided on, and where the wake-up sequence plays. Committing here
+   * as well would mean the dashboard's gate never appeared, so the one
+   * screen built to show what carried over would be skipped by the very
+   * button meant to reach it.
+   */
   function begin() {
-    startDay(deciding ? carried.map((_, i) => choices[String(i)] ?? "keep") : []);
     openDashboard("plan");
   }
 </script>
@@ -43,7 +52,7 @@
            awake and waiting for the day to start. Falls back to the flat
            mark when the mascot is off, so the screen still has a brand. -->
       {#if s.mascotOn}
-        <Mascot mood="idle" size={92} />
+        <Mascot mood="sleep" size={92} />
       {:else}
         <RemiMark size={54} />
       {/if}

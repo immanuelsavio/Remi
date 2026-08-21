@@ -820,6 +820,7 @@ describe("day lifecycle", () => {
     setFlag("notifyReminders", false);
     setFlag("trainerOn", true);
     setFlag("mascotOn", false);
+    setFlag("wakeAnimation", false);
     togglePto("2030-01-01");
     addBacklog("keep me");
 
@@ -830,6 +831,7 @@ describe("day lifecycle", () => {
     // Turning the mascot off is a preference like any other: a new day must
     // not hand it back to someone who put it away.
     expect(s.mascotOn).toBe(false);
+    expect(s.wakeAnimation).toBe(false);
     expect(s.pto).toContain("2030-01-01");
     expect(s.backlog.map((b) => b.title)).toContain("keep me");
   });
@@ -1725,6 +1727,7 @@ describe("settings", () => {
       "privateNotifications",
       "trayTimer",
       "mascotOn",
+      "wakeAnimation",
     ] as const) {
       setFlag(key, true);
       expect(S()[key]).toBe(true);

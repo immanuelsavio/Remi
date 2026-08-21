@@ -438,6 +438,22 @@ export interface State {
    */
   mascotOn: boolean;
   /**
+   * Play the wake-up sequence when the day starts.
+   *
+   * Remi is asleep until you begin: pressing Start wakes it, it rubs its
+   * eyes, crosses to its desk and gets to work — and only then does the
+   * dashboard open up. It is a deliberate beat between "not started" and
+   * "started", which is the one moment in this app where a pause is the
+   * point rather than a cost.
+   *
+   * Separate from `mascotOn` because they are different objections: one is
+   * "I don't want a cartoon in my tool", the other is "I don't want to wait
+   * three seconds every morning". Either can be true alone. Skipped
+   * entirely under `prefers-reduced-motion`, and the sequence is always
+   * click-to-skip.
+   */
+  wakeAnimation: boolean;
+  /**
    * Show the running task's elapsed time next to the menu-bar icon.
    *
    * Ambient time awareness with nothing to click - the single most useful

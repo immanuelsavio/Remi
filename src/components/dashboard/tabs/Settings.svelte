@@ -127,6 +127,22 @@
       />
     </div>
   </div>
+  <div class="settrow">
+    <div>
+      <div class="st">Wake-up sequence</div>
+      <div class="sd">
+        Starting your day wakes Remi first — it rubs its eyes and settles at its desk before the
+        dashboard opens. Always skippable with a click. Turn this off to start instantly.
+      </div>
+    </div>
+    <input
+      type="checkbox"
+      checked={s.wakeAnimation}
+      disabled={!s.mascotOn}
+      aria-label="Play the wake-up sequence"
+      on:change={() => setFlag("wakeAnimation", !s.wakeAnimation)}
+    />
+  </div>
 </div>
 
 <div class="settgrp">
