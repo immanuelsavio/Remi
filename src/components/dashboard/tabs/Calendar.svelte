@@ -10,7 +10,8 @@
    * would silently un-break a broken streak - which is exactly the lie the
    * revive heart exists to make you pay for deliberately.
    */
-  import { app, showToast, togglePto } from "../../../store";
+  import { app, showToast } from "../../../store";
+  import PtoSheet from "../PtoSheet.svelte";
   import {
     allTags,
     canMarkPto,
@@ -82,39 +83,30 @@
   }
 
   /**
-   * What a click on a day means.
+   * A click on the grid reads a day back. That is all it does.
    *
-   * Marking time off has always worked by clicking a future day - but
-   * nothing anywhere SAID so, so it may as well not have existed. An
-   * explicit mode makes the calendar announce what it is about to do, and
-   * keeps the browse behaviour (tap a past day, read its summary) intact
-   * instead of overloading one click with two meanings.
+   * It used to also toggle time off - first as the only way to set it, then
+   * behind an invisible mode whose browse path STILL toggled. Either way a
+   * person reviewing their own history could silently book a holiday by
+   * clicking the wrong square. Marking time off now lives in its own sheet,
+   * where a click cannot mean two things.
    */
-  let mode: "browse" | "pto" = "browse";
-  $: ptoThisMonth = cells.filter((iso) => !!iso && s.pto.includes(iso)).length;
+  let ptoOpen = false;
 
   function onDay(iso: string) {
-    if (mode === "pto") {
-      if (!canMarkPto(iso, today)) {
-        showToast("Time off can only be set for today or later");
-        return;
-      }
-      togglePto(iso);
-      return;
-    }
     const rec = byDate.get(iso);
     if (rec) {
       showToast(
-        `${iso} · ${rec.completed.length} done · ${hoursStr(rec.totalMs)}` +
-          (rec.unfinished.length ? ` · ${rec.unfinished.length} left open` : ""),
+        `${iso} - ${rec.completed.length} done - ${hoursStr(rec.totalMs)}` +
+          (rec.unfinished.length ? ` - ${rec.unfinished.length} left open` : ""),
       );
       return;
     }
-    if (!canMarkPto(iso, today)) {
-      showToast("Time off can only be set for today or later");
+    if (s.pto.includes(iso)) {
+      showToast(`${iso} - time off`);
       return;
     }
-    togglePto(iso);
+    showToast(`${iso} - nothing recorded`);
   }
 </script>
 
@@ -127,19 +119,11 @@
 {/if}
 
 <div class="cal-modes">
-  <button
-    class="bk-btn ghost"
-    class:on={mode === "pto"}
-    on:click={() => (mode = mode === "pto" ? "browse" : "pto")}
-  >
-    {mode === "pto" ? "✓ Done marking time off" : "＋ Add time off"}
-  </button>
-  {#if mode === "pto"}
-    <span class="cal-hint">
-      Click any day from today onwards to mark it off. Days off bridge a streak - they never break
-      it. {ptoThisMonth} marked this month.
-    </span>
-  {/if}
+  <button class="bk-btn ghost" on:click={() => (ptoOpen = true)}>＋ Add time off</button>
+  <span class="cal-hint">
+    Days off bridge a streak rather than breaking it. Clicking the calendar below just reads a day
+    back; it never marks one.
+  </span>
 </div>
 
 <div class="searchbar">
@@ -265,6 +249,8 @@
   </div>
 {/if}
 
+<PtoSheet bind:open={ptoOpen} />
+
 <style>
   .searchbar {
     display: flex;
@@ -309,11 +295,6 @@
     gap: 10px;
     flex-wrap: wrap;
     margin: 10px 0 4px;
-  }
-  .cal-modes .on {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
   }
   .cal-hint {
     font-size: 11.5px;
