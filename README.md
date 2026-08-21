@@ -1,10 +1,8 @@
 <div align="center">
 
-<img src="src-tauri/icons/128x128@2x.png" width="104" alt="Remi" />
+<img src="assets/app_logo_wide.png" width="440" alt="Remi" />
 
-# Remi
-
-**A menu-bar day tracker for ADHD brains — built around the time you _lose_, not just the time you spend.**
+### A menu-bar day tracker for ADHD brains — built around the time you _lose_, not just the time you spend.
 
 [![CI](https://github.com/immanuelsavio/Remi/actions/workflows/ci.yml/badge.svg)](https://github.com/immanuelsavio/Remi/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue.svg)](LICENSE)
