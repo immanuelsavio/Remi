@@ -59,15 +59,15 @@
   <div class="bk-card">
     <div class="s-text" style="color:var(--ink-soft)">
       {#if streaks.current > 0}
-        {streaks.current}-day streak{streaks.current === streaks.longest ? " — your best yet!" : ""}
+        {streaks.current}-day streak{streaks.current === streaks.longest ? " - your best yet!" : ""}
       {:else}
-        Streak's asleep — your best was {streaks.longest} days.
+        Streak's asleep - your best was {streaks.longest} days.
       {/if}
       <span style="color:var(--ink-faint)">Weekends and days off never break it.</span>
     </div>
     <div class="s-text" style="color:var(--ink-faint); margin-top:6px;">
       {#if streaks.life >= 1}
-        ❤️ <b>1 revive ready.</b> Spend it to bridge a missed day and keep a streak going — your call
+        ❤️ <b>1 revive ready.</b> Spend it to bridge a missed day and keep a streak going - your call
         when it's worth it.
       {:else}
         🤍 Revive spent. You earn one back after every 5-day streak.
@@ -172,7 +172,7 @@
 {#if intr.count === 0}
   <div class="bk-card">
     <div class="s-text" style="color:var(--ink-faint)">
-      No interruptions recorded yet. When something pulls you off a task, Remi logs it here — useful
+      No interruptions recorded yet. When something pulls you off a task, Remi logs it here - useful
       evidence when a task takes longer than anyone estimated.
     </div>
   </div>
@@ -184,7 +184,7 @@
     <div class="eyebrow" style="color:var(--break-ink)">Time lost to interruptions</div>
     <div class="gb-v" style="color:var(--break-ink)">{hoursStr(intr.totalMs)}</div>
     <div class="gb-l">
-      across {intr.count} interruption{intr.count === 1 ? "" : "s"} — about {intr.perFocusHour.toFixed(
+      across {intr.count} interruption{intr.count === 1 ? "" : "s"} - about {intr.perFocusHour.toFixed(
         1,
       )} per hour of focused work.
     </div>
@@ -228,7 +228,7 @@
           <span class="est-badge">{t.stretchRatio.toFixed(1)}× longer</span>
         </div>
         <div class="ts-row">
-          <span>Estimated</span><span class="ts-r">{t.estMs ? fmtEst(t.estMs) : "—"}</span>
+          <span>Estimated</span><span class="ts-r">{t.estMs ? fmtEst(t.estMs) : "-"}</span>
         </div>
         <div class="ts-row">
           <span>Focused work</span><span class="ts-r ok">{hoursStr(t.focusedMs)}</span>

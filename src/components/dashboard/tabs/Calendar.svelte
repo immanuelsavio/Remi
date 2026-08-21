@@ -84,7 +84,7 @@
   /**
    * What a click on a day means.
    *
-   * Marking time off has always worked by clicking a future day — but
+   * Marking time off has always worked by clicking a future day - but
    * nothing anywhere SAID so, so it may as well not have existed. An
    * explicit mode makes the calendar announce what it is about to do, and
    * keeps the browse behaviour (tap a past day, read its summary) intact
@@ -136,7 +136,7 @@
   </button>
   {#if mode === "pto"}
     <span class="cal-hint">
-      Click any day from today onwards to mark it off. Days off bridge a streak — they never break
+      Click any day from today onwards to mark it off. Days off bridge a streak - they never break
       it. {ptoThisMonth} marked this month.
     </span>
   {/if}
@@ -261,7 +261,7 @@
 
   <div class="dsec-sub" style="margin-top:14px;">
     Tap a day with a record to see what it held. Tap today or a future day to mark a day off (PTO).
-    Past days can't be marked off — that's what the revive heart is for.
+    Past days can't be marked off - that's what the revive heart is for.
   </div>
 {/if}
 

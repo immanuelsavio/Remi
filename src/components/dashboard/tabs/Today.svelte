@@ -28,6 +28,7 @@
   import RemindControl from "../../shared/RemindControl.svelte";
   import ConfirmSubSheet from "../../shared/ConfirmSubSheet.svelte";
   import Mascot from "../../shared/Mascot.svelte";
+  import { withName } from "../../../domain/name";
 
   export let active: Main | null;
   export let activeSub: Sub | null;
@@ -84,7 +85,7 @@
     <div class="gb-t">{breakLeft > 0 ? `${fmt(breakLeft)} left` : "Break's up"}</div>
     <div class="gb-l">
       {#if s.breakPausedTitle}Paused: {s.breakPausedTitle}.
-      {/if}Step away properly — I'll still be here.
+      {/if}Step away properly - I'll still be here.
     </div>
     <div class="gb-acts">
       <button class="bk-btn" on:click={resumeFromBreak}>▸ Back to work</button>
@@ -146,7 +147,7 @@
           </div>
           {#if warn}
             <div class="avoid-note">
-              You've moved this {m.carries} days running — are you avoiding it? Try just the first small
+              You've moved this {m.carries} days running - are you avoiding it? Try just the first small
               step.
             </div>
           {:else if m.subs.length}
@@ -282,9 +283,9 @@
   <div class="alldone">
     <Mascot mood="cheer" size={96} label="Everything on today's list is done" />
     <div>
-      <p class="ad-t">That's everything.</p>
+      <p class="ad-t">{withName("That's everything", s.userName)}.</p>
       <p class="ad-s">
-        {doneCount} task{doneCount === 1 ? "" : "s"} finished. Wrap up the day when you're ready — anything
+        {doneCount} task{doneCount === 1 ? "" : "s"} finished. Wrap up the day when you're ready - anything
         you add later still counts.
       </p>
     </div>

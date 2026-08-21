@@ -55,7 +55,7 @@
             </span>
           </div>
         {:else}
-          <div class="bl-empty">Empty — that's a good sign.</div>
+          <div class="bl-empty">Empty - that's a good sign.</div>
         {/each}
       </div>
 

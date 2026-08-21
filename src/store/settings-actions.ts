@@ -3,6 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+import { normalizeName } from "../domain/name";
 import { applyTheme } from "../domain/theme";
 import type { State, WellnessKey } from "../domain/types";
 import { resetTrayTitleCache } from "./clock";
@@ -40,6 +41,11 @@ export type BoolPref =
   | "wakeAnimation"
   | "roamOn"
   | "loggingOptIn";
+
+/** Remember what to call the user. Normalised and length-capped on the way in. */
+export function setUserName(raw: string): void {
+  commit((s) => void (s.userName = normalizeName(raw)));
+}
 
 export function setFlag(key: BoolPref, on: boolean): void {
   commit((s) => void (s[key] = on));

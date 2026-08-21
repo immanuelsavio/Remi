@@ -3,7 +3,7 @@
    * A mouse that lives along the bottom of the dashboard, wanders on its
    * own, and scurries to wherever you click.
    *
-   * Pure fun. It reads nothing and reports nothing — which is exactly why
+   * Pure fun. It reads nothing and reports nothing - which is exactly why
    * it is the one mascot behaviour that defaults OFF: every other pose is a
    * readout of real state, and this is movement for its own sake inside an
    * app built for people whose attention is the scarce resource.

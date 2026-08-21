@@ -17,7 +17,7 @@
     No tasks yet today. Notes you add here stay attached to the task or step.
   </div>
 {:else}
-  <div class="dsec-sub">Jot a reminder next to any task or step — it travels with your backup.</div>
+  <div class="dsec-sub">Jot a reminder next to any task or step - it travels with your backup.</div>
   {#each s.mains as m (m.id)}
     <div class="dtask">
       <div class="dtask-head"><span class="dt-t">{m.title}</span></div>

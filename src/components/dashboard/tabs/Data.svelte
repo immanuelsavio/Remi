@@ -126,7 +126,7 @@
 <div class="bk-card">
   <h4>Export a work record</h4>
   <p>
-    A printable record of what you actually finished — tasks, the focused time each took, and
+    A printable record of what you actually finished - tasks, the focused time each took, and
     anything left open. Opens in your browser, where <b>Print → Save as PDF</b> gives you a file to keep
     or send.
   </p>
@@ -165,10 +165,10 @@
     </div>
     <p class="imp-note">
       {#if reportTags.length}
-        Only work tagged {reportTags.map((t) => `#${t}`).join(" and ")} — daily totals are recalculated
+        Only work tagged {reportTags.map((t) => `#${t}`).join(" and ")} - daily totals are recalculated
         to match, so the report never claims hours it hasn't shown.
       {:else}
-        No filter — everything is included.
+        No filter - everything is included.
       {/if}
     </p>
   {/if}
@@ -290,7 +290,7 @@
   <h4>Something wrong? Tell us</h4>
   <p>
     Anything broken, confusing or missing. This is saved with your logs, so when you export them
-    below your note goes along with them — it is the one part of the export that contains your own
+    below your note goes along with them - it is the one part of the export that contains your own
     words, and nothing is sent anywhere until you hand the file over yourself.
   </p>
   <textarea
@@ -306,7 +306,7 @@
       class="bk-btn ghost"
       on:click={() => {
         setFeedback(feedbackDraft);
-        showToast("Saved — it'll go out with your next log export");
+        showToast("Saved - it'll go out with your next log export");
       }}>Save note</button
     >
     {#if s.feedback}

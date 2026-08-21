@@ -91,7 +91,7 @@
           </div>
           {#if warn}
             <div class="avoid-note">
-              You've moved this {m.carries} days running — are you avoiding it? Try just the first small
+              You've moved this {m.carries} days running - are you avoiding it? Try just the first small
               step.
             </div>
           {:else if m.subs.length}

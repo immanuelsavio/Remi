@@ -5,7 +5,7 @@
    * The popover has had one since the beginning; this window never did.
    * `awaitingStart` was referenced in exactly ONE place in the whole UI
    * (Calendar's "is today real yet" check), so the dashboard happily
-   * rendered Plan, Today, Stats and the rest before the day had begun —
+   * rendered Plan, Today, Stats and the rest before the day had begun -
    * while the carried tasks sat in `carrySeed`, where nothing displayed
    * them.
    *
@@ -21,6 +21,7 @@
   import type { SeedChoice } from "../../store";
   import { fmtEst, todayISO } from "../../view";
   import { endedOn, lastLoggedDay } from "../../domain/day-state";
+  import { greeting, withName } from "../../domain/name";
   import CarryDecisions from "../shared/CarryDecisions.svelte";
   import Mascot from "../shared/Mascot.svelte";
   import WakeSequence from "./WakeSequence.svelte";
@@ -37,7 +38,7 @@
 
   /**
    * Today is already in the archive: the user wrapped up and came back the
-   * same day. There is no new day to start — only the closed one to
+   * same day. There is no new day to start - only the closed one to
    * reopen.
    *
    * `endDay` builds tomorrow's state (dayNum + 1, `awaitingStart`) while
@@ -89,9 +90,9 @@
     </div>
     <h1 class="big">
       {#if wrappedToday}
-        That's today, done.
+        {withName("That's today, done", s.userName)}.
       {:else}
-        {s.dayNum > 1 ? "New day." : "Good morning."}
+        {withName(greeting(new Date().getHours()), s.userName)}.
       {/if}
     </h1>
 
@@ -121,7 +122,7 @@
     {:else}
       {#if wrappedToday}
         <p class="lede">
-          You wrapped up today already. Tomorrow's day starts tomorrow — until then, reopening is
+          You wrapped up today already. Tomorrow's day starts tomorrow - until then, reopening is
           the way back in, and it restores exactly what you chose on the way out.
         </p>
       {:else if carried.length}

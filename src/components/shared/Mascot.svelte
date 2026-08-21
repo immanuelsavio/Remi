@@ -2,15 +2,15 @@
   /**
    * REMI, animated.
    *
-   * Remi is already a mouse — it is on the app icon, in the menu bar and
+   * Remi is already a mouse - it is on the app icon, in the menu bar and
    * curled over the check-ring in the wordmark. This is that same mouse
    * drawn as live SVG so it can *move*, and what it does is not decoration:
    * the pose is a readout of what the app is doing.
    *
-   *   run    the clock is running — legs going, dust kicking up
-   *   idle   the day is open, nothing is timed — sitting, breathing, waiting
-   *   sleep  on a break — curled up, z's rising, clock genuinely paused
-   *   cheer  the day is done — a hop, once, and then it holds
+   *   run    the clock is running - legs going, dust kicking up
+   *   idle   the day is open, nothing is timed - sitting, breathing, waiting
+   *   sleep  on a break - curled up, z's rising, clock genuinely paused
+   *   cheer  the day is done - a hop, once, and then it holds
    *
    * That mapping is the point. A running mouse in the corner of the popover
    * says "time is being spent" faster than a number does, which matters when
@@ -39,7 +39,7 @@
   /** Rendered width in px; the drawing scales with it. */
   export let size = 64;
   /**
-   * Accessible label. Empty (the default) marks it decorative — which is
+   * Accessible label. Empty (the default) marks it decorative - which is
    * usually right, because every screen that shows it also *says* in text
    * what is happening. Pass a label only where the mouse is the sole
    * indicator.
@@ -132,7 +132,7 @@
 
     <!-- Pad and pen: the "ready to take your order" pose, for an empty
          list. Painted AFTER the mouse so the pad sits in FRONT of it and
-         covers the whiskers — held up, the way a waiter holds one. -->
+         covers the whiskers - held up, the way a waiter holds one. -->
     <g class="notepad" aria-hidden="true">
       <rect class="np-sheet" x="64" y="21" width="25" height="27" rx="2.5" />
       <path class="np-rule" d="M68 29 H85" />

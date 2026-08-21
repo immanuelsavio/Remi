@@ -108,7 +108,7 @@
       </div>
 
       <button class="checkin-no" style="margin-top:12px;" on:click={closeOverlay}>
-        Never mind — stay here
+        Never mind - stay here
       </button>
     </div>
   </div>

@@ -50,7 +50,7 @@
         </button>
       {:else}
         <button class="bk-btn" on:click={() => installUpdate($updateInfo?.latest ?? "")}>
-          Yes — quit and update
+          Yes - quit and update
         </button>
         <button class="bk-btn ghost" on:click={() => (confirming = false)}>Cancel</button>
       {/if}

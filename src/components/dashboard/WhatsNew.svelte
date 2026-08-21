@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * "What's new" — shown ONCE, the first time the app runs on a version it
+   * "What's new" - shown ONCE, the first time the app runs on a version it
    * has not run on before.
    *
    * Deliberately not shown on a fresh install: someone opening Remi for the
@@ -20,7 +20,7 @@
           <div class="notes">{$whatsNew.notes}</div>
         {:else}
           <div class="s-text">
-            You're on a new version. Release notes weren't available offline — they're on the
+            You're on a new version. Release notes weren't available offline - they're on the
             releases page whenever you want them.
           </div>
         {/if}

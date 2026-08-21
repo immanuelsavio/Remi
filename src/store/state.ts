@@ -173,6 +173,7 @@ export function copyDurablePreferences(old: State, next: State): void {
   next.mascotOn = old.mascotOn;
   next.wakeAnimation = old.wakeAnimation;
   next.roamOn = old.roamOn;
+  next.userName = old.userName;
   next.trayTimer = old.trayTimer;
   next.backlog = old.backlog;
   next.estimateLog = old.estimateLog;

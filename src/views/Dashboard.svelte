@@ -9,8 +9,8 @@
    *
    * DISPLAY-ONLY for effects: `startClock({owner:false})` ticks the timers but
    * fires no notifications and does not own the tray title. Both webviews exist
-   * from launch, so two owners would double-fire and let this window — hidden
-   * most of the time — consume a bounded check-in the user never sees.
+   * from launch, so two owners would double-fire and let this window - hidden
+   * most of the time - consume a bounded check-in the user never sees.
    *
    * The tab strip follows the WAI-ARIA tabs pattern with roving tabindex, so it
    * is fully keyboard navigable.
@@ -239,7 +239,7 @@
       Day {s.dayNum} · {fmtEst(tracked)}
       {#if streaks.current > 1}· 🔥 {streaks.current}{/if}
     </span>
-    <span class="beta" title="Remi {$appVersion} — still in beta">BETA</span>
+    <span class="beta" title="Remi {$appVersion} - still in beta">BETA</span>
   </div>
 
   <div class="dash-body" id="panel" role="tabpanel" aria-labelledby="tab-{tab}">
@@ -376,7 +376,7 @@
                 </span>
               </div>
             {:else}
-              <div class="bl-empty">Empty — that's a good sign.</div>
+              <div class="bl-empty">Empty - that's a good sign.</div>
             {/each}
           </div>
           <button class="checkin-no" on:click={closeOverlay}>Close</button>

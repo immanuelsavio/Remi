@@ -2,8 +2,8 @@
   /**
    * The Start-my-day screen: the first thing you see each morning.
    *
-   * When work carried over WITHOUT anyone being asked — an unattended
-   * rollover past midnight, or a plain "wrap up the day" — this is the
+   * When work carried over WITHOUT anyone being asked - an unattended
+   * rollover past midnight, or a plain "wrap up the day" - this is the
    * moment to ask, because it is the first moment someone is actually
    * present. Each carried task can come into today, go to the backlog, or
    * be dropped.
@@ -15,6 +15,7 @@
   import type { SeedChoice } from "../../../store";
   import { fmtEst, todayISO } from "../../../view";
   import { endedOn } from "../../../domain/day-state";
+  import { greeting, withName } from "../../../domain/name";
   import type { computeStreaks } from "../../../view";
   import RemiMark from "../../shared/RemiMark.svelte";
   import Mascot from "../../shared/Mascot.svelte";
@@ -62,9 +63,10 @@
       {/if}
       <div class="eyebrow">Day {s.dayNum}</div>
       <h1 class="big">
-        {#if wrappedToday}That's today, done.{:else}{s.dayNum > 1
-            ? "New day."
-            : "Good morning."}{/if}
+        {#if wrappedToday}{withName("That's today, done", s.userName)}.{:else}{withName(
+            greeting(new Date().getHours()),
+            s.userName,
+          )}.{/if}
       </h1>
 
       {#if deciding}

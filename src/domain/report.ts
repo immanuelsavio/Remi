@@ -154,7 +154,7 @@ export function buildReport(days: DayRecord[], opts: ReportOptions): string {
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" />
-<title>Remi — work record — ${esc(opts.rangeLabel)}</title>
+<title>Remi - work record - ${esc(opts.rangeLabel)}</title>
 <style>
   :root { --ink:#2a2622; --soft:#6b6259; --faint:#a59c90; --line:#e2dccf; --accent:#218693; }
   * { box-sizing:border-box; }

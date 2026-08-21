@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * The morning beat: Remi wakes, rubs its eyes, and settles at its desk —
+   * The morning beat: Remi wakes, rubs its eyes, and settles at its desk -
    * and only then does the day (and the dashboard) open up.
    *
    * This is the one place in the app where a pause is the point rather than
@@ -14,7 +14,7 @@
    *   2. Driven by TIMERS, never by `animationend`. Under
    *      `prefers-reduced-motion` the global rule sets `animation: none`,
    *      so `animationend` would never fire and the sequence would hang
-   *      forever with the dashboard behind it — a hard lock, on exactly
+   *      forever with the dashboard behind it - a hard lock, on exactly
    *      the setting chosen by people least able to tolerate one.
    *   3. Skipped outright when reduced motion is on, or when the user has
    *      turned the mascot or this sequence off. `done` still fires, so the
@@ -27,6 +27,7 @@
 
   import { app } from "../../store";
   import Mascot from "../shared/Mascot.svelte";
+  import { withName } from "../../domain/name";
 
   const dispatch = createEventDispatcher<{ done: void }>();
 
@@ -77,13 +78,13 @@
   class="wakeseq"
   role="button"
   tabindex="0"
-  aria-label="Starting your day — click to skip"
+  aria-label="Starting your day - click to skip"
   on:click={finish}
   on:keydown={finish}
 >
   <Mascot mood={step} size={230} />
   <p class="wk-cap" aria-live="polite">
-    {step === "wake" ? "Morning…" : "Getting to work."}
+    {step === "wake" ? `${withName("Morning", s.userName)}…` : "Getting to work."}
   </p>
   <p class="wk-skip">click anywhere to skip</p>
 </div>

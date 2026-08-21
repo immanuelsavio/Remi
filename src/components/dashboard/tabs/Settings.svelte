@@ -8,6 +8,7 @@
     setAutoUpdate,
     setDayTarget,
     setFlag,
+    setUserName,
     setMode,
     setPingMin,
     setStandardDaily,
@@ -21,6 +22,7 @@
   import { ACCENTS, clockLabel } from "../../../view";
   import type { WellnessKey } from "../../../view";
   import Mascot from "../../shared/Mascot.svelte";
+  import { NAME_MAX } from "../../../domain/name";
 
   export let autoUpdate: boolean;
 
@@ -74,6 +76,29 @@
       </div>
     </div>
     <button class="set-btn" on:click={startTour}>▸ Start the tour</button>
+  </div>
+</div>
+
+<div class="settgrp">
+  <h4>You</h4>
+  <div class="settrow">
+    <div>
+      <div class="st">What should Remi call you?</div>
+      <div class="sd">
+        Used in greetings and a few bits of copy. Leave it empty and nothing anywhere says a name.
+        Capped at {NAME_MAX} characters so it cannot push anything off screen.
+      </div>
+    </div>
+    <input
+      class="num-in"
+      style="width:190px;"
+      type="text"
+      maxlength={NAME_MAX}
+      placeholder="your name"
+      value={s.userName}
+      on:change={(e) => setUserName(e.currentTarget.value)}
+      on:blur={(e) => setUserName(e.currentTarget.value)}
+    />
   </div>
 </div>
 
@@ -132,7 +157,7 @@
       <div class="st">Let Remi wander</div>
       <div class="sd">
         A mouse pottering along the bottom of this window that scurries to wherever you click.
-        Purely for fun — it never covers anything and never swallows a click. Off by default,
+        Purely for fun - it never covers anything and never swallows a click. Off by default,
         because movement in the corner of your eye is the exact thing this app is meant to protect.
       </div>
     </div>
@@ -148,7 +173,7 @@
     <div>
       <div class="st">Wake-up sequence</div>
       <div class="sd">
-        Starting your day wakes Remi first — it rubs its eyes and settles at its desk before the
+        Starting your day wakes Remi first - it rubs its eyes and settles at its desk before the
         dashboard opens. Always skippable with a click. Turn this off to start instantly.
       </div>
     </div>
@@ -203,7 +228,7 @@
   <h4>Wellness nudges</h4>
   <div class="dsec-sub" style="margin:-2px 0 6px; font-size:11.5px;">
     Gentle, optional reminders to look after yourself. Off by default, one at a time, never during a
-    break — and they never touch your task clock.
+    break - and they never touch your task clock.
   </div>
   {#each WELLNESS_KEYS as key (key)}
     {@const c = s.wellness[key]}
@@ -273,7 +298,7 @@
     <div>
       <div class="st">Streaks &amp; days off</div>
       <div class="sd">
-        Mark PTO on the Calendar. Days off bridge your streak — they never break it.
+        Mark PTO on the Calendar. Days off bridge your streak - they never break it.
       </div>
     </div>
     <button class="set-btn" on:click={() => dashTab.set("calendar")}>Open Calendar</button>
@@ -298,7 +323,7 @@
     <div>
       <div class="st">Check for updates automatically</div>
       <div class="sd">
-        Looks for a new release when Remi starts. It never installs anything on its own — updating
+        Looks for a new release when Remi starts. It never installs anything on its own - updating
         is always a button you press, on the Data tab.
       </div>
     </div>

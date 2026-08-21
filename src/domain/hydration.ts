@@ -12,6 +12,7 @@
 import { freshDay, freshWellness, mkMain, mkSub } from "./defaults";
 import { todayISO } from "./dates";
 import { nid } from "./ids";
+import { normalizeName } from "./name";
 import { normalizeTags } from "./tags";
 import { ACCENTS } from "./types";
 import type {
@@ -283,6 +284,7 @@ export function hydrate(raw: unknown): State {
   s.mascotOn = s.mascotOn !== false;
   s.wakeAnimation = s.wakeAnimation !== false;
   s.roamOn = s.roamOn === true;
+  s.userName = normalizeName(s.userName);
   s.privateNotifications = s.privateNotifications === true;
 
   const PHASES: Phase[] = ["startday", "today", "active", "break", "recovery"];

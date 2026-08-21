@@ -126,6 +126,7 @@ export {
   setMode,
   setPingMin,
   setStandardDaily,
+  setUserName,
   setWellnessEvery,
   setWellnessHour,
   toggleWellness,

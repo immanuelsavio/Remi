@@ -1,6 +1,6 @@
 <script lang="ts" generics="T extends string">
   /**
-   * "What happens to each of these?" — one row per task, with a segmented
+   * "What happens to each of these?" - one row per task, with a segmented
    * choice on the right.
    *
    * Shared by End Day (done / carry / backlog) and Start Day (keep /
@@ -8,7 +8,7 @@
    * different moments and should not drift apart visually or behaviourally.
    *
    * The caller owns the choices array and its default, so this component
-   * decides nothing — it only shows and reports.
+   * decides nothing - it only shows and reports.
    */
 
   /** One row: a stable key, what to call it, and an optional detail line. */

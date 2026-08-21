@@ -4,7 +4,7 @@
    *
    * The default is still one button: most evenings everything unfinished
    * should just carry. "Decide per task" expands the list in place rather
-   * than sending you to another screen — the previous version's button
+   * than sending you to another screen - the previous version's button
    * claimed to do this and merely opened the Plan tab, which offers no such
    * choice.
    */

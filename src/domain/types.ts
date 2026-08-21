@@ -441,7 +441,7 @@ export interface State {
    * Play the wake-up sequence when the day starts.
    *
    * Remi is asleep until you begin: pressing Start wakes it, it rubs its
-   * eyes, crosses to its desk and gets to work — and only then does the
+   * eyes, crosses to its desk and gets to work - and only then does the
    * dashboard open up. It is a deliberate beat between "not started" and
    * "started", which is the one moment in this app where a pause is the
    * point rather than a cost.
@@ -456,7 +456,7 @@ export interface State {
   /**
    * Let Remi wander the dashboard, and scurry to wherever you click.
    *
-   * Purely for fun — it tracks nothing and reports nothing, which is why it
+   * Purely for fun - it tracks nothing and reports nothing, which is why it
    * is the one mascot behaviour that defaults OFF. Everything else the
    * mouse does is a readout of real state; this is movement for its own
    * sake, in the periphery, inside an app built for people whose attention
@@ -466,6 +466,15 @@ export interface State {
    * Also skipped under `prefers-reduced-motion`, which no toggle overrides.
    */
   roamOn: boolean;
+  /**
+   * What to call you. Empty means "never mind", and every use site treats
+   * it that way rather than printing a dangling comma.
+   *
+   * Clamped to `NAME_MAX` by `normalizeName` on the way in, because it is
+   * rendered inside headings, buttons and a popover only as wide as a menu
+   * bar, and nothing downstream clamps it.
+   */
+  userName: string;
   /**
    * Show the running task's elapsed time next to the menu-bar icon.
    *

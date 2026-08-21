@@ -29,7 +29,7 @@ export const TOUR_STEPS: TourStep[] = [
     id: "welcome",
     title: "Welcome to Remi",
     body: [
-      "Remi tracks where your day actually goes — not just what you worked on, but how long it really took and what kept getting in the way.",
+      "Remi tracks where your day actually goes - not just what you worked on, but how long it really took and what kept getting in the way.",
       "This takes about a minute. You can close it any time and pick it up again from Settings.",
     ],
   },
@@ -37,7 +37,7 @@ export const TOUR_STEPS: TourStep[] = [
     id: "menubar",
     title: "It lives in your menu bar",
     body: [
-      "Look up, not at your Dock — Remi has no Dock icon. The mark near your clock opens a small popover, which is where you work the day.",
+      "Look up, not at your Dock - Remi has no Dock icon. The mark near your clock opens a small popover, which is where you work the day.",
       "This bigger window is for planning it and looking at the evidence afterwards.",
     ],
     aside: "The popover floats above everything, including other apps in fullscreen.",
@@ -56,7 +56,7 @@ export const TOUR_STEPS: TourStep[] = [
     title: "Break it into steps",
     tab: "plan",
     body: [
-      "Under any task, “＋ add steps” opens an indented list. Steps are one level deep on purpose — deeper nesting turns into planning instead of doing.",
+      "Under any task, “＋ add steps” opens an indented list. Steps are one level deep on purpose - deeper nesting turns into planning instead of doing.",
       "If a step turns out to be the real work, you can promote it into a task of its own later, and it keeps the time it already earned.",
     ],
   },
@@ -97,7 +97,7 @@ export const TOUR_STEPS: TourStep[] = [
     tab: "today",
     body: [
       "The ☕ button pauses the clock and starts a break timer. Breaks are a quiet corner, not another thing to manage.",
-      "Optional wellness nudges — water, stand up, lunch — are off by default and never touch your task clock.",
+      "Optional wellness nudges - water, stand up, lunch - are off by default and never touch your task clock.",
     ],
   },
   {
@@ -126,14 +126,14 @@ export const TOUR_STEPS: TourStep[] = [
       "Time given back against your target day, your streak, and how your estimates compare with reality.",
       "The interruptions section shows what interrupts you most and which tasks lost the most time to it.",
     ],
-    aside: "Weekends and days off bridge a streak — they never break it.",
+    aside: "Weekends and days off bridge a streak - they never break it.",
   },
   {
     id: "report",
     title: "Export a work record",
     tab: "data",
     body: [
-      "A printable record of what you finished — pick a date range, filter to a tag, and choose whether to include the interruption detail.",
+      "A printable record of what you finished - pick a date range, filter to a tag, and choose whether to include the interruption detail.",
       "It opens in your browser, where Print → Save as PDF gives you a file to keep or send.",
     ],
     aside:
@@ -154,7 +154,7 @@ export const TOUR_STEPS: TourStep[] = [
     tab: "settings",
     body: [
       "Light or dark, seven accent colours, how often Remi checks in, your workday length, and daily routines.",
-      "The tour lives here too — “Take the tour again” is at the top whenever you want it.",
+      "The tour lives here too - “Take the tour again” is at the top whenever you want it.",
     ],
   },
 ];

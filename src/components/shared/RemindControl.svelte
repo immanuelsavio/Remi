@@ -20,7 +20,7 @@
   <button
     class="rembadge"
     class:due
-    title="{remind.label} — click to change"
+    title="{remind.label} - click to change"
     on:click|stopPropagation={() => openRemind(target)}
   >
     <span aria-hidden="true">⏲</span>

@@ -25,7 +25,7 @@
       </div>
       <!-- svelte-ignore a11y-autofocus -->
       <button class="checkin-yes" autofocus on:click={closeOverlay}>Yep, still on it</button>
-      <button class="checkin-no" on:click={() => openSwitch("checkin")}>No — switch task</button>
+      <button class="checkin-no" on:click={() => openSwitch("checkin")}>No - switch task</button>
       <button class="checkin-no" on:click={() => startBreak(15)}>I need a break</button>
       <button class="checkin-no" on:click={muteCheckins}>Mute check-ins today</button>
     </div>
