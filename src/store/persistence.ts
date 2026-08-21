@@ -153,10 +153,15 @@ export async function flushSave(): Promise<void> {
           if (fresh.state) {
             const cur = S();
             const next = hydrate(fresh.state);
-            next.phase = cur.phase;
-            next.overlay = cur.overlay;
-            next.subsOpen = cur.subsOpen;
-            next.ciStage = cur.ciStage;
+            // Same-day guard as `reloadFromDisk` - see the long note there.
+            // Re-imposing this window's view on top of a NEWER DAY is what
+            // turned a lost CAS at midnight into an endless write war.
+            if (next.dateISO === cur.dateISO && next.dayNum === cur.dayNum) {
+              next.phase = cur.phase;
+              next.overlay = cur.overlay;
+              next.subsOpen = cur.subsOpen;
+              next.ciStage = cur.ciStage;
+            }
             state.set(next);
             applyTheme(next.mode, next.accent);
           }

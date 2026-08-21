@@ -119,6 +119,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filed an interruption against a task that had not been running — the
   break screen's own comment had documented this state for a while.
   Answered with `isTiming()` in `domain/tasks.ts` instead.
+- **The two windows no longer fight forever across midnight.** An app left
+  open overnight showed "Remi changed in another window", then "A new day —
+  starting fresh", repeating, with the tray flipping between the End Day
+  sheet and the Start-day screen. `checkDayRollover` runs in both windows
+  by design, so at midnight both roll and one loses the compare-and-swap —
+  but the loser reloaded the winner's state and then stamped its OWN
+  `phase`/`overlay` back on top. Its state therefore never equalled disk:
+  it stayed dirty, saved, made the winner stale, and the two ping-ponged
+  indefinitely (observed at revision 281). That view is now preserved only
+  when the reloaded day is the SAME day; across a day boundary the local
+  view belongs to a day that no longer exists, so the persisted one wins.
 - **A stale "Welcome back" offer no longer switches you off live work.**
   `welcomeBack` is a per-window store and is deliberately not part of
   `State`, so it never synced and nothing retired it. Starting a task in the

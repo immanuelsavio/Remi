@@ -122,6 +122,8 @@ import {
   removeSub,
   restartDay,
   resumeDay,
+  reloadFromDisk,
+  setOverlay,
   restoreBackup,
   resumeFromBreak,
   resumeWelcomeBack,
@@ -1210,6 +1212,68 @@ describe("import, export and restore", () => {
     const backup = { ...freshDay(42), dateISO: todayISO(), awaitingStart: false };
     await restoreBackup(JSON.stringify(backup));
     expect(saved.some((s) => s.dayNum === 42)).toBe(false);
+  });
+
+  it("converges on the other window's day instead of oscillating across midnight", async () => {
+    // THE MIDNIGHT WRITE WAR.
+    //
+    // `checkDayRollover` deliberately runs in BOTH windows (a hidden
+    // popover has its timers throttled, so gating it on effect ownership
+    // let an app left open overnight never roll at all). At midnight both
+    // windows therefore roll independently and one loses the CAS.
+    //
+    // The loser reloaded from disk - and then re-imposed its OWN `phase`
+    // and `overlay` on top, to avoid yanking the user off their screen.
+    // Across a day boundary that is fatal: the reloaded state never equals
+    // disk, so the window stays dirty, saves, makes the WINNER stale, and
+    // the two ping-pong forever. Observed live at rev 281, with the tray
+    // flipping between the End Day sheet and the Start-day screen and "A
+    // new day - starting fresh" repeating.
+    loadResult = {
+      kind: "loaded",
+      state: { ...freshDay(1), dateISO: todayISO(), phase: "today" },
+    };
+    await boot();
+    setOverlay("endday");
+    expect(S().dayNum).toBe(1);
+
+    // The OTHER window rolled the day and won the race.
+    const tomorrow = "2099-12-31";
+    loadResult = {
+      kind: "loaded",
+      state: { ...freshDay(2), dateISO: tomorrow, phase: "startday" },
+    };
+    await reloadFromDisk();
+
+    const s = S();
+    expect(s.dayNum).toBe(2);
+    expect(s.dateISO).toBe(tomorrow);
+    // The local view belonged to a day that no longer exists; keeping it is
+    // what made convergence impossible.
+    expect(s.phase).toBe("startday");
+    expect(s.overlay).toBeNull();
+  });
+
+  it("still keeps this window's screen when the reload is the SAME day", async () => {
+    // The anti-yank behaviour is the point of preserving these, and must
+    // survive the fix above: a background save in the other window must not
+    // throw you off what you are looking at.
+    loadResult = {
+      kind: "loaded",
+      state: { ...freshDay(3), dateISO: todayISO(), phase: "today" },
+    };
+    await boot();
+    setOverlay("backlog");
+
+    loadResult = {
+      kind: "loaded",
+      state: { ...freshDay(3), dateISO: todayISO(), phase: "startday" },
+    };
+    await reloadFromDisk();
+
+    const s = S();
+    expect(s.phase).toBe("today");
+    expect(s.overlay).toBe("backlog");
   });
 
   it("reports a StaleWriteError restore attempt distinctly, and reflects the reloaded (not the attempted) state", async () => {

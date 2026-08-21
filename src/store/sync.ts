@@ -36,11 +36,27 @@ export async function reloadFromDisk(): Promise<void> {
     const cur = S();
     const next = hydrate(res.state);
     // Keep THIS window's transient view so a background save in the other
-    // window can't yank the user off their screen.
-    next.phase = cur.phase;
-    next.overlay = cur.overlay;
-    next.subsOpen = cur.subsOpen;
-    next.ciStage = cur.ciStage;
+    // window can't yank the user off their screen - but ONLY within the
+    // same day.
+    //
+    // Across a day boundary that preservation is fatal. `checkDayRollover`
+    // runs in BOTH windows on purpose, so at midnight both roll and one
+    // loses the compare-and-swap. If the loser reloads the winner's state
+    // and then stamps its OWN phase/overlay back on top, its state never
+    // equals disk: it stays dirty, saves, makes the winner stale, and the
+    // two ping-pong forever - the day never converges, "A new day -
+    // starting fresh" repeats, and the tray flips between the End Day
+    // sheet and the Start-day screen.
+    //
+    // When the persisted day is not the day this window is looking at, the
+    // local view belongs to a day that no longer exists. Take theirs.
+    const sameDay = next.dateISO === cur.dateISO && next.dayNum === cur.dayNum;
+    if (sameDay) {
+      next.phase = cur.phase;
+      next.overlay = cur.overlay;
+      next.subsOpen = cur.subsOpen;
+      next.ciStage = cur.ciStage;
+    }
     state.set(next);
     applyTheme(next.mode, next.accent);
   } catch {
