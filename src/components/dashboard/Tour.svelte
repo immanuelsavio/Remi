@@ -233,6 +233,12 @@
     </div>
 
     <div class="tf-acts">
+      <!-- Kept alongside the one at the top on purpose. They are read at
+           different moments: the top one before you start reading a page,
+           this one after you have. -->
+      <button class="tf-ghost" on:click={endTour}>
+        {i === TOUR_LENGTH - 1 ? "Done" : "Skip the tour"}
+      </button>
       <span class="tf-spacer"></span>
       {#if i > 0}
         <button class="tf-ghost" on:click={tourBack}>Back</button>
