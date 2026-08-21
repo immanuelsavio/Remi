@@ -119,6 +119,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filed an interruption against a task that had not been running — the
   break screen's own comment had documented this state for a while.
   Answered with `isTiming()` in `domain/tasks.ts` instead.
+- **A rolled-over day could never be saved.** `rolloverIfNewDay`, `endDay`
+  and `restartDay` all build tomorrow from `freshDay(...)`, which sets
+  `_rev: 0` — and `_rev` is what the compare-and-swap in `state_io.rs`
+  checks. So the new day's first write sent revision 0 against a disk
+  revision of hundreds, was rejected as stale, and the reload pulled
+  yesterday straight back off disk; the next tick rolled again, forever.
+  Symptom: "Remi changed in another window" alternating with "A new day —
+  starting fresh", the date pinned to yesterday and `_rev` frozen. The
+  revision is now carried in `copyDurablePreferences`, the one funnel every
+  new-day path already goes through for exactly this class of bug.
 - **The two windows no longer fight forever across midnight.** An app left
   open overnight showed "Remi changed in another window", then "A new day —
   starting fresh", repeating, with the tray flipping between the End Day

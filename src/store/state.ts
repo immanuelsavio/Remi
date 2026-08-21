@@ -144,6 +144,18 @@ export function setSaveTimerHandle(t: ReturnType<typeof setTimeout> | null): voi
  * day boundary.
  */
 export function copyDurablePreferences(old: State, next: State): void {
+  // NOT a preference - but this is the one funnel every new-day path goes
+  // through, which is exactly why it belongs here.
+  //
+  // `_rev` is what the compare-and-swap in `state_io.rs` checks: it must
+  // keep describing the revision this window last saw on disk. Every path
+  // that builds tomorrow starts from `freshDay(...)`, and `freshDay` sets
+  // `_rev: 0`. Dropping it meant the new day's very first write sent 0
+  // against a disk revision of hundreds, was rejected as stale, and
+  // `flushSave` reloaded YESTERDAY back off disk - so the next tick rolled
+  // again, forever. That is a save that can never land, on the one write
+  // that matters most: the day boundary.
+  next._rev = old._rev;
   next.trainerOn = old.trainerOn;
   next.avoidanceOn = old.avoidanceOn;
   next.mode = old.mode;

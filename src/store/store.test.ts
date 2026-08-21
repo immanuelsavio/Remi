@@ -1214,6 +1214,42 @@ describe("import, export and restore", () => {
     expect(saved.some((s) => s.dayNum === 42)).toBe(false);
   });
 
+  it("a rolled-over day can actually be SAVED (carries the live revision)", async () => {
+    // THE MIDNIGHT LOOP, and the real one.
+    //
+    // `rolloverIfNewDay` REPLACES state with a `freshDay(...)`-derived
+    // object, and `freshDay` sets `_rev: 0`. Every mutation path that
+    // merely commits keeps `_rev`; this one silently reset it.
+    //
+    // So on the first day boundary after any save, the rollover's write
+    // sent `_rev: 0` against a disk revision of hundreds, the
+    // compare-and-swap rejected it as stale, `flushSave` reloaded
+    // YESTERDAY back off disk, and the next tick rolled again - forever.
+    // Live symptom: "Remi changed in another window" alternating with "A
+    // new day - starting fresh", `dateISO` pinned to yesterday, `_rev`
+    // frozen (observed at 281, unmoving, while the app ran).
+    mockCurrentRev = 7;
+    loadResult = {
+      kind: "loaded",
+      state: {
+        ...freshDay(1),
+        dateISO: "2000-01-01",
+        awaitingStart: false, // a day that was actually started
+        mains: [{ ...mkMain("carried work") }],
+        _rev: 7,
+      },
+    };
+    await boot();
+    expect(S().dateISO).toBe(todayISO()); // rolled in memory
+    expect(S().dayNum).toBe(2);
+
+    // ...and the write must LAND, not bounce off the CAS.
+    await flushSave();
+    const last = saved[saved.length - 1];
+    expect(last.dateISO).toBe(todayISO());
+    expect(last.dayNum).toBe(2);
+  });
+
   it("converges on the other window's day instead of oscillating across midnight", async () => {
     // THE MIDNIGHT WRITE WAR.
     //
