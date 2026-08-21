@@ -3,6 +3,7 @@
     app,
     dashTab,
     resetAndUninstall,
+    startTour,
     setAccent,
     setAutoUpdate,
     setDayTarget,
@@ -60,6 +61,20 @@
 
 <div class="dsec-title">Settings</div>
 <div class="dsec-sub">Everything you can control, in one place.</div>
+
+<div class="settgrp">
+  <h4>Help</h4>
+  <div class="settrow">
+    <div>
+      <div class="st">Take the tour again</div>
+      <div class="sd">
+        A quick walk through adding tasks and steps, tagging, the clock, ending the day, reports and
+        search. Runs once on a first launch; this is how you get it back.
+      </div>
+    </div>
+    <button class="set-btn" on:click={startTour}>▸ Start the tour</button>
+  </div>
+</div>
 
 <div class="settgrp">
   <h4>Appearance</h4>

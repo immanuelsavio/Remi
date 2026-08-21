@@ -12,6 +12,7 @@
 import { freshDay, freshWellness, mkMain, mkSub } from "./defaults";
 import { todayISO } from "./dates";
 import { nid } from "./ids";
+import { normalizeTags } from "./tags";
 import { ACCENTS } from "./types";
 import type {
   BacklogItem,
@@ -81,6 +82,7 @@ export function normalizeMains(v: unknown): Main[] {
       out.remind = normalizeRemind(m.remind);
       out.carries = Math.max(0, num(m.carries));
       out.estMs = Math.max(0, num(m.estMs));
+      out.tags = normalizeTags(m.tags);
       out.firstStartedAt = Math.max(0, num(m.firstStartedAt));
       out.completedAt = Math.max(0, num(m.completedAt));
       out.interruptedCount = Math.max(0, num(m.interruptedCount));
@@ -127,6 +129,7 @@ export function hydrate(raw: unknown): State {
       note: str(c.note),
       remind: normalizeRemind(c.remind),
       estMs: Math.max(0, num(c.estMs)),
+      tags: normalizeTags(c.tags),
       carries: Math.max(0, num(c.carries)),
       subs: arr<unknown>(c.subs)
         .filter(isObj)
@@ -227,6 +230,7 @@ export function hydrate(raw: unknown): State {
   // Absent means ON (a fresh install during the beta); an explicit `false`
   // is always honoured, so nobody who turned it off gets silently re-opted-in.
   s.loggingOptIn = s.loggingOptIn !== false;
+  s.tourSeen = s.tourSeen === true;
   s.feedback = typeof s.feedback === "string" ? s.feedback.slice(0, 4000) : "";
 
   s.pto = arr<unknown>(s.pto).filter((x): x is string => typeof x === "string");

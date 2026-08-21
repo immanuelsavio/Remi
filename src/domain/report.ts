@@ -14,6 +14,7 @@
  */
 
 import type { DayRecord, InterruptionEvent } from "./types";
+import { matchesTags } from "./tags";
 import { fmtEst, hoursStr } from "./time";
 import { prettyDate, dateFromISO } from "./dates";
 
@@ -36,11 +37,44 @@ const esc = (s: unknown): string =>
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
   );
 
-/** Day records falling inside `[fromISO, toISO]`, oldest first. */
-export function selectDays(history: DayRecord[], fromISO: string, toISO: string): DayRecord[] {
-  return history
+/**
+ * Day records inside `[fromISO, toISO]`, oldest first, optionally narrowed
+ * to work carrying every tag in `tags`.
+ *
+ * Filtering rewrites each day rather than dropping it wholesale: a day
+ * where you touched three projects should appear in a per-project report
+ * showing only that project's work, and with `totalMs` recomputed to match.
+ * Leaving the original total would make a filtered report claim hours it
+ * has not shown. Days left with nothing are dropped.
+ */
+export function selectDays(
+  history: DayRecord[],
+  fromISO: string,
+  toISO: string,
+  tags: string[] = [],
+): DayRecord[] {
+  const inRange = history
     .filter((h) => h.dateISO && h.dateISO >= fromISO && h.dateISO <= toISO)
     .sort((a, b) => (a.dateISO < b.dateISO ? -1 : 1));
+  if (!tags.length) return inRange;
+
+  return inRange
+    .map((d) => {
+      const completed = d.completed.filter((c) => matchesTags(c.tags, tags));
+      const unfinished = d.unfinished.filter((u) => matchesTags(u.tags, tags));
+      return {
+        ...d,
+        completed,
+        unfinished,
+        totalMs: completed.reduce((a, c) => a + (c.ms || 0), 0),
+        // An interruption belongs to the report only if it cost one of the
+        // tasks still shown; otherwise it is evidence about other work.
+        interruptions: (d.interruptions ?? []).filter((e) =>
+          completed.some((c) => c.title === e.interruptedTitle),
+        ),
+      };
+    })
+    .filter((d) => d.completed.length || d.unfinished.length);
 }
 
 export interface ReportTotals {

@@ -48,10 +48,19 @@ export function completedToday(s: State): CompletedRecord[] {
         title: m.title,
         kind: "task",
         ms: m.accrued + m.subs.reduce((a, x) => a + x.accrued, 0),
+        tags: m.tags?.length ? [...m.tags] : undefined,
       });
     }
     m.subs.forEach((x) => {
-      if (x.done) out.push({ title: x.title, kind: "step", ms: x.accrued });
+      // A step inherits its parent's tags: it is part of that work, and a
+      // report filtered by project should not lose the steps inside it.
+      if (x.done)
+        out.push({
+          title: x.title,
+          kind: "step",
+          ms: x.accrued,
+          tags: m.tags?.length ? [...m.tags] : undefined,
+        });
     });
   });
   return out;
@@ -64,6 +73,7 @@ export function unfinishedToday(s: State): UnfinishedRecord[] {
     .map((m) => ({
       title: m.title,
       subs: m.subs.filter((x) => !x.done).map((x) => ({ title: x.title, note: x.note })),
+      tags: m.tags?.length ? [...m.tags] : undefined,
     }));
 }
 
@@ -85,6 +95,7 @@ export function carrySnapshot(m: Main): CarrySnapshot {
     note: m.note,
     remind: m.remind,
     estMs: m.estMs,
+    tags: m.tags?.length ? [...m.tags] : undefined,
     carries: (m.carries || 0) + 1,
     subs: m.subs
       .filter((x) => !x.done)

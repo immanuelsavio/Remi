@@ -71,19 +71,20 @@ export async function exportWorkRecord(
   range: ReportRange,
   includeInterruptions: boolean,
   custom?: { from: string; to: string },
+  tags: string[] = [],
 ): Promise<void> {
   const s = S();
   const { from, to, label } = rangeBounds(range, todayISO(), custom);
 
   const archived = s.history.filter((h) => h.dateISO !== s.dateISO);
   const live = s.awaitingStart ? [] : [enrichSnapshot(s, daySnapshot(s, Date.now()))];
-  const days = selectDays([...archived, ...live], from, to);
+  const days = selectDays([...archived, ...live], from, to, tags);
 
   const html = buildReport(days, {
     includeInterruptions,
     logoDataUri: await logoDataUri(),
     generatedAt: Date.now(),
-    rangeLabel: label,
+    rangeLabel: tags.length ? `${label} · ${tags.map((t) => `#${t}`).join(" ")}` : label,
   });
 
   try {

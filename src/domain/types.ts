@@ -101,6 +101,13 @@ export interface Main {
   carries: number;
   /** Time-sense trainer estimate, in ms (0 = none). */
   estMs: number;
+  /**
+   * Free-form labels: a project, a client, a kind of work.
+   *
+   * Stored lowercased and de-duplicated so "Coding" and "coding" are one
+   * tag rather than two that never quite match when you filter.
+   */
+  tags: string[];
 
   /**
    * When it was FIRST started, and when it was completed.
@@ -134,6 +141,7 @@ export interface BacklogItem {
 export interface CarrySnapshot {
   title: string;
   note: string;
+  tags?: string[];
   remind: Remind | null;
   estMs: number;
   carries: number;
@@ -152,12 +160,21 @@ export interface CompletedRecord {
   interruptedMs?: number;
   /** The estimate given up front, when the trainer was on. */
   estMs?: number;
+  /**
+   * The task's tags, copied in at archive time.
+   *
+   * Denormalised on purpose: the record has to stand on its own. Once a day
+   * is archived the `Main` it came from is gone, so a report filtered by
+   * tag could not resolve one by looking anything up.
+   */
+  tags?: string[];
 }
 
 /** An unfinished task (with its open steps) left at end of day. */
 export interface UnfinishedRecord {
   title: string;
   subs: { title: string; note: string }[];
+  tags?: string[];
 }
 
 /** A day's immutable record: calendar, stats, streaks and export all read it. */
@@ -351,6 +368,15 @@ export interface State {
   wellness: Wellness;
   /** Tasks seeded fresh into every new day ("standard daily" routines). */
   standardDaily: string[];
+  /**
+   * Whether the guided tour has been shown.
+   *
+   * Persisted so it runs exactly once, unprompted, on a first launch - and
+   * never again unless asked for from Settings. Nothing is more tiresome
+   * than an onboarding flow that forgets it already ran.
+   */
+  tourSeen: boolean;
+
   /**
    * Anonymous usage logging. ON by default during the beta.
    *

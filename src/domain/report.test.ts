@@ -168,3 +168,59 @@ describe("rangeBounds", () => {
     expect(rangeBounds("custom", "2026-08-20", { from: "", to: "" }).label).toBe("Entire history");
   });
 });
+
+describe("selectDays with a tag filter", () => {
+  const tagged = (): DayRecord[] => [
+    {
+      day: 1,
+      dateISO: "2026-08-10",
+      completed: [
+        { title: "Fix login", kind: "task", ms: 3_600_000, tags: ["acme"] },
+        { title: "Personal admin", kind: "task", ms: 1_800_000, tags: ["home"] },
+      ],
+      unfinished: [{ title: "Refactor auth", subs: [], tags: ["acme"] }],
+      totalMs: 5_400_000,
+      interruptions: [
+        ev({ interruptedTitle: "Fix login" }),
+        ev({ id: "x", interruptedTitle: "Personal admin" }),
+      ],
+    },
+    {
+      day: 2,
+      dateISO: "2026-08-11",
+      completed: [{ title: "Only home stuff", kind: "task", ms: 900_000, tags: ["home"] }],
+      unfinished: [],
+      totalMs: 900_000,
+    },
+  ];
+
+  it("keeps only the tagged work", () => {
+    const out = selectDays(tagged(), "2026-08-01", "2026-08-31", ["acme"]);
+    expect(out).toHaveLength(1);
+    expect(out[0].completed.map((c) => c.title)).toEqual(["Fix login"]);
+    expect(out[0].unfinished.map((u) => u.title)).toEqual(["Refactor auth"]);
+  });
+
+  it("recomputes the daily total so the report cannot overstate itself", () => {
+    // Leaving totalMs at 5,400,000 would show one hour of work under a
+    // header claiming an hour and a half.
+    const out = selectDays(tagged(), "2026-08-01", "2026-08-31", ["acme"]);
+    expect(out[0].totalMs).toBe(3_600_000);
+  });
+
+  it("drops interruptions that cost work the filter excluded", () => {
+    const out = selectDays(tagged(), "2026-08-01", "2026-08-31", ["acme"]);
+    expect(out[0].interruptions).toHaveLength(1);
+    expect(out[0].interruptions?.[0].interruptedTitle).toBe("Fix login");
+  });
+
+  it("drops a day left with nothing", () => {
+    expect(
+      selectDays(tagged(), "2026-08-01", "2026-08-31", ["acme"]).map((d) => d.dateISO),
+    ).toEqual(["2026-08-10"]);
+  });
+
+  it("is unchanged when no tags are given", () => {
+    expect(selectDays(tagged(), "2026-08-01", "2026-08-31", [])).toHaveLength(2);
+  });
+});

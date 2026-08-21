@@ -48,6 +48,7 @@
     checkForUpdate,
     checkWhatsNew,
     loadAppVersion,
+    startTour,
   } from "../store";
   import { computeStreaks, fmtEst, nowMs, todayISO, todayTrackedMs } from "../view";
   import type { DashTab } from "../view";
@@ -62,6 +63,7 @@
   import RemiMark from "../components/shared/RemiMark.svelte";
   import RemindSheet from "../components/shared/RemindSheet.svelte";
   import WhatsNew from "../components/dashboard/WhatsNew.svelte";
+  import Tour from "../components/dashboard/Tour.svelte";
 
   const TABS: { id: DashTab; label: string }[] = [
     // Plan then Today: the order you actually move through a day.
@@ -117,6 +119,9 @@
     // and neither blocks the UI: `checkWhatsNew` only speaks up after a real
     // version change, and the update check is silent unless there is news.
     await loadAppVersion();
+    // First launch only. Never again unless asked for from Settings -
+    // an onboarding flow that forgets it already ran is worse than none.
+    if (!$app.tourSeen) startTour();
     void checkWhatsNew();
     // Honour the Settings toggle: "check automatically" has to actually
     // mean something, or it is just decoration. Manual checks from the Data
@@ -356,6 +361,7 @@
 
   <RemindSheet />
   <WhatsNew />
+  <Tour />
 
   {#if $wellnessNudge}
     {@const c = wellnessCopy($wellnessNudge)}

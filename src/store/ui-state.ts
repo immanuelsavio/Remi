@@ -1,10 +1,11 @@
 /** UI STATE: phase/overlay navigation and opening the dashboard. */
 
 import { invoke } from "@tauri-apps/api/core";
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 
 import type { DashTab, Overlay, Phase } from "../domain/types";
 import { commit, dashTab } from "./state";
+import { TOUR_LENGTH, TOUR_STEPS } from "../domain/tour";
 
 /**
  * Which task/step/backlog item the reminder sheet is currently editing, or
@@ -30,6 +31,48 @@ export function openRemind(target: RemindTarget): void {
 
 export function closeRemind(): void {
   remindTarget.set(null);
+}
+
+/**
+ * The guided tour's position, or `null` when it is not running.
+ *
+ * Window-local: the tour is a thing happening in front of one person, not
+ * state about their work, so it never reaches `state.json`. Only the
+ * "already seen" flag is persisted.
+ */
+export const tourStep = writable<number | null>(null);
+
+export function startTour(): void {
+  tourStep.set(0);
+  dashTab.set(TOUR_STEPS[0].tab ?? get(dashTab));
+}
+
+export function tourNext(): void {
+  const at = get(tourStep);
+  if (at === null) return;
+  const next = at + 1;
+  if (next >= TOUR_LENGTH) {
+    endTour();
+    return;
+  }
+  tourStep.set(next);
+  const tab = TOUR_STEPS[next].tab;
+  if (tab) dashTab.set(tab);
+}
+
+export function tourBack(): void {
+  const at = get(tourStep);
+  if (at === null || at === 0) return;
+  const prev = at - 1;
+  tourStep.set(prev);
+  const tab = TOUR_STEPS[prev].tab;
+  if (tab) dashTab.set(tab);
+}
+
+/** Close the tour and remember that it ran, however it ended. */
+export function endTour(): void {
+  tourStep.set(null);
+  commit((s) => void (s.tourSeen = true));
 }
 
 export function setPhase(phase: Phase): void {

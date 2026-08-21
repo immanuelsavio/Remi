@@ -11,6 +11,9 @@ import { M, showToast, welcomeBack } from "./state";
 import { startSub, startTask } from "./task-actions";
 
 export type { CarryChoice } from "../domain/types";
+export { allTags, normalizeTag, normalizeTags, parseTags } from "../domain/tags";
+export { TOUR_STEPS, TOUR_LENGTH, stepAt, type TourStep } from "../domain/tour";
+export { searchDays, summarise, type SearchHit, type SearchQuery } from "../domain/search";
 
 export {
   app,
@@ -70,6 +73,9 @@ export {
   setNote,
   setRemind,
   setSubTitle,
+  setTags,
+  addTag,
+  removeTag,
   startNewMain,
   startSub,
   startTask,
@@ -99,6 +105,11 @@ export {
   remindTarget,
   setOverlay,
   setPhase,
+  startTour,
+  tourStep,
+  tourNext,
+  tourBack,
+  endTour,
   toggleSubsOpen,
   type RemindTarget,
 } from "./ui-state";

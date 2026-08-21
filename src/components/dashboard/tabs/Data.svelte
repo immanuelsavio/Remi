@@ -21,6 +21,7 @@
   import ImportSheet from "../ImportSheet.svelte";
   import UpdateCard from "../UpdateCard.svelte";
   import type { ReportRange } from "../../../store";
+  import { allTags } from "../../../view";
 
   export let dataFolder: string;
 
@@ -50,6 +51,8 @@
   let customTo = "";
   let withInterruptions = true;
   let exporting = false;
+  let reportTags: string[] = [];
+  $: knownTags = allTags([...s.mains, ...s.history.flatMap((h) => h.completed)]);
 
   $: s = $app;
   $: dayBuckets = Object.keys(s.metrics.days).length;
@@ -143,6 +146,33 @@
     </div>
   {/if}
 
+  {#if knownTags.length}
+    <div class="grouplbl">Filter by tag</div>
+    <div class="tagpick">
+      {#each knownTags as t (t)}
+        <button
+          class="tagchip"
+          class:on={reportTags.includes(t)}
+          on:click={() =>
+            (reportTags = reportTags.includes(t)
+              ? reportTags.filter((x) => x !== t)
+              : [...reportTags, t])}>#{t}</button
+        >
+      {/each}
+      {#if reportTags.length}
+        <button class="tagchip clear" on:click={() => (reportTags = [])}>clear</button>
+      {/if}
+    </div>
+    <p class="imp-note">
+      {#if reportTags.length}
+        Only work tagged {reportTags.map((t) => `#${t}`).join(" and ")} — daily totals are recalculated
+        to match, so the report never claims hours it hasn't shown.
+      {:else}
+        No filter — everything is included.
+      {/if}
+    </p>
+  {/if}
+
   <div class="imp-row">
     <button
       class="pill-switch"
@@ -167,7 +197,12 @@
       disabled={exporting || (range === "custom" && !(customFrom && customTo))}
       on:click={async () => {
         exporting = true;
-        await exportWorkRecord(range, withInterruptions, { from: customFrom, to: customTo });
+        await exportWorkRecord(
+          range,
+          withInterruptions,
+          { from: customFrom, to: customTo },
+          reportTags,
+        );
         exporting = false;
       }}>{exporting ? "Building…" : "⇪ Export work record"}</button
     >
@@ -322,3 +357,36 @@
 </div>
 
 <ImportSheet bind:open={importOpen} bind:text={importText} />
+
+<style>
+  .tagpick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .tagchip {
+    font-family: var(--font-num);
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink-soft);
+    border-radius: 999px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .tagchip:hover {
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .tagchip.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .tagchip.clear {
+    color: var(--danger);
+    border-style: dashed;
+  }
+</style>

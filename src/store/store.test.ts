@@ -132,8 +132,18 @@ import {
   setNote,
   setFeedback,
   setRemind,
+  setTags,
+  addTag,
+  removeTag,
   startBreak,
+  dashTab,
   startClock,
+  startTour,
+  tourStep,
+  tourNext,
+  tourBack,
+  endTour,
+  TOUR_LENGTH,
   startDay,
   startNewMain,
   startSub,
@@ -1970,5 +1980,108 @@ describe("today on the calendar", () => {
     expect(today.completed.map((c) => c.title)).toContain("Alpha");
     expect(today.unfinished.map((u) => u.title)).toContain("Beta");
     expect(today.totalMs).toBeGreaterThanOrEqual(119_000);
+  });
+});
+
+// ===========================================================================
+describe("tagging work", () => {
+  it("normalises on the way in, so one project is one tag", () => {
+    const [a] = ids();
+    addTag(a, "#Coding");
+    addTag(a, "coding"); // already there, in another shape
+    addTag(a, " ACME ");
+    expect(S().mains.find((m) => m.id === a)?.tags).toEqual(["coding", "acme"]);
+  });
+
+  it("removes a tag without touching the others", () => {
+    const [a] = ids();
+    setTags(a, ["coding", "acme", "urgent"]);
+    removeTag(a, "acme");
+    expect(S().mains.find((m) => m.id === a)?.tags).toEqual(["coding", "urgent"]);
+  });
+
+  it("copies tags onto the archived record, so history can be filtered", () => {
+    const [a] = ids();
+    addTag(a, "acme");
+    addSub(a, "a step");
+    startTask(a);
+    rewind(60_000);
+    const sub = S().mains.find((m) => m.id === a)!.subs[0];
+    toggleSubDone(a, sub.id);
+    completeMain(a);
+    endDay();
+
+    const rec = S().history[0];
+    const task = rec.completed.find((c) => c.title === "Alpha");
+    const step = rec.completed.find((c) => c.title === "a step");
+    expect(task?.tags).toEqual(["acme"]);
+    // A step is part of that work; a per-project report must not lose it.
+    expect(step?.tags).toEqual(["acme"]);
+  });
+
+  it("keeps tags on a task carried into tomorrow", () => {
+    const [a] = ids();
+    addTag(a, "acme");
+    endDay();
+    startDay();
+    expect(S().mains.find((m) => m.title === "Alpha")?.tags).toEqual(["acme"]);
+  });
+
+  it("survives a round trip through the persisted shape", () => {
+    const [a] = ids();
+    setTags(a, ["coding", "acme"]);
+    const back = hydrate(JSON.parse(JSON.stringify(S())));
+    expect(back.mains.find((m) => m.id === a)?.tags).toEqual(["coding", "acme"]);
+  });
+
+  it("repairs junk tags off disk rather than trusting them", () => {
+    const bad = { ...freshDay(), mains: [{ title: "x", tags: ["A", "a", 42, "", "B"] }] };
+    expect(hydrate(bad).mains[0].tags).toEqual(["a", "42", "b"]);
+  });
+});
+
+// ===========================================================================
+describe("the guided tour", () => {
+  it("has not been seen on a fresh install", () => {
+    expect(S().tourSeen).toBe(false);
+  });
+
+  it("walks forward, switching tabs as it goes", () => {
+    startTour();
+    expect(get(tourStep)).toBe(0);
+    tourNext();
+    expect(get(tourStep)).toBe(1);
+    // Step 3 is the Plan tab; the tour should have taken us there.
+    tourNext();
+    expect(get(dashTab)).toBe("plan");
+  });
+
+  it("will not step back off the front", () => {
+    startTour();
+    tourBack();
+    expect(get(tourStep)).toBe(0);
+  });
+
+  it("closes itself at the end, and remembers it ran", () => {
+    startTour();
+    for (let i = 0; i < TOUR_LENGTH; i++) tourNext();
+    expect(get(tourStep)).toBeNull();
+    expect(S().tourSeen).toBe(true);
+  });
+
+  it("remembers it ran even when skipped early", () => {
+    startTour();
+    tourNext();
+    endTour();
+    expect(get(tourStep)).toBeNull();
+    expect(S().tourSeen).toBe(true);
+  });
+
+  it("keeps that memory across a day boundary", () => {
+    startTour();
+    endTour();
+    endDay();
+    startDay();
+    expect(S().tourSeen).toBe(true);
   });
 });

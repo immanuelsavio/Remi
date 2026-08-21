@@ -2,6 +2,7 @@
  * start/switch/interrupt/complete/promote. */
 
 import { mkMain, mkSub } from "../domain/defaults";
+import { normalizeTag, normalizeTags } from "../domain/tags";
 import { makeRemind } from "../domain/reminders";
 import { mainTotal } from "../domain/tasks";
 import type { Remind, RemindKind } from "../domain/types";
@@ -74,6 +75,32 @@ export function toggleShowSubs(mainId: string): void {
     const m = s.mains.find((x) => x.id === mainId);
     if (m) m._showSubs = !m._showSubs;
   });
+}
+
+/** Replace a task's tags. Normalised, so casing and stray "#" never split one tag into two. */
+export function setTags(mainId: string, tags: string[]): void {
+  commit((s) => {
+    const m = s.mains.find((x) => x.id === mainId);
+    if (m) m.tags = normalizeTags(tags);
+  });
+}
+
+/** Add one tag, ignoring duplicates and blanks. */
+export function addTag(mainId: string, tag: string): void {
+  const m = M(mainId);
+  if (!m) return;
+  const clean = normalizeTag(tag);
+  if (!clean || m.tags.includes(clean)) return;
+  setTags(mainId, [...m.tags, clean]);
+}
+
+export function removeTag(mainId: string, tag: string): void {
+  const m = M(mainId);
+  if (!m) return;
+  setTags(
+    mainId,
+    m.tags.filter((t) => t !== tag),
+  );
 }
 
 /** Set a note on a task (`subId === null`) or one of its steps. */

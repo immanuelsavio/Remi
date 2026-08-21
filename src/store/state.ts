@@ -153,6 +153,7 @@ export function copyDurablePreferences(old: State, next: State): void {
   next.wellness = old.wellness;
   next.standardDaily = old.standardDaily;
   next.loggingOptIn = old.loggingOptIn;
+  next.tourSeen = old.tourSeen;
   next.notifyReminders = old.notifyReminders;
   next.notifyBreakEnd = old.notifyBreakEnd;
   next.welcomeBack = old.welcomeBack;

@@ -60,6 +60,7 @@ export function startDay(choices: SeedChoice[] = []): void {
       m.note = c.note ?? "";
       m.remind = c.remind ?? null;
       m.estMs = c.estMs || 0;
+      m.tags = [...(c.tags ?? [])];
       seeded.push(m);
     });
     if (parked.length) s.backlog = [...s.backlog, ...parked];

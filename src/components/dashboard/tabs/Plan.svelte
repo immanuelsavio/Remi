@@ -27,8 +27,9 @@
     startDay,
     toggleShowSubs,
   } from "../../../store";
-  import { fmt, fmtEst, mainTotal, nowMs } from "../../../view";
+  import { allTags, fmt, fmtEst, mainTotal, nowMs } from "../../../view";
   import RemindControl from "../../shared/RemindControl.svelte";
+  import TagEditor from "../../shared/TagEditor.svelte";
   import ImportSheet from "../ImportSheet.svelte";
 
   /** Lifted to the router: this tab is destroyed and recreated on every tab
@@ -46,6 +47,9 @@
   $: active = s.mains.find((m) => m.id === s.activeMainId) ?? null;
   $: activeSub = active?.subs.find((x) => x.id === s.activeSubId) ?? null;
   $: activeThing = activeSub ?? active;
+  // Suggest tags already in use anywhere - today's tasks and the archive -
+  // so a project gets labelled the same way each time.
+  $: knownTags = allTags([...s.mains, ...s.history.flatMap((h) => h.completed)]);
 
   function commitTask() {
     if (!taskDraft.trim()) return;
@@ -176,6 +180,8 @@
             />
           </div>
         {/if}
+
+        <TagEditor mainId={m.id} tags={m.tags} suggestions={knownTags} />
 
         {#if m._showSubs || m.subs.length}
           <div class="sub-inputs">

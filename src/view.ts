@@ -45,3 +45,5 @@ export {
 export { canMarkPto, computeStreaks } from "./domain/streaks";
 export { interruptionStats, timeSense } from "./domain/trainer";
 export { IMPORT_PROMPT, parseImport, type ParsedImport } from "./domain/imports";
+export { allTags, matchesTags, normalizeTag, parseTags } from "./domain/tags";
+export { searchDays, summarise, type SearchHit } from "./domain/search";
