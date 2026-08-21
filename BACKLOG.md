@@ -47,6 +47,15 @@ revisiting if the bundle grows.
 
 ---
 
+## Brand
+
+### Keep the accent in step with the mark
+
+`--accent` is `#ec6a4a`, sampled by hand from the icon's coral. The mark's
+ring is now teal, so the app's accent and its icon tell slightly different
+stories. Not wrong — coral is still in the mark — but worth a deliberate
+look rather than drift.
+
 ## Platform
 
 ### Windows build and installer
