@@ -63,6 +63,7 @@ fn main() {
             commands::set_auto_update,
             commands::notify,
             commands::write_text_file,
+            commands::open_in_default_app,
             commands::set_tray_title,
             commands::open_dashboard,
             commands::dashboard_closed,

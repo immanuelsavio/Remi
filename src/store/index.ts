@@ -121,6 +121,8 @@ export {
   type BoolPref,
 } from "./settings-actions";
 export { applyImport, exportBackup, restoreBackup } from "./import-export";
+export { exportWorkRecord, rangeBounds } from "./report-actions";
+export type { ReportRange } from "../domain/report";
 export {
   appVersion,
   checkForUpdate,

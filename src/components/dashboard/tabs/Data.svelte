@@ -11,6 +11,7 @@
     app,
     exportBackup,
     exportLogs,
+    exportWorkRecord,
     openDataFolder,
     restoreBackup,
     setFeedback,
@@ -19,6 +20,7 @@
   } from "../../../store";
   import ImportSheet from "../ImportSheet.svelte";
   import UpdateCard from "../UpdateCard.svelte";
+  import type { ReportRange } from "../../../store";
 
   export let dataFolder: string;
 
@@ -35,6 +37,19 @@
   let fileInput: HTMLInputElement | null = null;
   let feedbackDraft = "";
   let feedbackSeeded = false;
+
+  // Work record
+  const RANGES: { value: ReportRange; label: string }[] = [
+    { value: "all", label: "Entire history" },
+    { value: "year", label: "This year" },
+    { value: "month", label: "This month" },
+    { value: "custom", label: "Custom" },
+  ];
+  let range: ReportRange = "all";
+  let customFrom = "";
+  let customTo = "";
+  let withInterruptions = true;
+  let exporting = false;
 
   $: s = $app;
   $: dayBuckets = Object.keys(s.metrics.days).length;
@@ -102,6 +117,60 @@
   </p>
   <div class="bk-actions">
     <button class="bk-btn ghost" on:click={openDataFolder}>⧉ Open folder</button>
+  </div>
+</div>
+
+<div class="bk-card">
+  <h4>Export a work record</h4>
+  <p>
+    A printable record of what you actually finished — tasks, the focused time each took, and
+    anything left open. Opens in your browser, where <b>Print → Save as PDF</b> gives you a file to keep
+    or send.
+  </p>
+
+  <div class="seg-inline" style="flex-wrap:wrap;">
+    {#each RANGES as r (r.value)}
+      <button class:on={range === r.value} on:click={() => (range = r.value)}>{r.label}</button>
+    {/each}
+  </div>
+
+  {#if range === "custom"}
+    <div class="imp-row">
+      <span class="imp-note">From</span>
+      <input class="num-in" style="width:auto;" type="date" bind:value={customFrom} />
+      <span class="imp-note">to</span>
+      <input class="num-in" style="width:auto;" type="date" bind:value={customTo} />
+    </div>
+  {/if}
+
+  <div class="imp-row">
+    <button
+      class="pill-switch"
+      class:on={withInterruptions}
+      role="switch"
+      aria-checked={withInterruptions}
+      aria-label="Include interruptions"
+      on:click={() => (withInterruptions = !withInterruptions)}
+    >
+      <span class="ps-track"><span class="ps-knob"></span></span>
+      <span class="ps-lbl">Include interruptions</span>
+    </button>
+  </div>
+  <p class="imp-note">
+    The interruption section names what pulled you away and which task paid for it. Leave it off if
+    the record is going to someone who doesn't need that detail.
+  </p>
+
+  <div class="bk-actions" style="margin-top:12px;">
+    <button
+      class="bk-btn"
+      disabled={exporting || (range === "custom" && !(customFrom && customTo))}
+      on:click={async () => {
+        exporting = true;
+        await exportWorkRecord(range, withInterruptions, { from: customFrom, to: customTo });
+        exporting = false;
+      }}>{exporting ? "Building…" : "⇪ Export work record"}</button
+    >
   </div>
 </div>
 

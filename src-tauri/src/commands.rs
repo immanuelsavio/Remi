@@ -181,6 +181,38 @@ pub async fn write_text_file(name: String, contents: String) -> Result<String, S
     Ok(dest.to_string_lossy().into_owned())
 }
 
+/// Open a file Remi wrote, in whatever the OS considers its default app.
+///
+/// Only files INSIDE the data folder can be opened. The frontend hands over
+/// a path it got back from `write_text_file`, but a command that opens an
+/// arbitrary path on request is a command that can be pointed anywhere, so
+/// the containment is checked here rather than assumed. `canonicalize`
+/// resolves `..` and symlinks before the check, so neither can be used to
+/// step outside.
+#[tauri::command]
+pub async fn open_in_default_app(path: String) -> Result<(), String> {
+    let folder = data_folder()
+        .canonicalize()
+        .map_err(|e| format!("data folder unavailable: {e}"))?;
+    let target = Path::new(&path)
+        .canonicalize()
+        .map_err(|e| format!("no such file: {e}"))?;
+    if !target.starts_with(&folder) {
+        return Err("refusing to open a file outside Remi's data folder".into());
+    }
+    #[cfg(target_os = "macos")]
+    let cmd = "open";
+    #[cfg(target_os = "windows")]
+    let cmd = "explorer";
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let cmd = "xdg-open";
+    std::process::Command::new(cmd)
+        .arg(&target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Show (or clear) text beside the menu-bar icon.
 #[tauri::command]
 pub async fn set_tray_title(app: AppHandle, title: Option<String>) -> Result<(), String> {
