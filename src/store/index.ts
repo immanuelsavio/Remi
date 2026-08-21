@@ -35,6 +35,7 @@ export {
 } from "./state";
 
 export {
+  autoBackup,
   boot,
   dismissWelcomeBack,
   flushSave,

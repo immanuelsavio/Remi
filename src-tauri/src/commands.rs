@@ -10,7 +10,9 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 use crate::migration::take_pending_message;
-use crate::paths::{backup_path, data_folder, recovery_dir, settings_path, state_path};
+use crate::paths::{
+    autobackup_dir, backup_path, data_folder, recovery_dir, settings_path, state_path,
+};
 use crate::settings::{patch_settings, read_settings};
 use crate::state_io::{load_state, write_state_cas, CasOutcome, LoadResult};
 use crate::tray::{apply_tray_title, QuitReadiness};
@@ -181,6 +183,63 @@ pub async fn write_text_file(name: String, contents: String) -> Result<String, S
     Ok(dest.to_string_lossy().into_owned())
 }
 
+/// How many automatic snapshots to keep before the oldest is dropped.
+///
+/// Bounded because this runs unattended: an unbounded folder of daily
+/// snapshots is a slow disk leak that nobody is watching. Two weeks is
+/// long enough to notice a mistake and go back past it.
+const AUTOBACKUP_KEEP: usize = 14;
+
+/// Write an automatic snapshot, then prune the oldest beyond the cap.
+///
+/// Deliberately separate from `write_text_file`: these go in a subfolder,
+/// they are pruned, and they must survive a non-destructive uninstall.
+/// Sharing one command would mean sharing all three behaviours with
+/// user-initiated exports, which want none of them.
+#[tauri::command]
+pub async fn write_autobackup(name: String, contents: String) -> Result<String, String> {
+    let dir = autobackup_dir(&data_folder());
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // Same containment rule as every other write: a name is a FILE name, so
+    // `../` in it cannot walk out of the folder.
+    let safe = Path::new(&name)
+        .file_name()
+        .ok_or_else(|| "invalid file name".to_string())?;
+    let dest = dir.join(safe);
+    fs::write(&dest, contents).map_err(|e| e.to_string())?;
+    prune_autobackups(&dir, AUTOBACKUP_KEEP);
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Keep the newest `keep` snapshots by file name, delete the rest.
+///
+/// Sorted by NAME rather than mtime: the names are date-stamped and sort
+/// chronologically, while mtimes can be rewritten by a restore, a backup
+/// tool or a clock change. The name is what the date actually means.
+fn prune_autobackups(dir: &std::path::Path, keep: usize) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut names: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.file_name()
+                    .map(|n| n.to_string_lossy().starts_with("remi-auto-"))
+                    .unwrap_or(false)
+        })
+        .collect();
+    if names.len() <= keep {
+        return;
+    }
+    names.sort();
+    let cut = names.len() - keep;
+    for old in names.into_iter().take(cut) {
+        let _ = fs::remove_file(old);
+    }
+}
+
 /// Open a file Remi wrote, in whatever the OS considers its default app.
 ///
 /// Only files INSIDE the data folder can be opened. The frontend hands over
@@ -309,6 +368,10 @@ fn uninstall_data(
         try_remove_file(&state_path(folder), &mut errors);
         try_remove_file(&backup_path(folder), &mut errors);
         try_remove_dir(&recovery_dir(folder), &mut errors);
+        // The automatic snapshots exist to survive an accidental removal.
+        // "Delete everything" is not accidental, so they go too - leaving
+        // them would make the promise on that checkbox false.
+        try_remove_dir(&autobackup_dir(folder), &mut errors);
 
         // Exported backups, usage logs and stale temps are app-created
         // too; "remove everything" must not leave them behind. A folder
@@ -380,6 +443,75 @@ mod tests {
     use super::*;
     use std::path::Path;
     use tempfile::tempdir;
+
+    #[test]
+    fn autobackups_are_pruned_to_the_cap_oldest_first() {
+        // It runs unattended, so an unbounded folder is a slow disk leak
+        // nobody is watching for.
+        let dir = tempdir().unwrap();
+        for d in 1..=20 {
+            let name = format!("remi-auto-2026-01-{d:02}.json");
+            fs::write(dir.path().join(name), "{}").unwrap();
+        }
+        prune_autobackups(dir.path(), 14);
+
+        let mut left: Vec<String> = fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left.len(), 14);
+        // The OLDEST go: sorted by name, because the names are date-stamped
+        // and mtimes can be rewritten by a restore or a clock change.
+        assert_eq!(left.first().unwrap(), "remi-auto-2026-01-07.json");
+        assert_eq!(left.last().unwrap(), "remi-auto-2026-01-20.json");
+    }
+
+    #[test]
+    fn pruning_leaves_files_that_are_not_autobackups_alone() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("notes.txt"), "keep me").unwrap();
+        for d in 1..=20 {
+            fs::write(
+                dir.path().join(format!("remi-auto-2026-02-{d:02}.json")),
+                "{}",
+            )
+            .unwrap();
+        }
+        prune_autobackups(dir.path(), 3);
+        assert!(dir.path().join("notes.txt").exists());
+    }
+
+    #[test]
+    fn keeping_history_keeps_the_autobackups() {
+        // The whole point: an accidental removal must not take them.
+        let dir = tempdir().unwrap();
+        let backups = autobackup_dir(dir.path());
+        fs::create_dir_all(&backups).unwrap();
+        fs::write(backups.join("remi-auto-2026-03-01.json"), "{}").unwrap();
+        let settings = dir.path().join("settings.json");
+        fs::write(&settings, "{}").unwrap();
+
+        let errors = uninstall_data(dir.path(), &settings, true);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(backups.join("remi-auto-2026-03-01.json").exists());
+    }
+
+    #[test]
+    fn removing_everything_removes_the_autobackups_too() {
+        // Leaving them would make the checkbox's promise false.
+        let dir = tempdir().unwrap();
+        let backups = autobackup_dir(dir.path());
+        fs::create_dir_all(&backups).unwrap();
+        fs::write(backups.join("remi-auto-2026-03-01.json"), "{}").unwrap();
+        let settings = dir.path().join("settings.json");
+        fs::write(&settings, "{}").unwrap();
+
+        let errors = uninstall_data(dir.path(), &settings, false);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(!backups.exists());
+    }
 
     #[test]
     fn export_name_cannot_escape_the_data_folder() {

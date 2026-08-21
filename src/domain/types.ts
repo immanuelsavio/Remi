@@ -579,6 +579,15 @@ export interface State {
    */
   leftAt: number;
   /**
+   * The date the last automatic snapshot was written (YYYY-MM-DD).
+   *
+   * A DATE, not a timestamp, because the rule is "once per day" and a date
+   * says that directly. Comparing timestamps would need an interval, and an
+   * interval drifts: launch at 23:59 and again at 00:01 and you would get
+   * two snapshots for what is really one day of work.
+   */
+  lastAutoBackup: string;
+  /**
    * Show the running task's elapsed time next to the menu-bar icon.
    *
    * Ambient time awareness with nothing to click - the single most useful

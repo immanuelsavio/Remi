@@ -292,6 +292,7 @@ export function hydrate(raw: unknown): State {
   s.userName = typeof s.userName === "string" ? normalizeName(s.userName) : DEFAULT_NAME;
   s.fullName = normalizeName(s.fullName, FULL_NAME_MAX);
   s.leftAt = Math.max(0, num(s.leftAt));
+  s.lastAutoBackup = str(s.lastAutoBackup);
   s.mascotCostume = COSTUMES.some(([k]) => k === s.mascotCostume) ? s.mascotCostume : "none";
   // A demo snapshot off disk is restored on boot, so a malformed one would
   // hand the user garbage as their real day. Drop it instead: the worst

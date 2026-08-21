@@ -65,6 +65,16 @@ pub fn state_path(folder: &std::path::Path) -> PathBuf {
 pub fn backup_path(folder: &std::path::Path) -> PathBuf {
     folder.join("state.bak")
 }
+/// Where automatic snapshots live.
+///
+/// Inside the data folder on purpose: both non-destructive uninstall paths
+/// (the shell uninstaller without `--purge`, and "keep my history" in the
+/// app) leave that folder alone, so the snapshots survive exactly the
+/// accident they exist for. "Delete everything" removes this too.
+pub fn autobackup_dir(folder: &std::path::Path) -> PathBuf {
+    folder.join("backups")
+}
+
 pub fn recovery_dir(folder: &std::path::Path) -> PathBuf {
     folder.join("Remi Recovery")
 }

@@ -19,7 +19,7 @@ import { get, writable } from "svelte/store";
 import { dueReminders } from "../domain/reminders";
 import { todayISO } from "../domain/dates";
 import type { WellnessKey } from "../domain/types";
-import { flushSave, showSaveError } from "./persistence";
+import { autoBackup, flushSave, showSaveError } from "./persistence";
 import {
   S,
   activeThing,
@@ -62,6 +62,9 @@ export function startClock(opts: { owner: boolean } = { owner: true }): void {
     // the already-rolled state rather than rolling again.
     checkDayRollover(now);
     if (!effectOwner) return;
+    // Once a day, quietly. Owner-only: two windows racing would write the
+    // same snapshot twice and prune each other's.
+    void autoBackup();
     checkReminders(now);
     checkWellness(now);
     checkCheckin(now);

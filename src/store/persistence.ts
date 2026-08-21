@@ -8,6 +8,7 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { applyTheme } from "../domain/theme";
 import { forPersist } from "../domain/persistence-shape";
 import { hydrate } from "../domain/hydration";
+import { todayISO } from "../domain/dates";
 import {
   S,
   bankOrphanSession,
@@ -215,6 +216,35 @@ export async function flushSave(): Promise<void> {
   })();
   inFlight = run;
   return run;
+}
+
+/**
+ * Write today's automatic snapshot, at most once per day.
+ *
+ * These exist for one specific accident: removing the app without meaning
+ * to lose anything. They live in a `backups/` folder inside the data
+ * folder, which BOTH non-destructive uninstall paths leave alone - so they
+ * survive exactly the mistake they are for. "Delete everything" removes
+ * them, because that choice is not a mistake and leaving them would make
+ * the checkbox's promise false.
+ *
+ * Silent in every direction. It runs unattended, so a toast on success
+ * would be noise, and a toast on failure would blame the user for a full
+ * disk they did not ask about. A failure simply does not record success,
+ * so the next launch tries again.
+ */
+export async function autoBackup(): Promise<void> {
+  const today = todayISO();
+  if (S().lastAutoBackup === today) return;
+  try {
+    await invoke<string>("write_autobackup", {
+      name: `remi-auto-${today}.json`,
+      contents: JSON.stringify(forPersist(S()), null, 2),
+    });
+    commit((s) => void (s.lastAutoBackup = today));
+  } catch {
+    /* try again next launch; never block the app on a backup */
+  }
 }
 
 export function windowId(): string {

@@ -84,6 +84,7 @@ export function freshDay(dayNum = 1, carry: CarrySnapshot[] = []): State {
     mascotCostume: "none",
     demoRestore: null,
     leftAt: 0,
+    lastAutoBackup: "",
     trayTimer: true,
     pto: [],
     life: 1,

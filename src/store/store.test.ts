@@ -71,6 +71,16 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "set_tray_title":
         trayTitles.push((args?.title as string | null) ?? null);
         return null;
+      case "write_autobackup":
+        // Shares the failure switch with saves, so "the disk is full" can
+        // be simulated for a backup too.
+        if (saveShouldFail) {
+          const msg = saveShouldFail;
+          saveShouldFail = null;
+          throw new Error(msg);
+        }
+        writtenFileNames.push(String(args?.name));
+        return `/tmp/backups/${String(args?.name)}`;
       case "write_text_file":
         writtenFileNames.push(String(args?.name));
         return `/tmp/${String(args?.name)}`;
@@ -127,6 +137,7 @@ import {
   resumeDay,
   reloadFromDisk,
   setOverlay,
+  autoBackup,
   resetAndUninstall,
   returning,
   restoreBackup,
@@ -1746,6 +1757,49 @@ describe("usage logging", () => {
 });
 
 // ===========================================================================
+describe("automatic backups", () => {
+  it("writes one on the first run of a day", async () => {
+    const [a] = ids();
+    addSub(a, "step");
+    await autoBackup();
+    const names = writtenFileNames.filter((n) => n.startsWith("remi-auto-"));
+    expect(names).toHaveLength(1);
+    expect(names[0]).toContain(todayISO());
+  });
+
+  it("does not write a second one the same day", async () => {
+    // It runs on every launch and every rollover. Without this it would
+    // write one per launch, and the fourteen kept snapshots would all be
+    // from the same afternoon - useless for going back past a mistake.
+    await autoBackup();
+    await autoBackup();
+    await autoBackup();
+    expect(writtenFileNames.filter((n) => n.startsWith("remi-auto-"))).toHaveLength(1);
+  });
+
+  it("records the date it last ran, so the next day writes again", async () => {
+    await autoBackup();
+    expect(S().lastAutoBackup).toBe(todayISO());
+
+    // A state whose last snapshot was long ago is what "the next day" looks
+    // like from the app's point of view.
+    loadResult = {
+      kind: "loaded",
+      state: { ...freshDay(3), dateISO: todayISO(), lastAutoBackup: "2000-01-01" },
+    };
+    await boot();
+    await autoBackup();
+    expect(writtenFileNames.filter((n) => n.startsWith("remi-auto-"))).toHaveLength(2);
+  });
+
+  it("never blocks anything when the write fails", async () => {
+    // A backup is a safety net, not a gate. If the disk is full the app
+    // must carry on, and it must NOT record success.
+    saveShouldFail = "disk full";
+    await expect(autoBackup()).resolves.toBeUndefined();
+  });
+});
+
 describe("uninstalling but keeping history", () => {
   it("stamps a marker BEFORE the wipe, and persists it", async () => {
     // The marker has to be on disk before Rust deletes anything: the whole

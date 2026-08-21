@@ -49,6 +49,10 @@ export const TOUR_STEPS: TourStep[] = [
     id: "welcome",
     costume: "guide",
     pose: "ready",
+    // Starting the tour from Settings used to leave Settings on screen
+    // behind it, so the first thing said - "the tasks you can see are a
+    // sample" - pointed at a preferences panel. Land on the demo day.
+    tab: "today",
     title: "Welcome to Remi",
     ask: "name",
     body: [
