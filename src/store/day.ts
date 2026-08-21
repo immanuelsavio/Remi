@@ -5,7 +5,7 @@ import { daySnapshot, enrichSnapshot, carrySnapshot } from "../domain/tasks";
 import { computeStreaks } from "../domain/streaks";
 import { todayISO } from "../domain/dates";
 import { nid } from "../domain/ids";
-import type { BacklogItem, CarrySnapshot, ResumableDay } from "../domain/types";
+import type { BacklogItem, CarryChoice, CarrySnapshot, ResumableDay } from "../domain/types";
 import {
   S,
   bankActive,
@@ -91,8 +91,6 @@ export function pruneEmpty(): void {
   });
 }
 
-export type CarryChoice = "done" | "carry" | "backlog";
-
 /**
  * End Day: apply each pending task's disposition, archive the day, award a
  * revive at each 5-day streak multiple, and seed tomorrow. One atomic swap.
@@ -140,8 +138,12 @@ export function endDay(choices: Record<string, CarryChoice> = {}): void {
       dateISO: settled.dateISO,
       mains: settled.mains,
       interruptions: settled.interruptions,
-      backlog: settled.backlog,
       life: settled.life,
+      // The backlog is deliberately NOT snapshotted: parking something is a
+      // decision about where it belongs, not part of ending the day, so
+      // reopening leaves it parked.
+      choices,
+      decided: Object.keys(choices).length > 0,
     }),
   );
 
@@ -198,9 +200,18 @@ export function endDay(choices: Record<string, CarryChoice> = {}): void {
 /**
  * Reopen the day End Day just closed.
  *
- * Puts back the tasks with their accrued time, un-archives the day record,
- * and undoes anything End Day did on the way out - backlog moves, an earned
- * revive, the carry list. A no-op when there is nothing to resume.
+ * Honours what you chose on the way out rather than flattening it:
+ *
+ *   nothing chosen  everything comes back plain and workable. A default
+ *                   carry is not the same as saying "tomorrow" about each
+ *                   task, so nothing is labelled.
+ *   "tomorrow"      comes back workable but marked `deferred`, so the
+ *                   decision is visible instead of silently undone.
+ *   "backlog"       STAYS in the backlog. Parking something is a decision
+ *                   about where it belongs, not part of ending the day.
+ *   "done"          stays done. You said you finished it.
+ *
+ * A no-op when there is nothing to reopen.
  */
 export function resumeDay(): void {
   const s0 = S();
@@ -209,12 +220,28 @@ export function resumeDay(): void {
     showToast("There's no ended day to reopen");
     return;
   }
+  const choices = r.choices ?? {};
+  const parked = new Set(
+    Object.entries(choices)
+      .filter(([, c]) => c === "backlog")
+      .map(([id]) => id),
+  );
+
   commit((s) => {
     s.dayNum = r.dayNum;
     s.dateISO = r.dateISO;
-    s.mains = r.mains;
+    s.mains = r.mains
+      // Anything sent to the backlog is already there and stays there;
+      // bringing it back would duplicate it.
+      .filter((m) => !parked.has(m.id))
+      .map((m) => {
+        const c = choices[m.id];
+        if (c === "done") return { ...m, done: true, completedAt: m.completedAt || Date.now() };
+        // Only an explicit choice defers. See `decided`.
+        if (r.decided && c === "carry") return { ...m, deferred: true };
+        return m;
+      });
     s.interruptions = [...r.interruptions];
-    s.backlog = r.backlog;
     s.life = r.life;
     // The day is live again, so its archived record must go - otherwise
     // the calendar would show it finished while it is still being worked.
@@ -225,7 +252,13 @@ export function resumeDay(): void {
     s.phase = "today";
     s.resumable = null;
   });
-  showToast(`Day ${r.dayNum} reopened`);
+
+  const deferred = S().mains.filter((m) => m.deferred).length;
+  showToast(
+    deferred
+      ? `Day ${r.dayNum} reopened · ${deferred} still marked for tomorrow`
+      : `Day ${r.dayNum} reopened`,
+  );
 }
 
 /** Restart the day: clear today's work, keep backlog, history and preferences. */

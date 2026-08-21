@@ -15,6 +15,7 @@ import { nid } from "./ids";
 import { ACCENTS } from "./types";
 import type {
   BacklogItem,
+  CarryChoice,
   InterruptionEvent,
   Main,
   Metrics,
@@ -74,6 +75,7 @@ export function normalizeMains(v: unknown): Main[] {
       out.accrued = Math.max(0, num(m.accrued));
       out.done = m.done === true;
       out.fromSub = m.fromSub === true;
+      out.deferred = m.deferred === true;
       out._showSubs = false;
       out.note = str(m.note);
       out.remind = normalizeRemind(m.remind);
@@ -305,8 +307,15 @@ export function hydrate(raw: unknown): State {
         interruptions: arr<unknown>(rawResume.interruptions)
           .filter(isObj)
           .map(normalizeInterruption),
-        backlog: normalizeBacklog(rawResume.backlog),
         life: Math.max(0, Math.min(1, num(rawResume.life))),
+        choices: isObj(rawResume.choices)
+          ? (Object.fromEntries(
+              Object.entries(rawResume.choices).filter(
+                ([, v]) => v === "done" || v === "carry" || v === "backlog",
+              ),
+            ) as Record<string, CarryChoice>)
+          : {},
+        decided: rawResume.decided === true,
       }
     : null;
 

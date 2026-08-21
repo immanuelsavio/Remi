@@ -1883,14 +1883,47 @@ describe("reopening a day that was ended", () => {
     expect(S().carrySeed).toHaveLength(0);
   });
 
-  it("undoes a per-task backlog move made on the way out", () => {
+  it("leaves a task you parked in the backlog parked", () => {
     const [a] = ids();
     endDay({ [a]: "backlog" });
     expect(S().backlog.map((x) => x.title)).toEqual(["Alpha"]);
 
     resumeDay();
-    expect(S().backlog).toHaveLength(0);
+    // Parking something is a decision about where it belongs, not part of
+    // ending the day - so reopening must not drag it back, and must not
+    // leave a duplicate behind either.
+    expect(S().backlog.map((x) => x.title)).toEqual(["Alpha"]);
+    expect(S().mains.map((m) => m.title)).toEqual(["Beta"]);
+  });
+
+  it("brings a task marked for tomorrow back, wearing that label", () => {
+    const [a, b] = ids();
+    endDay({ [a]: "carry", [b]: "done" });
+    resumeDay();
+
+    const s = S();
+    expect(s.mains.find((m) => m.title === "Alpha")?.deferred).toBe(true);
+    // Marked done stays done; you said you finished it.
+    expect(s.mains.find((m) => m.title === "Beta")?.done).toBe(true);
+    expect(s.mains.find((m) => m.title === "Beta")?.deferred).toBe(false);
+  });
+
+  it("labels nothing when the day was ended without deciding anything", () => {
+    endDay(); // everything carries by DEFAULT, which is not a decision
+    resumeDay();
+    expect(S().mains.every((m) => !m.deferred)).toBe(true);
     expect(S().mains.map((m) => m.title)).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("clears the tomorrow label as soon as you start the task", () => {
+    const [a] = ids();
+    endDay({ [a]: "carry" });
+    resumeDay();
+    const alpha = S().mains.find((m) => m.title === "Alpha")!;
+    expect(alpha.deferred).toBe(true);
+
+    startTask(alpha.id);
+    expect(S().mains.find((m) => m.title === "Alpha")?.deferred).toBe(false);
   });
 
   it("stops offering a reopen once the next day has actually started", () => {

@@ -17,6 +17,7 @@ export function mkMain(title: string, subs: Sub[] = []): Main {
     accrued: 0,
     done: false,
     fromSub: false,
+    deferred: false,
     _showSubs: false,
     remind: null,
     note: "",

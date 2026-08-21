@@ -10,6 +10,8 @@ import { get } from "svelte/store";
 import { M, showToast, welcomeBack } from "./state";
 import { startSub, startTask } from "./task-actions";
 
+export type { CarryChoice } from "../domain/types";
+
 export {
   app,
   dashTab,
@@ -53,7 +55,6 @@ export {
   startDay,
   togglePto,
   useRevive,
-  type CarryChoice,
   type SeedChoice,
 } from "./day";
 export {

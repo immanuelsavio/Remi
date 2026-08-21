@@ -128,6 +128,10 @@ export function setRemind(
 /** Start (or restart) a task. */
 export function startTask(mainId: string): void {
   sessionTx((s, now) => {
+    // Working on it now overrides "I'll do this tomorrow" - the label is a
+    // record of a decision, not a rule to argue with.
+    const m = s.mains.find((x) => x.id === mainId);
+    if (m) m.deferred = false;
     // Coming back to something on the return stack closes the interruption
     // and charges its time to the task it stole from.
     const idx = s.returnStack.findIndex((r) => r.mainId === mainId);

@@ -66,6 +66,9 @@
               />
             {/if}
             {#if m.estMs}<span class="est-badge">⏱ {fmtEst(m.estMs)}</span>{/if}
+            {#if m.deferred}<span class="carry-badge" title="You marked this for tomorrow"
+                >→ tomorrow</span
+              >{/if}
             {#if avoiding}
               <span
                 class="carry-badge"

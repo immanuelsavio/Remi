@@ -79,6 +79,20 @@ export interface Main {
   done: boolean;
   /** True when this task was promoted out of a step. */
   fromSub: boolean;
+  /**
+   * You said "tomorrow" for this at End Day, and then reopened the day.
+   *
+   * Display only - a deferred task is a perfectly normal task you can start
+   * whenever you like. It exists so reopening a day does not silently erase
+   * a decision you made deliberately: the label says "you meant to leave
+   * this until tomorrow", and starting it clears the label rather than
+   * arguing with you.
+   *
+   * Only set when the choice was EXPLICIT. Ending the day without deciding
+   * anything carries everything by default, which is not the same as
+   * saying "tomorrow" about each one.
+   */
+  deferred: boolean;
   /** UI: whether its steps are expanded in the planner. */
   _showSubs: boolean;
   remind: Remind | null;
@@ -254,11 +268,26 @@ export interface ResumableDay {
   dateISO: string;
   mains: Main[];
   interruptions: InterruptionEvent[];
-  /** End Day can move tasks here, so undoing must put the list back. */
-  backlog: BacklogItem[];
   /** End Day can award a revive at a 5-day streak; undoing takes it back. */
   life: number;
+  /**
+   * What was chosen per task, so reopening can honour it rather than
+   * flatten it: a task sent to the backlog stays there, one marked done
+   * stays done, and one marked "tomorrow" comes back wearing that label.
+   */
+  choices: Record<string, CarryChoice>;
+  /**
+   * Whether any of that was an actual decision.
+   *
+   * A plain "wrap up the day" carries everything by default. Reopening
+   * after that should hand the day back exactly as it was, with no labels -
+   * nobody said "tomorrow" about anything.
+   */
+  decided: boolean;
 }
+
+/** What End Day does with one unfinished task. */
+export type CarryChoice = "done" | "carry" | "backlog";
 
 /** The complete persisted product state. */
 export interface State {
