@@ -238,6 +238,11 @@ import {
   tourNext,
   tourBack,
   tourPracticeId,
+  tourSession,
+  tourView,
+  startTourClock,
+  completeTourEndDay,
+  markSearched,
   endTour,
   TOUR_LENGTH,
   startDay,
@@ -2679,6 +2684,310 @@ describe("the tour's demo day", () => {
     startTour();
     expect(get(tourPracticeId), "the second run inherited the first's task").toBeNull();
     expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
+  });
+
+  // --- the tour as a state machine -----------------------------------------
+
+  const planIdx = () => TOUR_STEPS.findIndex((t) => t.id === "plan");
+  const stepIdx = (id: string) => TOUR_STEPS.findIndex((t) => t.id === id);
+  const practice = () => S().mains.find((m) => m.id === get(tourPracticeId)) ?? null;
+
+  it("Build One is exactly task, step, tag - no fourth item", () => {
+    startTour();
+    goToStep(planIdx());
+    expect(get(tourView).beats.map((b) => b.id)).toEqual(["task", "step", "tag"]);
+    expect(get(tourView).progress).toBeTruthy();
+  });
+
+  it("Back from Tag removes the step and everything after it", () => {
+    // Back used to move a cursor over state that still said the beat was
+    // done: the instruction said "add a step" with the step already there,
+    // the count still read 3 of 3, and Next skipped straight past it.
+    startTour();
+    goToStep(planIdx());
+    tourNext(); // task
+    tourNext(); // step
+    tourNext(); // tag
+    expect(practice()!.subs.length).toBe(1);
+    expect(practice()!.tags.length).toBe(1);
+
+    tourBack(); // onto the tag beat
+    tourBack(); // onto the step beat
+    expect(practice(), "the task itself must survive").toBeTruthy();
+    expect(practice()!.subs, "the step was not undone").toHaveLength(0);
+    expect(practice()!.tags, "later additions were not undone").toHaveLength(0);
+    expect(get(tourView).beatIndex).toBe(1);
+  });
+
+  it("Back from the step beat removes the practice task entirely", () => {
+    startTour();
+    goToStep(planIdx());
+    tourNext(); // task
+    tourNext(); // step
+    const id = get(tourPracticeId);
+    expect(id).toBeTruthy();
+
+    tourBack(); // onto the step beat
+    tourBack(); // onto the task beat
+    expect(get(tourPracticeId), "the practice id was left dangling").toBeNull();
+    expect(
+      S().mains.some((m) => m.id === id),
+      "the practice task survived",
+    ).toBe(false);
+    expect(get(tourView).beatIndex).toBe(0);
+  });
+
+  it("Back from the Clock page re-enters Build One at 1 of 3 with nothing built", () => {
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext(); // leaves Build One for the clock page
+    expect(get(tourStep)).toBe(stepIdx("work"));
+
+    tourBack();
+    expect(get(tourStep)).toBe(planIdx());
+    expect(get(tourView).beatIndex, "resumed mid-checklist").toBe(0);
+    expect(get(tourView).doneCount, "arrived at a checklist that was still done").toBe(0);
+    expect(get(tourPracticeId)).toBeNull();
+  });
+
+  it("rebuilding after Back creates no duplicates", () => {
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourBack();
+    tourBack();
+    tourBack();
+    for (let i = 0; i < 3; i++) tourNext();
+
+    const mine = S().mains.filter((m) => !isDemoId(m.id));
+    expect(mine, "Back then Next built a second task").toHaveLength(1);
+    expect(mine[0].subs, "a duplicate step").toHaveLength(1);
+    expect(mine[0].tags, "a duplicate tag").toHaveLength(1);
+  });
+
+  it("Next on the Clock page starts the tour clock and STAYS on the page", () => {
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext(); // -> clock page
+    const clockStep = get(tourStep);
+    expect(clockStep).toBe(stepIdx("work"));
+
+    tourNext(); // starts the clock
+    expect(get(tourStep), "starting the clock turned the page").toBe(clockStep);
+    expect(get(tourSession).clockTaskId).toBe(get(tourPracticeId));
+    expect(get(tourSession).clockStartedAt).toBeGreaterThan(0);
+
+    tourNext(); // only NOW does it advance
+    expect(get(tourStep)).toBe(stepIdx("tray"));
+  });
+
+  it("the tour clock is not the production clock - nothing real runs", () => {
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext();
+    tourNext(); // start
+
+    expect(S().activeMainId, "the production session was started on a demo task").toBeNull();
+    expect(S().startedAt).toBe(0);
+    // ...and the practice task accrues nothing.
+    expect(practice()!.accrued).toBe(0);
+  });
+
+  it("pressing Start on the practice card is the same as pressing Next", () => {
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext(); // clock page
+    startTourClock(); // what the card's Start button calls
+    expect(get(tourSession).clockTaskId).toBe(get(tourPracticeId));
+    expect(get(tourStep), "the real control turned the page").toBe(stepIdx("work"));
+    expect(get(tourView).allBeatsDone).toBe(true);
+  });
+
+  it("Back from the menu-bar page resets the tour clock", () => {
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext();
+    tourNext(); // clock running
+    tourNext(); // -> tray
+    tourBack();
+    expect(get(tourStep)).toBe(stepIdx("work"));
+    expect(get(tourSession).clockStartedAt, "the clock was still running").toBe(0);
+  });
+
+  it("the tour End Day NEVER ends a real day", () => {
+    startTour();
+    const before = JSON.parse(JSON.stringify(S()));
+    goToStep(stepIdx("endday"));
+    completeTourEndDay();
+
+    const s = S();
+    expect(get(tourSession).endDayDone).toBe(true);
+    expect(s.dayNum).toBe(before.dayNum);
+    expect(s.awaitingStart).toBe(before.awaitingStart);
+    expect(s.resumable ?? null).toEqual(before.resumable ?? null);
+    expect(s.history).toEqual(before.history);
+    expect(s.carrySeed ?? []).toEqual(before.carrySeed ?? []);
+    expect(s.mains.map((m) => m.id)).toEqual(before.mains.map((m: { id: string }) => m.id));
+    // ...and above all, the restore checkpoint is intact.
+    expect(s.demoRestore).not.toBeNull();
+    expect(s.demoRestore!.mains).toEqual(before.demoRestore.mains);
+  });
+
+  it("the End Day step completes and stays put until Next", () => {
+    startTour();
+    goToStep(stepIdx("endday"));
+    completeTourEndDay();
+    expect(get(tourStep)).toBe(stepIdx("endday"));
+    expect(get(tourView).allBeatsDone).toBe(true);
+    expect(get(tourView).finished).toBe("Day ended.");
+
+    tourNext();
+    expect(get(tourStep)).toBe(stepIdx("calendar"));
+  });
+
+  it("Back from Calendar resets the End Day rehearsal", () => {
+    startTour();
+    goToStep(stepIdx("endday"));
+    completeTourEndDay();
+    tourNext(); // calendar
+    tourBack();
+    expect(get(tourStep)).toBe(stepIdx("endday"));
+    expect(get(tourSession).endDayDone, "the rehearsal was still marked done").toBe(false);
+    expect(get(tourView).doneCount).toBe(0);
+  });
+
+  it("each step says its OWN thing when its checklist finishes", () => {
+    // One hardcoded line used to congratulate you on building a task after
+    // you had started a clock, ended a day or run a search.
+    const say = (id: string) => TOUR_STEPS[stepIdx(id)].finished;
+    expect(say("plan")).toBe("Task ready.");
+    expect(say("work")).toBe("Clock started.");
+    expect(say("endday")).toBe("Day ended.");
+    expect(say("search")).toBe("Found it.");
+  });
+
+  it("a search from a previous run does not open the next run finished", () => {
+    startTour();
+    goToStep(stepIdx("search"));
+    markSearched();
+    expect(get(tourView).allBeatsDone).toBe(true);
+    endTour();
+
+    startTour();
+    goToStep(stepIdx("search"));
+    expect(get(tourSession).searched, "a retake inherited the finished search").toBe(false);
+    expect(get(tourView).allBeatsDone).toBe(false);
+  });
+
+  it("retaking the tour starts from a completely fresh runtime", () => {
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext();
+    tourNext(); // clock running
+    goToStep(stepIdx("endday"));
+    completeTourEndDay();
+    const firstRun = get(tourSession).runId;
+    endTour();
+
+    startTour();
+    const t = get(tourSession);
+    expect(t.runId).not.toBe(firstRun);
+    expect(t.practiceId).toBeNull();
+    expect(t.clockTaskId).toBeNull();
+    expect(t.clockStartedAt).toBe(0);
+    expect(t.endDayDone).toBe(false);
+    expect(t.searched).toBe(false);
+  });
+
+  it("the first run knows it is the first run", () => {
+    // `first = !s.tourSeen` was read AFTER startTour() had set the flag, so
+    // the first-run wording never appeared on a first run.
+    setFlag("tourSeen", false);
+    startTour();
+    expect(get(tourView).firstRun).toBe(true);
+    endTour();
+
+    startTour();
+    expect(get(tourView).firstRun).toBe(false);
+  });
+
+  it("a whole tour, including the End Day rehearsal, restores the real day exactly", async () => {
+    // The invariant the entire refactor exists for.
+    //
+    // No running clock here on purpose: entering the demo BANKS whatever
+    // was running into the user's own task, which changes `accrued` -
+    // honestly, since they really did work that time. The running case is
+    // its own test below.
+    addBacklog("Later thing");
+    const before = JSON.parse(JSON.stringify(forPersist(S(), 1_000)));
+
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext();
+    tourNext(); // clock
+    goToStep(stepIdx("endday"));
+    completeTourEndDay();
+    goToStep(stepIdx("search"));
+    markSearched();
+    endTour();
+
+    const after = JSON.parse(JSON.stringify(forPersist(S(), 1_000)));
+    for (const key of [
+      "mains",
+      "interruptions",
+      "history",
+      "backlog",
+      "activeMainId",
+      "activeSubId",
+      "dayNum",
+      "dateISO",
+      "awaitingStart",
+      "carrySeed",
+      "carryDecided",
+      "resumable",
+      "demoRestore",
+    ] as const) {
+      expect(after[key] ?? null, `\`${key}\` did not come back`).toEqual(before[key] ?? null);
+    }
+
+    // ...and nothing from the tour is anywhere in what gets persisted.
+    const json = JSON.stringify(after);
+    expect(json).not.toContain("demo-");
+    expect(json).not.toContain("Task 1");
+    expect(json).not.toContain("First step");
+  });
+
+  it("a tour taken mid-task banks that time honestly and resumes the same task", async () => {
+    const [a] = ids();
+    startTask(a);
+    rewind(90_000);
+    const workedBefore = S().mains.find((m) => m.id === a)!.accrued;
+
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext();
+    tourNext(); // the TOUR clock runs on the practice task
+    endTour();
+
+    const s = S();
+    const mine = s.mains.find((m) => m.id === a)!;
+    // Their own task is timing again...
+    expect(s.activeMainId).toBe(a);
+    expect(s.startedAt).toBeGreaterThan(0);
+    // ...with the 90 seconds they actually worked banked into it, and
+    // nothing from the tour's clock added on top.
+    expect(mine.accrued).toBeGreaterThanOrEqual(workedBefore + 90_000);
+    expect(mine.accrued).toBeLessThan(workedBefore + 95_000);
+    expect(s.demoRestore).toBeNull();
+    expect(s.mains.some((m) => isDemoId(m.id))).toBe(false);
   });
 
   it("does not make a SECOND task when you go back onto a finished checklist", async () => {

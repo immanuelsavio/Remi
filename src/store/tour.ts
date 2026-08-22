@@ -33,6 +33,7 @@ import {
   TOUR_STEPS,
   tourProgress,
   type BeatFill,
+  type TourFacts,
   type TourStep,
 } from "../domain/tour";
 import type { State } from "../domain/types";
@@ -77,15 +78,86 @@ export function provideBeatCommands(next: BeatCommands): void {
 /** How long the last acknowledgement stays up before the page turns. */
 const ADVANCE_HOLD_MS = 1400;
 
-const nav = writable<NavState>(INACTIVE);
 /**
- * The task this run of the tour is practising on.
+ * THE TOUR SESSION - everything temporary, in one object, owned here.
  *
- * Window-local and explicitly recorded, rather than re-derived as "the
- * first task that is not a demo one" - which was a guess that a second
- * task, an import or an edit from the other window could all defeat.
+ * The tour used to read its own progress out of mutated application state:
+ * whether a beat was done, whether the clock was running, whether the day
+ * had ended. That is why Back could not undo anything (the state said the
+ * beat was done, so it was), why revisiting Build One resumed at 3 of 4,
+ * and why the End Day step - which ran the PRODUCTION `endDay()` over the
+ * demo day - destroyed the restore checkpoint and left the tour walking
+ * over tasks that no longer existed.
+ *
+ * Anything in here is:
+ *
+ *   - window-local: it never reaches `state.json`, a backup, an export,
+ *     history, carry-forward or the other window;
+ *   - fresh per run: `startTour` builds a new one, so a retake never
+ *     inherits a finished search or a started clock;
+ *   - cancellable: `endTour` clears it and everything it started.
+ *
+ * `runId` is the generation token. Every timer and promise that can outlive
+ * a page captures it and checks it before acting, so a notification
+ * resolving after the tour closed cannot touch the next run.
  */
-const practiceId = writable<string | null>(null);
+export interface TourSession {
+  runId: number;
+  /** The one task this run practises on. Claimed, never inferred. */
+  practiceId: string | null;
+  /** The TOUR clock - not the app's session. Nothing real accrues. */
+  clockTaskId: string | null;
+  clockStartedAt: number;
+  /** The End Day rehearsal was confirmed. No real day ended. */
+  endDayDone: boolean;
+  /** A search was run during this tour run. */
+  searched: boolean;
+  /** Bumped to force the search UI back to an empty query. */
+  searchToken: number;
+  /** The menu-bar panel was opened from the tour. */
+  trayOpened: boolean;
+  /** Where the notification preview got to, and what to say about it. */
+  preview: "idle" | "asking" | "sending" | "sent" | "denied" | "failed";
+  previewMsg: string;
+  /** Was the tour already seen when this run STARTED? */
+  retake: boolean;
+}
+
+let runSeq = 0;
+
+function freshSession(retake: boolean): TourSession {
+  return {
+    runId: ++runSeq,
+    practiceId: null,
+    clockTaskId: null,
+    clockStartedAt: 0,
+    endDayDone: false,
+    searched: false,
+    searchToken: 0,
+    trayOpened: false,
+    preview: "idle",
+    previewMsg: "",
+    retake,
+  };
+}
+
+const session = writable<TourSession>(freshSession(false));
+
+/** Read-only for the view. */
+export const tourSession: Readable<TourSession> = { subscribe: session.subscribe };
+
+/** The facts a beat needs that the application state does not hold. */
+function factsOf(t: TourSession): TourFacts {
+  return {
+    clockRunning: !!t.clockTaskId && t.clockStartedAt > 0,
+    endDayDone: t.endDayDone,
+    searched: t.searched,
+  };
+}
+
+const nav = writable<NavState>(INACTIVE);
+/** The task this run is practising on - a view onto the session. */
+const practiceId: Readable<string | null> = derived(session, (t) => t.practiceId);
 
 /**
  * A sheet or overlay owns the screen: the tour stands aside and goes inert.
@@ -118,9 +190,9 @@ function beatsOf(step: TourStep | null): TourStep["beats"] {
 }
 
 /** First beat still outstanding, or past the end when the list is done. */
-function outstanding(step: TourStep | null, s: State, id: string | null): number {
+function outstanding(step: TourStep | null, s: State, id: string | null, f: TourFacts): number {
   const beats = beatsOf(step) ?? [];
-  const at = beats.findIndex((b) => !b.done(s, id));
+  const at = beats.findIndex((b) => !b.done(s, id, f));
   return at < 0 ? beats.length : at;
 }
 
@@ -154,20 +226,20 @@ export function effectivePracticeId(s: State, recorded: string | null): string |
  */
 export function claimPracticeTask(id: string): void {
   if (get(nav).step === null) return; // no tour running - nothing to practise on
-  if (get(practiceId)) return;
-  practiceId.set(id);
+  if (get(session).practiceId) return;
+  session.update((t) => ({ ...t, practiceId: id }));
 }
 
-function contextFor(n: NavState, s: State, id: string | null): NavContext {
+function contextFor(n: NavState, s: State, id: string | null, f: TourFacts): NavContext {
   const step = n.step === null ? null : stepAt(n.step);
   const beats = beatsOf(step) ?? [];
   return {
     beats: beats.length,
-    autoIdx: outstanding(step, s, id),
+    autoIdx: outstanding(step, s, id, f),
     // The actual per-beat truth, not a contiguous prefix inferred from
     // `autoIdx`: beats can be completed out of order, and a beat wrongly
     // read as outstanding is carried out twice.
-    done: beats.map((b) => b.done(s, id)),
+    done: beats.map((b) => b.done(s, id, f)),
     nextStep: n.step === null ? null : nextShown(n.step, 1, s),
     prevStep: n.step === null ? null : nextShown(n.step, -1, s),
   };
@@ -180,13 +252,14 @@ function contextFor(n: NavState, s: State, id: string | null): NavContext {
  * component - which is where the ordering bugs came from, because Svelte's
  * dependency graph decided when each of them ran.
  */
-export const tourView = derived([nav, state, practiceId, paused], ([n, s, recorded, isPaused]) => {
-  const id = effectivePracticeId(s, recorded);
+export const tourView = derived([nav, state, session, paused], ([n, s, run, isPaused]) => {
+  const id = effectivePracticeId(s, run.practiceId);
+  const facts = factsOf(run);
   const step = n.step === null ? null : stepAt(n.step);
   const beats = beatsOf(step) ?? [];
-  const ctx = contextFor(n, s, id);
+  const ctx = contextFor(n, s, id, facts);
   const at = beatIndex(ctx, n);
-  const done = beats.map((b) => b.done(s, id));
+  const done = beats.map((b) => b.done(s, id, facts));
   return {
     step,
     index: n.step,
@@ -215,6 +288,17 @@ export const tourView = derived([nav, state, practiceId, paused], ([n, s, record
      * ignored.
      */
     canBack: n.step !== null && (at > 0 || ctx.prevStep !== null),
+    /**
+     * What to say when the checklist is finished.
+     *
+     * Per step. One hardcoded line used to congratulate you on building a
+     * task after you had started a clock or ended a day.
+     */
+    finished: step?.finished ?? "",
+    /** The tour's own runtime, for the handful of views that need it. */
+    run,
+    /** Is this the FIRST time through, as of when this run started? */
+    firstRun: !run.retake,
   };
 });
 
@@ -273,11 +357,19 @@ export function startTour(): void {
   //
   // This is a real preference, not day state, so it persists normally even
   // though the day around it does not.
+  // Captured BEFORE the flag is written: `firstRun` copy read
+  // `!state.tourSeen`, which `startTour` had already set to true - so the
+  // first-run wording never appeared on a first run.
+  const retake = S().tourSeen === true;
   commit((s) => void (s.tourSeen = true));
-  practiceId.set(null);
+  // A completely fresh runtime. A retake used to inherit the previous
+  // run's finished search, and any clock or End Day rehearsal with it.
+  session.set(freshSession(retake));
   const s = S();
   const first = 0;
-  nav.set(enterStep(first, contextFor({ ...INACTIVE, step: first }, s, null)));
+  nav.set(
+    enterStep(first, contextFor({ ...INACTIVE, step: first }, s, null, factsOf(get(session)))),
+  );
   dashTab.set(TOUR_STEPS[first].tab ?? get(dashTab));
 }
 
@@ -294,7 +386,10 @@ export function endTour(): void {
   clearAdvance();
   cancelNotificationPreview();
   nav.set(INACTIVE);
-  practiceId.set(null);
+  // Everything temporary goes at once, and the run id moves on - so a
+  // timer or a permission promise still in flight from this run cannot
+  // act on the next one.
+  session.set(freshSession(true));
   // One transaction when there IS a demo - the day back and the flag
   // together, so a failure between them cannot leave the tour "unseen"
   // over a restored real day. With no demo (a tour that never got one)
@@ -317,34 +412,192 @@ export function goToStep(step: number): void {
   goTo(step);
 }
 
-function goTo(step: number): void {
-  // The practice task is CLAIMED, not re-derived per step, so a page turn
-  // no longer has to promote anything before it forgets. Coming back to the
-  // step that makes a task finds it still claimed, and its beat already
-  // done, rather than offering to build a second one.
+/**
+ * Enter a step.
+ *
+ * `back` means the user WALKED BACKWARDS into it, which is the case that
+ * used to reopen a finished checklist at its last beat with nothing left
+ * to do. Arriving backwards resets that step's practice completely, so it
+ * begins at beat one, genuinely outstanding.
+ */
+function goTo(step: number, back = false): void {
+  if (back) resetStepPractice(step);
   const s = S();
+  const run = get(session);
   nav.set(
-    enterStep(step, contextFor({ ...INACTIVE, step }, s, effectivePracticeId(s, get(practiceId)))),
+    enterStep(
+      step,
+      contextFor({ ...INACTIVE, step }, s, effectivePracticeId(s, run.practiceId), factsOf(run)),
+    ),
   );
   const tab = stepAt(step).tab;
   if (tab) dashTab.set(tab);
 }
 
+/**
+ * Put a step's practice back to nothing, so its first beat is outstanding.
+ *
+ * Only TEMPORARY practice is undone. A theme, a name or a wellness nudge
+ * the person deliberately chose is a durable decision that happens to have
+ * been made on a tour page - walking back past that page to re-read it must
+ * not silently revert it.
+ */
+function resetStepPractice(step: number): void {
+  switch (stepAt(step).id) {
+    case "plan":
+      rewindPractice(0);
+      break;
+    case "work":
+      stopTourClock();
+      break;
+    case "endday":
+      session.update((t) => ({ ...t, endDayDone: false }));
+      break;
+    case "search":
+      resetSearch();
+      break;
+    default:
+      break;
+  }
+}
+
 function dispatch(type: "NEXT" | "BACK"): void {
   const n = get(nav);
   if (n.step === null) return;
+  // ONE transition per event. A pending auto-advance is dropped first, so
+  // a timer armed a moment ago cannot undo the Back that is happening now.
   clearAdvance();
   const s = S();
-  const id = effectivePracticeId(s, get(practiceId));
-  const ctx = contextFor(n, s, id);
+  const run = get(session);
+  const id = effectivePracticeId(s, run.practiceId);
+  const ctx = contextFor(n, s, id, factsOf(run));
   const { state: next, effect } = reduce(ctx, n, { type });
   nav.set(next);
   if (effect.do === "exit") return void endTour();
-  if (effect.do === "goto") return void goTo(effect.step);
+  if (effect.do === "goto") return void goTo(effect.step, effect.back === true);
+  if (effect.do === "rewind") return void rewindPractice(effect.toBeat);
   if (effect.do === "fill") {
     const beat = (beatsOf(stepAt(n.step)) ?? [])[effect.beat];
     if (beat?.fill) fill(beat.fill);
   }
+}
+
+// --- undoing practice ------------------------------------------------------
+
+/**
+ * Put the Build One practice back to the state beat `toBeat` starts from.
+ *
+ * The rule is simple and total: everything the checklist built AFTER that
+ * beat is removed, so the beat itself is genuinely outstanding again and
+ * pressing Next rebuilds exactly one of it. Moving the cursor alone left
+ * the step still done, the count still reading 3 of 3, and Next skipping
+ * over the thing the user had come back to see.
+ *
+ * Through `sessionTx` because the practice task can be the timed one.
+ */
+function rewindPractice(toBeat: number): void {
+  const run = get(session);
+  const id = effectivePracticeId(S(), run.practiceId);
+  if (!id) return;
+
+  if (toBeat <= 0) {
+    // Back to "type a task": the task itself goes, and its id with it, so
+    // the input is empty and nothing downstream still points at it.
+    stopTourClock();
+    sessionTx((s) => {
+      s.mains = s.mains.filter((m) => m.id !== id);
+      return null;
+    });
+    session.update((t) => ({ ...t, practiceId: null }));
+    return;
+  }
+
+  sessionTx((s) => {
+    const m = s.mains.find((x) => x.id === id);
+    if (!m) return null;
+    // Beat 1 is "add a step": everything from steps onwards goes.
+    if (toBeat <= 1) {
+      m.subs = [];
+      m.tags = [];
+      m.remind = null;
+    } else if (toBeat <= 2) {
+      // Beat 2 is "add a tag": the tag and anything after it.
+      m.tags = [];
+      m.remind = null;
+    }
+    return null;
+  });
+}
+
+// --- the tour's own clock --------------------------------------------------
+
+/**
+ * Start the TOUR clock on the practice task.
+ *
+ * Not `startTask`. The production clock stamps `activeMainId`/`startedAt`
+ * into real state, checkpoints it to disk and banks it on the next
+ * transition - all against a task that stops existing the moment the tour
+ * ends. The tour needs the APPEARANCE of a running clock, which is a fact
+ * about the tour, so it lives in the tour's runtime.
+ */
+export function startTourClock(): void {
+  const id = effectivePracticeId(S(), get(session).practiceId);
+  if (!id) return;
+  session.update((t) =>
+    t.clockTaskId === id && t.clockStartedAt > 0
+      ? t // already running - pressing Start twice is not two clocks
+      : { ...t, clockTaskId: id, clockStartedAt: Date.now() },
+  );
+}
+
+export function stopTourClock(): void {
+  session.update((t) => ({ ...t, clockTaskId: null, clockStartedAt: 0 }));
+}
+
+// --- the End Day rehearsal -------------------------------------------------
+
+/**
+ * Complete the tour's End Day, WITHOUT ending a day.
+ *
+ * The step demonstrates the real confirmation, and confirming it used to
+ * call the production `endDay()` over the demo state: a new day replaced
+ * the demo one, `demoRestore` was invalidated, sample tasks became a real
+ * `resumable` day, `dayNum`/`awaitingStart`/carry/history all moved, and
+ * the tour carried on walking over anchors that no longer existed. That is
+ * the blank screen, the repeated Back pages, the leaked tour tasks and the
+ * "Reopen day" after onboarding, all from one call.
+ */
+export function completeTourEndDay(): void {
+  if (get(nav).step === null) return;
+  session.update((t) => ({ ...t, endDayDone: true }));
+}
+
+/**
+ * Is a tour running?
+ *
+ * A store, because the controls the tour REHEARSES - the Start button, the
+ * End Day confirmation - have to behave differently while it is, and they
+ * are components. `tourIsActive()` is the same answer for callers that are
+ * not.
+ */
+export const tourActive: Readable<boolean> = derived(nav, (n) => n.step !== null);
+
+export function tourIsActive(): boolean {
+  return get(nav).step !== null;
+}
+
+// --- search ----------------------------------------------------------------
+
+/**
+ * Forget that a search happened, and ask the search UI to empty itself.
+ *
+ * `tourSearched` used to live in persisted state, so it survived a retake
+ * in the same process and the search step opened already finished. The
+ * token is what makes Calendar's own query and tag selection reset without
+ * depending on the component happening to be destroyed.
+ */
+function resetSearch(): void {
+  session.update((t) => ({ ...t, searched: false, searchToken: t.searchToken + 1 }));
 }
 
 export function tourNext(): void {
@@ -377,7 +630,8 @@ export function cancelAutoAdvance(): void {
 export function maybeAutoAdvance(): void {
   const n = get(nav);
   if (n.step === null || get(paused)) return;
-  const ctx = contextFor(n, S(), effectivePracticeId(S(), get(practiceId)));
+  const run0 = get(session);
+  const ctx = contextFor(n, S(), effectivePracticeId(S(), run0.practiceId), factsOf(run0));
   if (!canAutoAdvance(ctx, n)) return;
   clearAdvance();
   const at = n.step;
@@ -385,7 +639,13 @@ export function maybeAutoAdvance(): void {
     advanceTimer = null;
     const now = get(nav);
     if (now.step !== at || get(paused)) return;
-    if (!canAutoAdvance(contextFor(now, S(), effectivePracticeId(S(), get(practiceId))), now))
+    const run = get(session);
+    if (
+      !canAutoAdvance(
+        contextFor(now, S(), effectivePracticeId(S(), run.practiceId), factsOf(run)),
+        now,
+      )
+    )
       return;
     dispatch("NEXT");
   }, ADVANCE_HOLD_MS);
@@ -403,16 +663,19 @@ export function maybeAutoAdvance(): void {
  * into the add-a-TASK box the one time it guessed wrong.
  */
 function fill(f: BeatFill): void {
+  // Two of these are the tour's own rehearsals and need no app commands.
+  if (f.kind === "clock") return void startTourClock();
+  if (f.kind === "endday") return void completeTourEndDay();
   if (!commands) return;
   const { addMain, addSub, addTag, setRemind } = commands;
-  const id = effectivePracticeId(S(), get(practiceId));
+  const id = effectivePracticeId(S(), get(session).practiceId);
   switch (f.kind) {
     case "task": {
       // The creating action says which task it made. Nothing is inferred:
       // an import landing in the same instant, or the popover adding a
       // task, cannot be mistaken for the one the tour just created.
       const made = addMain(f.title);
-      if (made) practiceId.set(made);
+      if (made) session.update((t) => ({ ...t, practiceId: made }));
       return;
     }
     case "step":
@@ -427,10 +690,16 @@ function fill(f: BeatFill): void {
   }
 }
 
-/** Record that the Calendar search was used, for the search beat. */
+/**
+ * Record that the Calendar search was used, for the search beat.
+ *
+ * Into the RUN, not into persisted state. `tourSearched` was written to
+ * `state.json`, so a second tour in the same process - or on the next
+ * launch - opened the search step already finished.
+ */
 export function markSearched(): void {
-  if (S().tourSearched) return;
-  commit((s) => void (s.tourSearched = true));
+  if (get(nav).step === null) return;
+  session.update((t) => (t.searched ? t : { ...t, searched: true }));
 }
 
 // --- the notification preview ----------------------------------------------

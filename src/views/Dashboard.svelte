@@ -51,6 +51,8 @@
     loadAppVersion,
     startTour,
     endTour,
+    tourActive,
+    completeTourEndDay,
     showToast,
   } from "../store";
   import { fmtEst, nowMs, todayISO, todayTrackedMs } from "../view";
@@ -390,10 +392,19 @@
             {fmtEst(tracked)} tracked · {s.mains.filter((m) => m.done).length} done. Anything unfinished
             carries to tomorrow, keeping its notes and steps.
           </div>
+          <!-- DURING THE TOUR THIS IS A REHEARSAL.
+               Confirming used to call the production endDay() over the demo
+               day: it built a new day out of sample tasks, invalidated the
+               restore checkpoint, made a real `resumable` day, moved
+               dayNum/awaitingStart/carry/history - and left the tour walking
+               over anchors and tasks that no longer existed. Every blank
+               screen, repeated Back page, leaked practice task and
+               "Reopen day" after onboarding came out of this one call. -->
           <button
             class="checkin-yes"
             on:click={() => {
-              endDay();
+              if ($tourActive) completeTourEndDay();
+              else endDay();
               closeOverlay();
             }}>Wrap up the day</button
           >

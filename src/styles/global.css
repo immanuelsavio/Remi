@@ -847,6 +847,41 @@ h2.mid {
 .today-card.done {
   opacity: 0.6;
 }
+/* ON THE CLOCK - the whole card, not a button.
+   Highlighting only the Start control said "this button is special" when
+   what is true is "this TASK is running": at a glance, from across a desk,
+   the row is what you find. Accent border, a tinted ground and a soft glow,
+   so it reads as lit rather than merely selected. */
+.today-card.oncard {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 18px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.today-card.oncard .on-now {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) 18%, var(--card));
+  animation: on-now-pulse 2200ms ease-in-out infinite;
+}
+@keyframes on-now-pulse {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+/* The glow is the signal; the pulse is decoration, and decoration that
+   cannot be dismissed must not be the thing that pulls someone's eye all
+   day. */
+@media (prefers-reduced-motion: reduce) {
+  .today-card.oncard .on-now {
+    animation: none;
+  }
+}
 .today-card.avoiding {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent) inset;

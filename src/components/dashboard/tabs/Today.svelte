@@ -23,6 +23,10 @@
     toggleSubDone,
     track,
     tourAnchor,
+    tourActive,
+    tourPracticeId,
+    tourSession,
+    startTourClock,
   } from "../../../store";
   import { fmt, fmtEst, isTiming, mainTotal, nowMs } from "../../../view";
   import type { Main, Sub } from "../../../view";
@@ -119,10 +123,24 @@
 <div class="todaywrap" style="padding-left:0; padding-right:0;">
   {#each s.mains as m (m.id)}
     {@const open = expandedId === m.id}
-    {@const isOn = m.id === s.activeMainId && running}
+    {@const practice = m.id === $tourPracticeId}
+    {@const tourOn =
+      practice && $tourSession.clockTaskId === m.id && $tourSession.clockStartedAt > 0}
+    {@const isOn = (m.id === s.activeMainId && running) || tourOn}
     {@const avoiding = s.avoidanceOn && m.carries >= 1}
     {@const warn = s.avoidanceOn && m.carries >= 3}
-    <div class="today-card" class:done={m.done} class:avoiding={warn}>
+    <!-- The practice task carries ITS OWN anchor. Every row registers a
+         `today-start`, so a registry lookup answered with whichever button
+         mounted last - the tour rang a sample task's button while telling
+         the user to press theirs. The card, not the button, is also what
+         the clock step is about: the whole row lights up when it runs. -->
+    <div
+      class="today-card"
+      class:done={m.done}
+      class:avoiding={warn}
+      class:oncard={isOn}
+      use:tourAnchor={practice ? "today-practice" : ""}
+    >
       <div class="today-row">
         <div class="tinfo">
           <div class="tt">
@@ -182,12 +200,17 @@
             on:click={() => (expandedId = open ? null : m.id)}>{open ? "▾" : "⋔"}</button
           >
           {#if isOn}
-            <span class="est-badge" title="This is on the clock">▸ on now</span>
+            <span class="est-badge on-now" title="This is on the clock">▸ on now</span>
           {:else}
             <button
               class="startbtn"
-              use:tourAnchor={"today-start"}
-              on:click={() => (timing ? switchToMain(m.id, true) : startTask(m.id))}
+              use:tourAnchor={practice ? "" : "today-start"}
+              on:click={() =>
+                practice && $tourActive
+                  ? startTourClock()
+                  : timing
+                    ? switchToMain(m.id, true)
+                    : startTask(m.id)}
             >
               {timing ? "Switch" : "Start"} ▸
             </button>

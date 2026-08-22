@@ -49,7 +49,36 @@ export type BeatFill =
   | { kind: "task"; title: string }
   | { kind: "step"; title: string }
   | { kind: "tag"; tag: string }
-  | { kind: "remind"; inMinutes: number };
+  | { kind: "remind"; inMinutes: number }
+  /** Start the TOUR clock on the practice task. Nothing real runs. */
+  | { kind: "clock" }
+  /** Complete the tour's End Day rehearsal. No real day ends. */
+  | { kind: "endday" };
+
+/**
+ * What the tour KNOWS that the app does not.
+ *
+ * A beat used to be a pure read of `State`, which works while every beat is
+ * "did a task get a tag" - and breaks the moment a beat is about something
+ * the tour is only pretending to do. The clock the tour starts must not run
+ * the production clock over demo tasks; ending the day must not end the
+ * day. Those facts live in the tour's own runtime (`store/tour.ts`), and
+ * arrive here rather than being smuggled into persisted state.
+ */
+export interface TourFacts {
+  /** The tour-only clock is running on the practice task. */
+  clockRunning: boolean;
+  /** The tour's End Day confirmation was completed - no real day ended. */
+  endDayDone: boolean;
+  /** A search was run during THIS tour run. */
+  searched: boolean;
+}
+
+export const NO_FACTS: TourFacts = {
+  clockRunning: false,
+  endDayDone: false,
+  searched: false,
+};
 
 export interface TourBeat {
   id: string;
@@ -65,7 +94,7 @@ export interface TourBeat {
    * other window could all make a later beat inspect - and Next then
    * modify - something the user never meant to practise on.
    */
-  done: (s: State, practiceId: string | null) => boolean;
+  done: (s: State, practiceId: string | null, facts: TourFacts) => boolean;
   /** Walk to a different element for this beat than the step's own. */
   anchor?: string;
   /**
@@ -103,6 +132,15 @@ export interface TourStep {
   tab?: DashTab;
   /** Rendered as a small aside, for the "why" behind a feature. */
   aside?: string;
+  /**
+   * What to say when this step's checklist is finished.
+   *
+   * It used to be one hardcoded line in the component - "That is a whole
+   * task. Everything else is a variation on it." - shown whenever ANY
+   * checklist completed, so starting a clock and ending a day both
+   * congratulated you on building a task.
+   */
+  finished?: string;
   /** Show a control here instead of only prose. */
   ask?: TourAsk;
   /**
@@ -157,10 +195,10 @@ export const TOUR_STEPS: TourStep[] = [
     // pointed at a preferences panel. Land on the demo day.
     tab: "today",
     title: "Welcome to Remi",
-    body: [
-      "I track where your day actually goes - the time you lose, not just the time you spend.",
-    ],
-    aside: "The tasks behind me are a sample. Poke at them; your own day comes back untouched.",
+    // One line. A paragraph to read before anything has started is a toll
+    // on the person least able to pay it, and the sample-day aside said
+    // nothing they could not discover by touching the sample day.
+    body: ["See where time goes."],
   },
   {
     id: "look",
@@ -225,7 +263,8 @@ export const TOUR_STEPS: TourStep[] = [
     // NOT "keep it if you like it". The practice task is made inside the
     // sample day and goes when the real one comes back, so that was a
     // promise the tour could not keep.
-    body: ["Four small things, one at a time. Practice only - this all disappears after."],
+    body: ["Three small things, one at a time. Practice only - this all disappears after."],
+    finished: "Task ready.",
     // Reading about steps and tags teaches nobody. Making one task carry
     // all four is ninety seconds and it sticks.
     beats: [
@@ -250,30 +289,39 @@ export const TOUR_STEPS: TourStep[] = [
       {
         id: "tag",
         anchor: "plan-tag",
-        text: "Give it a tag - a project, or a kind of work.",
+        text: "Last one: give it a tag - a project, or a kind of work.",
         cheer: "Tags are what let you pull a report for one client later.",
         fill: { kind: "tag", tag: "example" },
         done: (s, id) => (practiceTask(s, id)?.tags.length ?? 0) > 0,
-      },
-      {
-        id: "remind",
-        anchor: "plan-remind",
-        text: "Last one: set a deadline with the ⏲ beside the task's name.",
-        cheer: "Remi will tell you when that comes due.",
-        fill: { kind: "remind", inMinutes: 30 },
-        done: (s, id) => !!practiceTask(s, id)?.remind,
       },
     ],
   },
   {
     id: "work",
-    anchor: "today-start",
+    // The whole practice CARD, not the Start button. Every task row
+    // registers a `today-start`, so the registry pointed at whichever
+    // mounted last - the tour rang a button belonging to a sample task.
+    anchor: "today-practice",
     costume: "timekeeper",
     pose: "run",
     tab: "today",
     title: "The clock",
     body: ["Start runs it. Interrupt records what pulled you away, and charges it the time."],
     aside: "That record is why a two-hour task can eat a whole day.",
+    finished: "Clock started.",
+    beats: [
+      {
+        id: "start",
+        anchor: "today-practice",
+        text: "Press Start on your task to put it on the clock.",
+        cheer: "It is on the clock - the card lights up while it runs.",
+        // A TOUR clock, not the production one: running the real session
+        // machinery over a demo task would bank practice time onto a task
+        // that is about to stop existing.
+        fill: { kind: "clock" },
+        done: (_s, _id, facts) => facts.clockRunning,
+      },
+    ],
   },
   {
     id: "tray",
@@ -293,6 +341,22 @@ export const TOUR_STEPS: TourStep[] = [
     tab: "today",
     title: "Ending a day",
     body: ["Unfinished tasks carry over with their notes. Only the clock resets."],
+    finished: "Day ended.",
+    beats: [
+      {
+        id: "endday",
+        anchor: "today-endday",
+        text: "Press Wrap up the day, then confirm it.",
+        cheer: "Tomorrow starts with what you did not finish, notes and all.",
+        // REHEARSED. Confirming here used to call the production `endDay()`
+        // against the demo state: it replaced the demo day, invalidated the
+        // restore checkpoint, made a real `resumable` day out of sample
+        // tasks, and left the tour pointing at anchors that no longer
+        // existed - the blank screens and the "Reopen day" after onboarding.
+        fill: { kind: "endday" },
+        done: (_s, _id, facts) => facts.endDayDone,
+      },
+    ],
   },
   {
     id: "calendar",
@@ -311,12 +375,16 @@ export const TOUR_STEPS: TourStep[] = [
     tab: "calendar",
     title: "Finding it again",
     body: ["The tag you set is the fastest way back to work you have already done."],
+    finished: "Found it.",
     beats: [
       {
         id: "tagsearch",
         text: "Press one of the tag chips, or type a word you used.",
         cheer: "That is every day that touched it, with the time it took.",
-        done: (s) => s.tourSearched === true,
+        // From the RUN, not from persisted state: `tourSearched` survived a
+        // retake in the same process, so the search step opened already
+        // finished for anyone taking the tour a second time.
+        done: (_s, _id, facts) => facts.searched,
       },
     ],
   },

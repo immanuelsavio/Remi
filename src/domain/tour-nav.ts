@@ -73,6 +73,17 @@ export type NavEffect =
   /** Carry out this beat with its example, through typed commands. */
   | { do: "fill"; beat: number }
   /**
+   * Undo the practice back to `toBeat`, so that beat is genuinely
+   * OUTSTANDING again.
+   *
+   * Back used to move a cursor over state that still said the beat was
+   * done: stepping back onto "add a step" showed the instruction with the
+   * step already there, the checklist still read 2 of 3, and Next skipped
+   * straight past it. A beat is done when the app says it is done, so the
+   * only honest Back is one that puts the app back.
+   */
+  | { do: "rewind"; toBeat: number }
+  /**
    * Move to another step.
    *
    * The reducer cannot build the arriving state itself: `armed` depends on
@@ -80,7 +91,7 @@ export type NavEffect =
    * being left. Handing the target back and letting the caller re-derive
    * is what stops a page turn arming itself from the wrong checklist.
    */
-  | { do: "goto"; step: number }
+  | { do: "goto"; step: number; back?: boolean }
   | { do: "exit" };
 
 export interface NavResult {
@@ -145,9 +156,17 @@ export function reduce(ctx: NavContext, nav: NavState, ev: NavEvent): NavResult 
 
     case "BACK": {
       const at = beatIndex(ctx, nav);
-      if (at > 0) return stay({ ...nav, cursor: at - 1 });
+      if (at > 0) {
+        // Rewind, not just re-point. The target beat has to be undone or
+        // it is still done, and everything after it belongs to a future
+        // the user has just walked away from.
+        return stay({ ...nav, cursor: at - 1 }, { do: "rewind", toBeat: at - 1 });
+      }
       if (ctx.prevStep === null) return stay(nav);
-      return stay(nav, { do: "goto", step: ctx.prevStep });
+      // `back: true` so the caller can reset the step being RETURNED to.
+      // Arriving backwards at a checklist that is already complete is how
+      // "Build One" used to reopen at 3 of 3 with nothing left to do.
+      return stay(nav, { do: "goto", step: ctx.prevStep, back: true });
     }
   }
 }

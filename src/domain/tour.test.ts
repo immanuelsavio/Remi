@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  NO_FACTS,
   beatIndexFor,
   clampCursor,
   nextShown,
@@ -170,10 +171,14 @@ describe("the guided tour script", () => {
   });
 
   it("makes the doing steps DOING, not reading", () => {
-    // The whole reason the plan step has beats: "add a task, a step, a tag
-    // and a deadline" as one paragraph is four things to hold at once.
+    // The whole reason the plan step has beats: "add a task, a step and a
+    // tag" as one paragraph is three things to hold at once.
+    //
+    // THREE, not four. The fourth - "set a deadline" - made the page a
+    // four-item form on the way to explaining one task, and the row still
+    // shows its reminder control for anyone who wants it.
     const plan = TOUR_STEPS.find((s) => s.id === "plan");
-    expect(plan?.beats?.map((b) => b.id)).toEqual(["task", "step", "tag", "remind"]);
+    expect(plan?.beats?.map((b) => b.id)).toEqual(["task", "step", "tag"]);
     for (const s of TOUR_STEPS) {
       for (const b of s.beats ?? []) {
         // Every beat must be able to tell it is finished, or the tour
@@ -192,7 +197,7 @@ describe("the guided tour script", () => {
     const plan = TOUR_STEPS.find((s) => s.id === "plan");
     const demoOnly = { ...freshDay(), mains: demoMains(Date.now()) };
     for (const b of plan?.beats ?? []) {
-      expect(b.done(demoOnly, null)).toBe(false);
+      expect(b.done(demoOnly, null, NO_FACTS)).toBe(false);
     }
   });
 

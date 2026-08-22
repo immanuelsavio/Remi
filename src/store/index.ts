@@ -67,10 +67,15 @@ export {
   tourView,
   tourPaused,
   tourPracticeId,
+  tourSession,
+  tourActive,
+  startTourClock,
+  completeTourEndDay,
   maybeAutoAdvance,
   cancelAutoAdvance,
   markSearched,
 } from "./tour";
+export type { TourSession } from "./tour";
 export { tourAnchor, tourAnchors } from "./tour-anchors";
 export {
   endDay,

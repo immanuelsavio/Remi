@@ -81,15 +81,22 @@ describe("tour navigation", () => {
   });
 
   describe("BACK", () => {
-    it("walks the checklist before it leaves the page", () => {
+    it("walks the checklist before it leaves the page, REWINDING as it goes", () => {
+      // Back used to move a cursor over state that still said the beat was
+      // done: stepping back onto "add a step" showed the instruction with
+      // the step already there, the checklist still read 2 of 3, and Next
+      // skipped straight past it.
       const r = reduce(ctx({ autoIdx: 3 }), nav(), { type: "BACK" });
       expect(r.state.cursor).toBe(2);
-      expect(r.effect).toEqual({ do: "none" });
+      expect(r.effect).toEqual({ do: "rewind", toBeat: 2 });
     });
 
-    it("leaves the page from the first beat", () => {
+    it("leaves the page from the first beat, marked as a BACKWARD arrival", () => {
+      // The caller resets the step being returned to; without the marker,
+      // arriving backwards at a finished checklist reopened it at 3 of 3
+      // with nothing left to do.
       const r = reduce(ctx({ autoIdx: 0 }), nav(), { type: "BACK" });
-      expect(r.effect).toEqual({ do: "goto", step: 6 });
+      expect(r.effect).toEqual({ do: "goto", step: 6, back: true });
     });
 
     it("does nothing at the very start of the tour", () => {
