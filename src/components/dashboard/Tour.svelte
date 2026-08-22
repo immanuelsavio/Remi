@@ -113,8 +113,19 @@
   $: beat = beats[beatIdx] ?? null;
   /** Every beat genuinely DONE - not merely skipped past. */
   $: allBeatsDone = beats.length > 0 && autoIdx >= beats.length;
-  /** The last beat finished, so the acknowledgement has something to say. */
-  $: lastDone = doneCount > 0 ? beats[doneCount - 1] : null;
+  /**
+   * The most recently finished beat BEFORE the current one.
+   *
+   * Indexing by `doneCount` was wrong the moment anything was done out of
+   * order: two beats done meant `beats[1]`, which is the second beat
+   * whether or not it was one of them - so skipping the step and adding a
+   * tag congratulated you for the step you had not done.
+   */
+  $: lastDone =
+    beats
+      .slice(0, beatIdx)
+      .reverse()
+      .find((b) => b.done(s)) ?? null;
 
   /**
    * Finishing the checklist turns the page by itself.
@@ -469,6 +480,12 @@
    */
   function handOverFocus(el: HTMLElement) {
     if (!beats.length) return;
+    // Only ever the beat's OWN control. `el` may be the step's fallback -
+    // on the Plan step that is the add-a-TASK box - and seeding there put
+    // the step's example into it, so pressing Next made a top-level task
+    // called "First step" instead of a step under the task. A fallback is
+    // something to POINT at; it is never something to type into.
+    if (beat?.anchor && el.dataset.tour !== beat.anchor) return;
     const field = el instanceof HTMLInputElement ? el : el.querySelector<HTMLInputElement>("input");
     if (!field) {
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -530,6 +547,14 @@
       // exists now. `anchorKey` has not changed, so nothing else would
       // re-run the search, and the ring would sit on the wrong control for
       // the rest of the step.
+      // Gone from the page entirely - the "＋ add steps" button replaced by
+      // the box it opens, a row re-rendered. Same anchor name, different
+      // element, so the upgrade check below cannot see it: re-run the
+      // search rather than measuring something detached.
+      if (!document.contains(anchorEl)) {
+        void attach(anchorKey);
+        return;
+      }
       if (wantKey && anchorEl.dataset.tour !== wantKey) {
         const better = lookup(wantKey);
         if (better) anchorEl = better;
@@ -587,10 +612,21 @@
       cursor = beatIdx + 1;
       return;
     }
+    // Same rule as seeding: only ever act on the beat's OWN control. On a
+    // fallback the focused field belongs to something else entirely, and
+    // committing it writes the beat's example into the wrong place.
+    const onOwn = !beatBlocked;
     const el = document.activeElement;
-    if (el instanceof HTMLInputElement && el.value.trim()) {
+    if (onOwn && el instanceof HTMLInputElement && el.value.trim()) {
       el.blur();
       return; // the commit advances `autoIdx`, which moves the checklist on
+    }
+    // The beat's control is a button, not a field - "＋ add steps" is the
+    // way in before a task has any. Press it, and the input it reveals
+    // answers to the same anchor, so the next attach seeds that instead.
+    if (onOwn && anchorEl instanceof HTMLButtonElement) {
+      anchorEl.click();
+      return;
     }
     if (beat.id === "remind") {
       const own = ownTask(s);
