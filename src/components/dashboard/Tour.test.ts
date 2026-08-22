@@ -366,4 +366,95 @@ describe("the tour, on screen", () => {
     await settle();
     expect(document.activeElement, "focus was left on a destroyed card").toBe(opener);
   });
+
+  // --- Enter ---------------------------------------------------------------
+  //
+  // Enter used to work from the two name fields and nowhere else, so the
+  // pages asking a yes/no question swallowed it and people pressed it twice.
+
+  /** Press Enter on a specific element, the way a keyboard does. */
+  function pressEnter(el: Element) {
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  }
+
+  it("Enter in the nickname field saves and advances exactly once", async () => {
+    await showStep("nickname");
+    const input = host.querySelector<HTMLInputElement>("#tour-nick")!;
+    const before = get(tourStep)!;
+    input.value = "Sam";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    pressEnter(input);
+    await settle();
+    expect(get(state).userName).toBe("Sam");
+    expect(get(tourStep)).toBe(before + 1);
+  });
+
+  it("Enter in the full-name field saves and advances exactly once", async () => {
+    await showStep("fullname");
+    const input = host.querySelector<HTMLInputElement>("input")!;
+    const before = get(tourStep)!;
+    input.value = "Sam Smith";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    pressEnter(input);
+    await settle();
+    expect(get(state).fullName).toBe("Sam Smith");
+    expect(get(tourStep)).toBe(before + 1);
+  });
+
+  it("Enter on the Show Remi card advances", async () => {
+    await showStep("mascot");
+    const card = host.querySelector<HTMLElement>(".tourcard")!;
+    const before = get(tourStep)!;
+    card.focus();
+    pressEnter(card);
+    await settle();
+    expect(get(tourStep), "Enter did nothing on a card with no text field").toBe(before + 1);
+  });
+
+  it("Enter on the costume/wander card advances", async () => {
+    setState({ ...get(state), mascotOn: true });
+    await showStep("mouse");
+    const card = host.querySelector<HTMLElement>(".tourcard")!;
+    const before = get(tourStep)!;
+    card.focus();
+    pressEnter(card);
+    await settle();
+    expect(get(tourStep)).toBe(before + 1);
+  });
+
+  it("Enter on the appearance card advances", async () => {
+    await showStep("look");
+    const card = host.querySelector<HTMLElement>(".tourcard")!;
+    const before = get(tourStep)!;
+    card.focus();
+    pressEnter(card);
+    await settle();
+    expect(get(tourStep)).toBe(before + 1);
+  });
+
+  it("Enter does NOT fire twice from a button inside the card", async () => {
+    // The browser already turns Enter on a focused button into a click;
+    // navigating as well would run two actions from one keypress.
+    await showStep("look");
+    const before = get(tourStep)!;
+    const btn = host.querySelector<HTMLButtonElement>(".tourcard button")!;
+    btn.focus();
+    pressEnter(btn);
+    await settle();
+    expect(get(tourStep), "Enter on a button also navigated").toBe(before);
+  });
+
+  it("Enter in an application field behind the tour never navigates", async () => {
+    await showStep("look");
+    const before = get(tourStep)!;
+    const appInput = document.createElement("input");
+    document.body.appendChild(appInput);
+    appInput.focus();
+    pressEnter(appInput);
+    await settle();
+    expect(get(tourStep), "the app's own input navigated the tour").toBe(before);
+    appInput.remove();
+  });
 });

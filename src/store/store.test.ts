@@ -34,6 +34,8 @@ let saveRefused = false;
 /** When true, saves are refused even for a caller authorised to overwrite a
  * malformed file - the "the file is still unwritable" case. */
 let refuseEvenOverMalformed = false;
+/** When set, the NEXT `notify` call rejects with this message. */
+let notifyShouldFail: string | null = null;
 /** Which window Rust's effect lease is granting to; null means "whoever
  * asks". */
 let leaseGrantedTo: string | null = null;
@@ -130,6 +132,11 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "get_standard_daily":
         return [];
       case "notify":
+        if (notifyShouldFail) {
+          const msg = notifyShouldFail;
+          notifyShouldFail = null; // one-shot
+          throw new Error(msg);
+        }
         notified.push({ title: String(args?.title), body: String(args?.body) });
         return null;
       case "set_tray_title":
@@ -282,6 +289,7 @@ async function reset(): Promise<void> {
   quitAppGate = null;
   saveRefused = false;
   refuseEvenOverMalformed = false;
+  notifyShouldFail = null;
   leaseGrantedTo = null;
   authorizeDestructive = "allow";
   factoryResetCalls = 0;
@@ -2397,6 +2405,9 @@ describe("the tour's notification preview", () => {
   it("runs ONE sequence however many times it is pressed", async () => {
     vi.useFakeTimers();
     try {
+      // The preview belongs to a RUN: outside one there is nothing to
+      // preview and nowhere to report to.
+      startTour();
       previewNotifications();
       previewNotifications();
       previewNotifications();
@@ -2407,6 +2418,74 @@ describe("the tour's notification preview", () => {
       expect(water, "a second delayed pair was queued").toHaveLength(1);
     } finally {
       vi.useRealTimers();
+      endTour();
+    }
+  });
+
+  it("reports a DENIED permission in the tour rather than swallowing it", async () => {
+    // The old version invoked `notify` and swallowed every error, then
+    // raised the app's own wellness card - behind the tour's scrim, blurred
+    // - while the button that raised it claimed success. On any machine
+    // that had not granted permission, nothing arrived and nothing said why.
+    vi.useFakeTimers();
+    try {
+      startTour();
+      notifyShouldFail = "Notifications are turned off for Remi.";
+      previewNotifications();
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(get(tourSession).preview).toBe("denied");
+      expect(get(tourSession).previewMsg).toMatch(/turned off/);
+      // ...and it never raises the in-app card behind the tour.
+      expect(get(wellnessNudge)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      endTour();
+    }
+  });
+
+  it("reports a real failure distinctly from a denial", async () => {
+    vi.useFakeTimers();
+    try {
+      startTour();
+      notifyShouldFail = "the notification centre exploded";
+      previewNotifications();
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(get(tourSession).preview).toBe("failed");
+    } finally {
+      vi.useRealTimers();
+      endTour();
+    }
+  });
+
+  it("says so once BOTH notifications have actually gone out", async () => {
+    vi.useFakeTimers();
+    try {
+      startTour();
+      previewNotifications();
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(get(tourSession).preview).toBe("sent");
+      expect(notified.filter((n) => n.title === "Water break")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+      endTour();
+    }
+  });
+
+  it("a promise from a previous run cannot report into the next one", async () => {
+    // The generation token: a permission prompt answered after the tour has
+    // closed must not paint status onto whatever is running now.
+    vi.useFakeTimers();
+    try {
+      startTour();
+      previewNotifications();
+      endTour();
+      startTour();
+      const fresh = get(tourSession).preview;
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(get(tourSession).preview, "a stale run wrote into the new one").toBe(fresh);
+    } finally {
+      vi.useRealTimers();
+      endTour();
     }
   });
 
@@ -2908,7 +2987,7 @@ describe("the tour's demo day", () => {
   it("the first run knows it is the first run", () => {
     // `first = !s.tourSeen` was read AFTER startTour() had set the flag, so
     // the first-run wording never appeared on a first run.
-    setFlag("tourSeen", false);
+    setState({ ...S(), tourSeen: false });
     startTour();
     expect(get(tourView).firstRun).toBe(true);
     endTour();

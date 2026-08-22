@@ -44,6 +44,7 @@
     maybeAutoAdvance,
     cancelAutoAdvance,
     openPopover,
+    markTrayOpened,
     tourAnchors,
   } from "../../store";
   import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
@@ -54,7 +55,20 @@
   $: s = $app;
   $: v = $tourView;
   $: step = v.step;
-  $: first = !s.tourSeen;
+  // From the RUN, not from the persisted flag: `startTour()` sets
+  // `tourSeen` immediately, so `!s.tourSeen` was already false by the time
+  // the first page rendered and the first-run wording never appeared on a
+  // first run.
+  $: first = v.firstRun;
+
+  /** Opening the menu-bar panel, and what to say if it does not open. */
+  let trayError = "";
+  async function openTray() {
+    trayError = "";
+    const res = await openPopover();
+    if (res.ok) markTrayOpened();
+    else trayError = res.error;
+  }
 
   /** A Svelte template cannot parse a TS `as` cast, so narrow here. */
   function pickCostume(val: string) {
@@ -308,9 +322,22 @@
     const editing = field || (!!el && (el.tagName === "SELECT" || el.isContentEditable));
 
     if (e.key === "Enter") {
-      // Only from a text field in the tour's own card, and never from a
-      // button - the button's own click already fired.
-      if (mine && field) tourNext();
+      // Inside the tour only. Enter used to work from the name fields and
+      // nowhere else, so the pages that ask a yes/no question - Show Remi,
+      // the costume - swallowed it and people pressed it twice wondering
+      // what was broken.
+      //
+      // Never from a BUTTON: the browser already fires that button's click,
+      // and navigating as well would run two actions from one keypress.
+      // Never from an application field behind the tour either - `mine` is
+      // what draws that line.
+      if (!mine) return;
+      const onButton = !!el && (el.tagName === "BUTTON" || el.tagName === "A");
+      if (onButton) return;
+      // A text field's value is already saved on input, so Enter here means
+      // "done, move on" - exactly what it means on the cards with no field
+      // at all.
+      tourNext();
       return;
     }
     if (e.key === "Escape") {
@@ -480,7 +507,7 @@
                 <p class="tb-note">Not there yet - do the one before it first.</p>
               {/if}
             {:else}
-              <p class="tb-do">That is a whole task. Everything else is a variation on it.</p>
+              <p class="tb-do">{v.finished || "Done."}</p>
             {/if}
           {/if}
 
@@ -592,7 +619,7 @@
                     <span class="tp-l">Show Remi</span>
                     <span class="tp-h">
                       {#if s.mascotOn}
-                        On. The next two pages are about the outfit and the wandering.
+                        On. The next page is about the outfit and the wandering.
                       {:else}
                         Off. The app runs exactly the same, without the mouse.
                       {/if}
@@ -704,22 +731,53 @@
               </div>
             {:else if step.ask === "tray"}
               <div class="tf-ask">
-                <button class="tf-send" on:click={openPopover}>Open it from the menu bar</button>
+                <button class="tf-send" on:click={openTray}>Open it from the menu bar</button>
                 <p class="tf-note">
                   It drops down under the mouse in your menu bar. Click anywhere else and it goes
                   away again - your work carries on either way.
                 </p>
+                <!-- IN the card, not a toast: a toast raised during the tour
+                     draws behind the tour's own scrim, blurred. -->
+                {#if trayError}
+                  <p class="tf-bad" role="alert">{trayError}</p>
+                {:else if v.run.trayOpened}
+                  <p class="tf-good">✓ It is open - look at your menu bar.</p>
+                {/if}
               </div>
             {:else if step.ask === "notify"}
               <div class="tf-ask">
-                <button class="tf-send" on:click={previewNotifications}>
+                <button
+                  class="tf-send"
+                  disabled={v.run.preview === "asking" || v.run.preview === "sending"}
+                  on:click={previewNotifications}
+                >
                   Send me a deadline and a water nudge
                 </button>
                 <p class="tf-note">
                   Two real notifications, a second apart - the kind a deadline sends, then the kind
-                  a wellness nudge sends. The second also shows the in-app card, since that one
-                  arrives both ways.
+                  a wellness nudge sends.
                 </p>
+                <!-- The outcome belongs HERE, unblurred, next to the button
+                     that asked for it. The old version swallowed every
+                     error and raised the in-app water card behind the tour,
+                     so a machine that had never granted permission showed
+                     nothing at all and said nothing about why. -->
+                {#if v.run.preview === "asking"}
+                  <p class="tf-note">Asking macOS for permission…</p>
+                {:else if v.run.preview === "sending"}
+                  <p class="tf-note">Sent the first one. The second follows in a moment…</p>
+                {:else if v.run.preview === "sent"}
+                  <p class="tf-good">✓ Both sent. That is exactly what a real one looks like.</p>
+                {:else if v.run.preview === "denied"}
+                  <p class="tf-bad" role="alert">
+                    macOS is not allowing Remi to notify you. System Settings › Notifications › Remi
+                    turns it back on - everything else works without it.
+                  </p>
+                {:else if v.run.preview === "failed"}
+                  <p class="tf-bad" role="alert">
+                    That did not go through: {v.run.previewMsg}
+                  </p>
+                {/if}
               </div>
             {:else if step.ask === "prefs"}
               <div class="tf-ask tf-prefs">
@@ -1081,6 +1139,20 @@
     font-size: 11.5px;
     color: var(--ink-faint);
     margin: 10px 0 18px;
+  }
+  /* Outcomes, in the card. Same size as the note beside them: this is an
+     answer to what the button did, not an alarm. */
+  .tf-good,
+  .tf-bad {
+    font-size: 11.5px;
+    margin: 10px 0 18px;
+    line-height: 1.45;
+  }
+  .tf-good {
+    color: var(--success-ink);
+  }
+  .tf-bad {
+    color: var(--danger);
   }
   .tf-lbl {
     display: block;

@@ -71,6 +71,7 @@ export {
   tourActive,
   startTourClock,
   completeTourEndDay,
+  markTrayOpened,
   maybeAutoAdvance,
   cancelAutoAdvance,
   markSearched,

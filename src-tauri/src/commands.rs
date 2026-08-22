@@ -245,12 +245,56 @@ pub async fn open_data_folder() -> Result<(), String> {
 /// Fire a native OS notification (reminders, break-over, wellness nudges).
 #[tauri::command]
 pub async fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    ensure_notification_permission(&app)?;
     use tauri_plugin_notification::NotificationExt;
     app.notification()
         .builder()
         .title(title)
         .body(body)
         .show()
+        .map_err(|e| e.to_string())
+}
+
+/// Ask macOS for notification permission, once, before sending anything.
+///
+/// The previous code went straight to `.show()`. On a machine that had
+/// never been asked, or where the user had said no, that fails silently at
+/// the OS boundary - so the tour's "send yourself one now" button reported
+/// success and nothing ever appeared, which is the worst of both: no
+/// notification and no explanation.
+///
+/// `PermissionState::Prompt` is the only state worth asking in. Asking
+/// again after a denial does nothing on macOS except return the denial.
+fn ensure_notification_permission(app: &AppHandle) -> Result<(), String> {
+    use tauri_plugin_notification::{NotificationExt, PermissionState};
+    let notifier = app.notification();
+    let state = notifier
+        .permission_state()
+        .map_err(|e| format!("Couldn't check notification permission: {e}"))?;
+    let state = match state {
+        PermissionState::Prompt | PermissionState::PromptWithRationale => notifier
+            .request_permission()
+            .map_err(|e| format!("Couldn't ask for notification permission: {e}"))?,
+        other => other,
+    };
+    match state {
+        PermissionState::Granted => Ok(()),
+        PermissionState::Denied => Err(
+            "Notifications are turned off for Remi. Turn them on in System Settings › \
+             Notifications to see them."
+                .into(),
+        ),
+        _ => Err("Remi does not have permission to send notifications yet.".into()),
+    }
+}
+
+/// Where notification permission stands right now, without sending one.
+#[tauri::command]
+pub async fn notification_permission(app: AppHandle) -> Result<String, String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .permission_state()
+        .map(|s| format!("{s:?}").to_lowercase())
         .map_err(|e| e.to_string())
 }
 

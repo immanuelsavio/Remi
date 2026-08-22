@@ -64,13 +64,18 @@ export function toggleSubsOpen(): void {
  * Used by the tour, which can ring anything inside its own window but not
  * an icon in the menu bar - the one part of Remi it cannot point at.
  */
-export async function openPopover(): Promise<void> {
+export async function openPopover(): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     await invoke("open_popover");
+    return { ok: true };
   } catch (e) {
     // A button labelled "open it" that quietly does nothing is worse than
-    // one that says why. Swallowed failures here were flagged in review.
-    showToast(`Couldn't open the menu-bar window: ${String(e)}`);
+    // one that says why. RETURNED as well as toasted: during the tour the
+    // toast renders behind the tour's own scrim, blurred, which is not a
+    // report anyone can read.
+    const error = `Couldn't open the menu-bar window: ${String(e)}`;
+    showToast(error);
+    return { ok: false, error };
   }
 }
 

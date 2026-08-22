@@ -70,6 +70,7 @@ fn main() {
             commands::get_auto_update,
             commands::set_auto_update,
             commands::notify,
+            commands::notification_permission,
             commands::write_text_file,
             commands::write_autobackup,
             commands::open_in_default_app,

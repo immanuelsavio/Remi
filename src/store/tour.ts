@@ -573,6 +573,10 @@ export function completeTourEndDay(): void {
 }
 
 /**
+ * The menu-bar panel opened from the tour - a fact about this run, shown in
+ * the tour card rather than a toast that would draw behind its own scrim.
+ */
+/**
  * Is a tour running?
  *
  * A store, because the controls the tour REHEARSES - the Start button, the
@@ -581,6 +585,11 @@ export function completeTourEndDay(): void {
  * not.
  */
 export const tourActive: Readable<boolean> = derived(nav, (n) => n.step !== null);
+
+export function markTrayOpened(): void {
+  if (get(nav).step === null) return;
+  session.update((t) => (t.trayOpened ? t : { ...t, trayOpened: true }));
+}
 
 export function tourIsActive(): boolean {
   return get(nav).step !== null;
@@ -721,40 +730,101 @@ export function markSearched(): void {
  */
 let previewTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function nativeNotify(title: string, body: string): Promise<void> {
-  try {
-    await invoke("notify", { title, body });
-  } catch {
-    /* refused or unavailable - the in-app card still does its job */
-  }
+/** How long between the two previews, so they do not stack into one pile. */
+const PREVIEW_GAP_MS = 1400;
+
+/**
+ * Which press of the button this is.
+ *
+ * TWO tokens are needed, because there are two ways for work to become
+ * stale. `runId` catches a promise that outlives the whole tour; this
+ * catches a second press within the same run - three presses meant three
+ * chains each awaiting their own permission call and each arming their own
+ * delayed notification, and clearing "the" pending timer only ever cleared
+ * the most recent one.
+ */
+let previewSeq = 0;
+
+/** Is this promise/timer still the work anyone is waiting for? */
+function stillCurrent(runId: number, seq: number): boolean {
+  const t = get(session);
+  return t.runId === runId && seq === previewSeq && get(nav).step !== null;
 }
 
-/** Send one of each, on request. */
-export function previewNotifications(): void {
-  // One sequence at a time. Pressing the button twice queued a second
-  // delayed pair on top of the first.
-  cancelNotificationPreview();
-  void nativeNotify("Draft the quarterly update", "This is what a deadline looks like.");
-  // Staggered so they do not stack into one indistinguishable pile.
-  previewTimer = setTimeout(() => {
-    previewTimer = null;
-    const c = wellnessCopy("water");
-    void nativeNotify(c.title, c.msg);
-    wellnessNudge.set("water");
-  }, 1400);
+function setPreview(runId: number, seq: number, preview: TourSession["preview"], msg = ""): void {
+  if (!stillCurrent(runId, seq)) return;
+  session.update((t) => ({ ...t, preview, previewMsg: msg }));
 }
 
 /**
- * Drop a preview that has not fired, and any card it already raised.
+ * Send the two preview notifications, in order, reporting what happened.
  *
- * Leaving the tour is the case that matters: a wellness card appearing a
- * second later, over an app that has stopped explaining anything, is a
- * nudge the user never turned on.
+ * The old version invoked `notify` and swallowed every error, then raised
+ * the ordinary in-app wellness card - which appeared BEHIND the tour's own
+ * scrim, blurred, while the button that raised it claimed success. On a
+ * machine that had never granted permission (every first run) nothing
+ * arrived and nothing said why.
+ *
+ * Now: permission is asked for once by the backend, the two notifications
+ * are sent SEQUENTIALLY, and the outcome - sent, denied, or a real error -
+ * is reported in the tour card itself, unblurred, where the button is.
+ */
+export function previewNotifications(): void {
+  const runId = get(session).runId;
+  // One sequence at a time. Pressing the button twice queued a second
+  // delayed pair on top of the first. `cancelNotificationPreview` bumps the
+  // sequence, so every chain already in flight stops where it is.
+  cancelNotificationPreview();
+  const seq = ++previewSeq;
+  setPreview(runId, seq, "asking");
+
+  void (async () => {
+    try {
+      await invoke("notify", {
+        title: "Draft the quarterly update",
+        body: "This is what a deadline looks like.",
+      });
+    } catch (e) {
+      // A denial is a fact about the machine, not a failure to hide: the
+      // card says so, and the tour carries on.
+      const msg = String(e);
+      setPreview(runId, seq, /permission|turned off/i.test(msg) ? "denied" : "failed", msg);
+      return;
+    }
+    if (!stillCurrent(runId, seq)) return; // the page (or the tour) has moved on
+    setPreview(runId, seq, "sending");
+
+    previewTimer = setTimeout(() => {
+      previewTimer = null;
+      if (!stillCurrent(runId, seq)) return;
+      const c = wellnessCopy("water");
+      void invoke("notify", { title: c.title, body: c.msg })
+        .then(() => setPreview(runId, seq, "sent"))
+        .catch((e) => setPreview(runId, seq, "failed", String(e)));
+    }, PREVIEW_GAP_MS);
+  })();
+}
+
+/**
+ * Drop a preview that has not fired.
+ *
+ * Leaving the page or the tour is the case that matters: a notification
+ * arriving a second later, from an app that has stopped explaining
+ * anything, is a nudge the user never turned on. The run id does the rest -
+ * a permission promise that resolves after this cannot report into the
+ * next run.
  */
 export function cancelNotificationPreview(): void {
+  // Supersede every chain in flight, not merely the timer one of them
+  // happened to have armed.
+  previewSeq++;
   if (previewTimer) {
     clearTimeout(previewTimer);
     previewTimer = null;
   }
+  // The tour's preview never raises the app's own wellness card again: it
+  // rendered behind the tour scrim, blurred, which read as a bug. Clear one
+  // that a previous version may have left up.
   if (get(wellnessNudge) === "water") wellnessNudge.set(null);
+  session.update((t) => (t.preview === "idle" ? t : { ...t, preview: "idle", previewMsg: "" }));
 }

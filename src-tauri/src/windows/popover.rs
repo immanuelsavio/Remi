@@ -36,7 +36,7 @@ pub fn toggle_popover(app: &AppHandle) {
     match win.is_visible() {
         Ok(true) => {
             app.state::<PopoverGuard>().mark_hidden();
-            hide_popover(&win);
+            hide_popover_guarded(app, &win);
         }
         _ => {
             if app.state::<PopoverGuard>().hidden_recently() {
@@ -166,6 +166,12 @@ pub fn show_popover(app: &AppHandle) {
     // it subsumes "always on top". (This is also why the popover window is
     // NOT declared `alwaysOnTop` in `tauri.conf.json`.)
     super::panel::make_overlay_panel(&win);
+    // Arm the opening grace BEFORE showing. Making a non-activating panel
+    // key produces a `Focused(false)` on it almost immediately - the window
+    // manager settling, not a person clicking away - and autohide could not
+    // tell the two apart, so a programmatic open showed the panel and hid
+    // it again in the same breath.
+    app.state::<PopoverGuard>().mark_opening();
     let _ = win.show();
     // Key status WITHOUT app activation - only possible because the window
     // is now a non-activating panel. See `panel::key_and_order_front`.
@@ -174,6 +180,14 @@ pub fn show_popover(app: &AppHandle) {
 
 fn hide_popover(win: &tauri::WebviewWindow) {
     let _ = win.hide();
+}
+
+/// Hide, and end any opening grace with it - a closed panel is not
+/// "settling into open", and a grace left running would swallow the next
+/// genuine click-away.
+fn hide_popover_guarded(app: &AppHandle, win: &tauri::WebviewWindow) {
+    app.state::<PopoverGuard>().clear_opening();
+    hide_popover(win);
 }
 
 /// Click-away autohide: hide the popover the moment it loses focus.
@@ -185,7 +199,13 @@ pub fn register_autohide(app: &AppHandle) {
     let h = app.clone();
     win.on_window_event(move |event| {
         if let WindowEvent::Focused(false) = event {
-            h.state::<PopoverGuard>().mark_hidden();
+            let guard = h.state::<PopoverGuard>();
+            // The blur that programmatic opening causes is not a dismissal.
+            // A real click-away arrives after the grace and still closes.
+            if guard.opening() {
+                return;
+            }
+            guard.mark_hidden();
             hide_popover(&w);
         }
     });
