@@ -206,7 +206,7 @@
         try {
           // The real day back, and the tour marked as run, in one
           // transaction - before anything is persisted or hidden.
-          if ($app.demoRestore) endTour();
+          if ($tourActive) endTour();
           await flushSave();
           // Hiding is refused if this is no longer the current request -
           // the user reopened the window while we were saving.

@@ -25,7 +25,7 @@
     tourAnchor,
     tourActive,
     tourPracticeId,
-    tourSession,
+    tourSandbox,
     startTourClock,
   } from "../../../store";
   import { fmt, fmtEst, isTiming, mainTotal, nowMs } from "../../../view";
@@ -125,7 +125,7 @@
     {@const open = expandedId === m.id}
     {@const practice = m.id === $tourPracticeId}
     {@const tourOn =
-      practice && $tourSession.clockTaskId === m.id && $tourSession.clockStartedAt > 0}
+      practice && $tourSandbox.clockTaskId === m.id && $tourSandbox.clockStartedAt > 0}
     {@const isOn = (m.id === s.activeMainId && running) || tourOn}
     {@const avoiding = s.avoidanceOn && m.carries >= 1}
     {@const warn = s.avoidanceOn && m.carries >= 3}

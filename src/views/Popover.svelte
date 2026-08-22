@@ -27,12 +27,16 @@
     startClock,
     stopClock,
     teardownQuitListener,
+    initTrayPreview,
+    teardownTrayPreview,
+    trayPreview,
     teardownSync,
   } from "../store";
   import { computeStreaks, fmtEst, nowMs, todayTrackedMs } from "../view";
   import type { State } from "../view";
 
   import Recovery from "../components/popover/phases/Recovery.svelte";
+  import TourPreview from "../components/popover/phases/TourPreview.svelte";
   import Break from "../components/popover/phases/Break.svelte";
   import StartDay from "../components/popover/phases/StartDay.svelte";
   import Active from "../components/popover/phases/Active.svelte";
@@ -87,6 +91,9 @@
     // (see registerQuitListener), since it's always mounted.
     startClock({ owner: true });
     await registerQuitListener();
+    // The tour's tray preview arrives as an event from the dashboard - see
+    // `store/tour-preview.ts`. Nothing about it is persisted.
+    await initTrayPreview();
     ready = true;
     // Best-effort ONLY - `beforeunload` cannot reliably await async work
     // before the webview tears down, so this is not the real persistence
@@ -110,6 +117,7 @@
     stopClock();
     teardownSync();
     teardownQuitListener();
+    teardownTrayPreview();
   });
 
   $: s = $app;
@@ -149,6 +157,14 @@
   {#if !ready}
     <div class="startday"><div class="lede">Loading today…</div></div>
 
+    <!-- ================= THE TOUR'S TRAY PREVIEW =================
+         Ahead of every real screen: while the tour is explaining this
+         window, this window is the illustration. Presentation only - it
+         arrives as an event payload and is never persisted, so the practice
+         task cannot become the popover's real day. -->
+  {:else if $trayPreview}
+    <TourPreview preview={$trayPreview} />
+
     <!-- ================= RECOVERY ================= -->
   {:else if s.phase === "recovery"}
     <Recovery />
@@ -178,8 +194,14 @@
   {/if}
 
   <!-- ================= OVERLAYS =================
-       Rendered INSIDE .popover so the scrim is bounded by the window. -->
-  {#if s.overlay === "checkin" && thing}
+       Rendered INSIDE .popover so the scrim is bounded by the window.
+
+       NONE of them while the tour's preview is up: a check-in, a reminder
+       sheet or a wellness card drawn over the illustration turns the lesson
+       into a stack of things the person has no context for yet. -->
+  {#if $trayPreview}
+    <!-- deliberately nothing -->
+  {:else if s.overlay === "checkin" && thing}
     <Checkin {thing} {thingMs} />
   {:else if s.overlay === "switch"}
     <Switch bind:interruptDraft />
@@ -196,12 +218,18 @@
   {/if}
 
   <!-- The reminder picker layers above whatever else is open, since it is
-       raised FROM those screens. -->
-  <RemindSheet />
+       raised FROM those screens.
 
-  <!-- Wellness + welcome-back sit outside the overlay router: they are
-       interruptions from the clock, not somewhere the user navigated. -->
-  <Wellness />
-  <WelcomeBack />
-  <Toast />
+       All of these are suppressed under the tour's preview, for the same
+       reason as the overlays above: the panel is an ILLUSTRATION for the
+       length of that lesson, and a nudge, a welcome-back card or a toast
+       drawn over it is an interruption from an app the person has not
+       finished being introduced to. They are not lost - the clock raises
+       them again the moment the preview comes down. -->
+  {#if !$trayPreview}
+    <RemindSheet />
+    <Wellness />
+    <WelcomeBack />
+    <Toast />
+  {/if}
 </div>

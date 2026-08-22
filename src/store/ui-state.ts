@@ -79,6 +79,23 @@ export async function openPopover(): Promise<{ ok: true } | { ok: false; error: 
   }
 }
 
+/**
+ * Leave the tour's tray preview: close THIS window, show the dashboard.
+ *
+ * Two separate commands on purpose. The popover has no business calling the
+ * quit path or the dashboard's close handshake - both end with the app
+ * going away - and "Back to the tour" means exactly "put the other window
+ * in front of me again".
+ */
+export async function closePopoverToTour(): Promise<void> {
+  await invoke("close_popover").catch(() => {
+    /* already hidden - the dashboard is what matters next */
+  });
+  await invoke("open_dashboard").catch(() => {
+    /* not in Tauri */
+  });
+}
+
 /** Open the dashboard on a given tab. */
 export function openDashboard(tab: DashTab = "plan"): void {
   dashTab.set(tab);

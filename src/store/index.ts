@@ -1,5 +1,9 @@
-import { claimPracticeTask, provideBeatCommands } from "./tour";
-import { addMain as addMainAction, addSub, addTag, setRemind } from "./task-actions";
+import { sandboxAddStep, sandboxAddTag, sandboxAddTask, tourIsActive } from "./tour";
+import {
+  addMain as addMainAction,
+  addSub as addSubAction,
+  addTag as addTagAction,
+} from "./task-actions";
 
 /**
  * The store's public facade - the ONLY module Svelte components import
@@ -25,6 +29,7 @@ export {
   loadKind,
   loadMessage,
   nowMs,
+  planTaskDraft,
   returning,
   showToast,
   toast,
@@ -48,6 +53,14 @@ export {
 } from "./persistence";
 export { initSync, reloadFromDisk, teardownSync } from "./sync";
 export {
+  clearTrayPreview,
+  initTrayPreview,
+  showTrayPreview,
+  teardownTrayPreview,
+  trayPreview,
+  type TrayPreview,
+} from "./tour-preview";
+export {
   dismissWellness,
   muteCheckins,
   snoozeWellness,
@@ -68,11 +81,14 @@ export {
   tourPaused,
   tourPracticeId,
   tourSession,
+  tourSandbox,
   tourActive,
   tourHistory,
   startTourClock,
   completeTourEndDay,
   markTrayOpened,
+  openTrayPreview,
+  closeTrayPreview,
   maybeAutoAdvance,
   cancelAutoAdvance,
   markSearched,
@@ -91,7 +107,6 @@ export {
   startTodayFresh,
 } from "./day";
 export {
-  addSub,
   completeMain,
   promoteSub,
   removeMain,
@@ -103,7 +118,6 @@ export {
   setRemind,
   setSubTitle,
   setTags,
-  addTag,
   removeTag,
   startNewMain,
   startSub,
@@ -127,6 +141,7 @@ export {
 } from "./telemetry";
 export {
   closeOverlay,
+  closePopoverToTour,
   closeRemind,
   openDashboard,
   openSwitch,
@@ -198,21 +213,35 @@ export function resumeWelcomeBack(): void {
 // action modules depend only on `state.ts`, and this facade is where two of
 // them are meant to meet. Wiring it here keeps the module graph a star and
 // keeps the tour off a second, divergent copy of those mutations.
-provideBeatCommands({ addMain, addSub, addTag, setRemind });
-
 /**
- * Add a task - and, while the tour is running, let it claim the task as the
- * one being practised on.
+ * Add a task - to the SANDBOX while the tour is running, to the real day
+ * otherwise.
+ *
+ * This is the boundary that keeps practice out of production. The tour used
+ * to add its practice task to `state.mains` (with the real day parked in
+ * `demoRestore`), which is why every exit, close, quit, crash, midnight and
+ * second window had to know the app's own state was temporarily fictional.
  *
  * Composed here rather than inside `task-actions.ts` for the usual reason:
  * action modules import only `state.ts`, and this facade is where two of
- * them meet. It is also the precise definition the tour needs - "a task
- * created in THIS window, by this action" - which no amount of comparing
- * task lists could reconstruct. A task arriving from an import, or from the
- * popover, goes nowhere near here.
+ * them meet.
  */
 export function addMain(title: string): string | null {
-  const id = addMainAction(title);
-  if (id) claimPracticeTask(id);
-  return id;
+  if (tourIsActive()) {
+    sandboxAddTask(title);
+    return null; // the sandbox owns its ids; nothing real was created
+  }
+  return addMainAction(title);
+}
+
+/** As above: a step typed during the tour is practice, not work. */
+export function addSub(mainId: string, title: string): void {
+  if (tourIsActive()) return void sandboxAddStep(mainId, title);
+  addSubAction(mainId, title);
+}
+
+/** ...and a tag. */
+export function addTag(mainId: string, tag: string): void {
+  if (tourIsActive()) return void sandboxAddTag(mainId, tag);
+  addTagAction(mainId, tag);
 }

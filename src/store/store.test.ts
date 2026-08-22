@@ -246,7 +246,9 @@ import {
   tourBack,
   tourPracticeId,
   tourSession,
+  tourSandbox,
   tourHistory,
+  planTaskDraft,
   tourView,
   startTourClock,
   completeTourEndDay,
@@ -282,6 +284,9 @@ import { get } from "svelte/store";
  * explicit blank day.
  */
 async function reset(): Promise<void> {
+  // End any tour a previous test left running. The practice world is a
+  // window-local overlay now, not something `setState` can wash away.
+  endTour();
   saved.length = 0;
   notified.length = 0;
   trayTitles.length = 0;
@@ -2589,245 +2594,212 @@ describe("factory reset", () => {
   });
 });
 
-describe("the tour's demo day", () => {
-  it("puts the demo in front of you and holds your real day aside", () => {
-    const [a] = ids();
-    startTask(a);
+describe("the tour's sandbox", () => {
+  const planIdx = () => TOUR_STEPS.findIndex((t) => t.id === "plan");
+  const stepIdx = (id: string) => TOUR_STEPS.findIndex((t) => t.id === id);
+  /** The practice task, in the sandbox where it lives. */
+  const practice = () => {
+    const sb = get(tourSandbox);
+    return sb.mains.find((m) => m.id === sb.practiceId) ?? null;
+  };
+  /** What the components see: the sandbox while a tour runs. */
+  const shown = () => get(app);
+  /**
+   * The user's DAY, as a comparable snapshot.
+   *
+   * `tourSeen` is deliberately excluded: starting the tour records that it
+   * ran, which is a real preference and the only thing about the user's
+   * state a tour is allowed to change.
+   */
+  const dayOf = (s: State) =>
+    JSON.parse(
+      JSON.stringify({
+        mains: s.mains,
+        interruptions: s.interruptions,
+        history: s.history,
+        backlog: s.backlog,
+        activeMainId: s.activeMainId,
+        activeSubId: s.activeSubId,
+        startedAt: s.startedAt,
+        dayNum: s.dayNum,
+        dateISO: s.dateISO,
+        awaitingStart: s.awaitingStart,
+        phase: s.phase,
+        carrySeed: s.carrySeed,
+        carryDecided: s.carryDecided,
+        resumable: s.resumable ?? null,
+        returnStack: s.returnStack,
+      }),
+    );
 
-    startTour();
-    const s = S();
-    expect(s.mains.map((m) => m.id)).toEqual(["demo-1", "demo-2", "demo-3"]);
-    expect(s.interruptions.length).toBeGreaterThan(0);
-    // The real day is kept, not discarded.
-    expect(s.demoRestore?.mains.some((m) => m.id === a)).toBe(true);
-  });
+  // --- the boundary --------------------------------------------------------
 
-  it("banks a running session BEFORE the demo replaces the list", () => {
-    // Swapping `mains` out from under a live session is exactly the
-    // mutation `sessionTx` exists for. Skipping it would attribute the
-    // elapsed time to a demo task, or lose it outright.
-    const [a] = ids();
-    startTask(a);
-    rewind(9_000);
-
-    startTour();
-    const held = S().demoRestore?.mains.find((m) => m.id === a);
-    expect(held?.accrued).toBeGreaterThanOrEqual(8_500);
-    // Nothing of the user's is left on the clock while the demo is up.
-    expect(S().activeMainId).not.toBe(a);
-  });
-
-  it("gives every task back when the tour ends, with no demo left behind", () => {
+  it("shows the demo day WITHOUT touching the real one", () => {
     const [a, b] = ids();
-    addSub(a, "a real step");
+    const before = dayOf(S());
+
     startTour();
-    endTour();
 
-    const s = S();
-    expect(s.mains.map((m) => m.id)).toEqual([a, b]);
-    expect(s.mains[0].subs[0].title).toBe("a real step");
-    expect(s.mains.some((m) => isDemoId(m.id))).toBe(false);
-    expect(s.interruptions.some((i) => isDemoId(i.id))).toBe(false);
-    expect(s.demoRestore).toBeNull();
-  });
-
-  it("restores just the same when the tour is SKIPPED part-way", () => {
-    const [a, b] = ids();
-    startTour();
-    tourNext();
-    tourNext();
-    endTour(); // the Skip button is the same call
-
+    // On screen: sample tasks.
+    expect(shown().mains.some((m) => isDemoId(m.id))).toBe(true);
+    expect(shown().mains.some((m) => m.id === a)).toBe(false);
+    // In the store: exactly the day that was there before.
+    expect(dayOf(S())).toEqual(before);
     expect(S().mains.map((m) => m.id)).toEqual([a, b]);
-    expect(S().demoRestore).toBeNull();
   });
 
-  it("shows the SAME demo every time it is run", () => {
+  it("does not bank, move or restart a running session", () => {
+    // The old tour REPLACED the task list, so it had to bank the running
+    // session first and put it back afterwards - which is why a crash
+    // mid-tour could lose it. There is nothing to bank now.
+    const [a] = ids();
+    startTask(a);
+    const startedAt = S().startedAt;
+    rewind(60_000);
+
     startTour();
-    const first = S().mains.map((m) => `${m.id}:${m.title}:${m.subs.length}`);
+    expect(S().activeMainId, "the real session was interfered with").toBe(a);
+    expect(S().startedAt).toBe(startedAt - 60_000);
+    // ...though the tour does not SHOW their task as running, since it is
+    // showing a different day entirely.
+    expect(shown().activeMainId).toBeNull();
+
     endTour();
-    startTour();
-    const second = S().mains.map((m) => `${m.id}:${m.title}:${m.subs.length}`);
-    endTour();
-    expect(second).toEqual(first);
+    expect(S().activeMainId).toBe(a);
+    expect(S().startedAt).toBe(startedAt - 60_000);
   });
 
-  it("lifts the Start-day gate so the sample day can actually be used", () => {
-    // A first launch sits behind that gate, and behind it every tab is
-    // disabled and the panel shows the gate instead of any tab - so the
-    // demo the tour points at was on screen for nobody, and "try adding a
-    // step" was an instruction you could not follow.
-    const s0 = S();
-    s0.awaitingStart = true;
-    s0.phase = "startday";
-
+  it("lifts the Start-day gate on screen only", () => {
+    setState({ ...S(), awaitingStart: true, phase: "startday" });
     startTour();
-    expect(S().awaitingStart).toBe(false);
-    expect(S().phase).toBe("today");
-
-    // ...and the gate comes back, so the user is still asked to start
-    // their OWN day rather than being dropped into one that never began.
-    endTour();
-    expect(S().awaitingStart).toBe(true);
+    // Behind the gate the dashboard shows the gate instead of any tab, so
+    // the demo the tour points at would be on screen for nobody.
+    expect(shown().awaitingStart).toBe(false);
+    expect(shown().phase).toBe("today");
+    // The real day is still waiting to be started.
+    expect(S().awaitingStart, "the real day was started by the tour").toBe(true);
     expect(S().phase).toBe("startday");
   });
 
-  it("does NOT roll the day while the demo is holding the real one aside", () => {
-    // A roll here would archive the DEMO as the user's history and rebuild
-    // from a fresh day whose `demoRestore` is null - so the real day parked
-    // behind the tour would be gone for good.
+  it("leaves nothing behind when it ends, because nothing was borrowed", () => {
+    const [a] = ids();
+    // Taken AFTER `tourSeen` is recorded, which is the one deliberate
+    // change a tour makes to the user's own preferences.
+    startTour();
+    const before = JSON.parse(JSON.stringify(forPersist(S(), 1_000)));
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext();
+    tourNext(); // clock
+    goToStep(stepIdx("endday"));
+    completeTourEndDay();
+    endTour();
+
+    const after = JSON.parse(JSON.stringify(forPersist(S(), 1_000)));
+    expect(after).toEqual(before);
+    expect(S().mains.map((m) => m.id)).toEqual([a, ids()[1]].slice(0, S().mains.length));
+    expect(shown().mains.some((m) => isDemoId(m.id))).toBe(false);
+  });
+
+  it("keeps the day rolling normally, because the real day is never held aside", () => {
+    // The old tour re-dated the day in place while the demo was up, or the
+    // real day parked in `demoRestore` would have been archived instead.
     const [a] = ids();
     startTour();
     const rolled = rolloverIfNewDay(S(), "2099-01-01");
     expect(rolled.dateISO).toBe("2099-01-01");
-    expect(rolled.dayNum).toBe(S().dayNum); // re-dated, not rolled
-    expect(rolled.history).toEqual(S().history); // nothing archived
-    expect(rolled.demoRestore?.mains.some((m) => m.id === a)).toBe(true);
+    expect(rolled.dayNum, "the real day did not roll during the tour").toBe(S().dayNum + 1);
+    expect(rolled.history, "the real day was not archived").toHaveLength(1);
+    expect(rolled.carrySeed.some((c) => c.title === S().mains.find((m) => m.id === a)!.title)).toBe(
+      true,
+    );
   });
 
-  it("a task from an import cannot become the practice task", async () => {
-    // The old rule was "the first task that is not in the baseline this
-    // step began with", which an import satisfies just as well as the task
-    // the user typed - and imports arrive in bulk, so the tour would latch
-    // onto whichever happened to be first.
-    startTour();
-    const plan = TOUR_STEPS.findIndex((s) => s.id === "plan");
-    goToStep(plan);
-    expect(get(tourPracticeId)).toBeNull();
+  // --- Build One -----------------------------------------------------------
 
-    applyImport({
-      mains: [
-        { title: "Imported one", subs: [], remind: null },
-        { title: "Imported two", subs: [], remind: null },
-      ],
-      backlog: [],
-      errors: [],
-    });
-    expect(S().mains.some((m) => m.title === "Imported one")).toBe(true);
-    expect(get(tourPracticeId), "an import claimed the practice slot").toBeNull();
-
-    // The task they actually type is the one that claims it.
-    addMain("Mine");
-    const mine = S().mains.find((m) => m.title === "Mine")!;
-    expect(get(tourPracticeId)).toBe(mine.id);
-  });
-
-  it("a task arriving from the OTHER window cannot become the practice task", async () => {
-    // It never went through this window's addMain: it came off disk.
-    startTour();
-    goToStep(TOUR_STEPS.findIndex((s) => s.id === "plan"));
-
-    const theirs = JSON.parse(JSON.stringify(forPersist(S(), Date.now()))) as {
-      mains: unknown[];
-      _rev: number;
-    };
-    theirs.mains = [...(theirs.mains as object[]), { ...mkMain("Typed in the popover") }];
-    theirs._rev = S()._rev + 1;
-    loadResult = { kind: "loaded", state: theirs };
-    await reloadFromDisk();
-
-    expect(get(tourPracticeId)).toBeNull();
-  });
-
-  it("the FIRST task of a run stays the practice task", async () => {
-    // Adding a second task to try things out must not move the tour onto it
-    // halfway through explaining the first.
-    startTour();
-    goToStep(TOUR_STEPS.findIndex((s) => s.id === "plan"));
-    addMain("First");
-    const first = S().mains.find((m) => m.title === "First")!;
-    addMain("Second");
-    expect(get(tourPracticeId)).toBe(first.id);
-  });
-
-  it("deleting the practice task mid-tour leaves the tour without one, not pointing at a ghost", async () => {
-    startTour();
-    goToStep(TOUR_STEPS.findIndex((s) => s.id === "plan"));
-    addMain("Mine");
-    const mine = S().mains.find((m) => m.title === "Mine")!;
-    expect(get(tourPracticeId)).toBe(mine.id);
-
-    removeMain(mine.id);
-    // The recorded id survives, but nothing resolves to a deleted task - a
-    // beat asking "add a step to it" must not point at something gone.
-    expect(effectivePracticeId(S(), get(tourPracticeId))).toBeNull();
-  });
-
-  it("retaking the tour in the same process starts from a clean slate", async () => {
-    startTour();
-    goToStep(TOUR_STEPS.findIndex((s) => s.id === "plan"));
-    addMain("Mine");
-    expect(get(tourPracticeId)).not.toBeNull();
-    endTour();
-    expect(get(tourPracticeId)).toBeNull();
-
-    startTour();
-    expect(get(tourPracticeId), "the second run inherited the first's task").toBeNull();
-    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
-  });
-
-  // --- the tour as a state machine -----------------------------------------
-
-  const planIdx = () => TOUR_STEPS.findIndex((t) => t.id === "plan");
-  const stepIdx = (id: string) => TOUR_STEPS.findIndex((t) => t.id === id);
-  const practice = () => S().mains.find((m) => m.id === get(tourPracticeId)) ?? null;
-
-  it("Build One is exactly task, step, tag - no fourth item", () => {
+  it("is exactly task, step, tag - no fourth item", () => {
     startTour();
     goToStep(planIdx());
     expect(get(tourView).beats.map((b) => b.id)).toEqual(["task", "step", "tag"]);
-    expect(get(tourView).progress).toBeTruthy();
   });
 
-  it("Back from Tag removes the step and everything after it", () => {
-    // Back used to move a cursor over state that still said the beat was
-    // done: the instruction said "add a step" with the step already there,
-    // the count still read 3 of 3, and Next skipped straight past it.
+  it("commits the title the user TYPED, never the example", () => {
     startTour();
     goToStep(planIdx());
-    tourNext(); // task
-    tourNext(); // step
-    tourNext(); // tag
-    expect(practice()!.subs.length).toBe(1);
-    expect(practice()!.tags.length).toBe(1);
+    planTaskDraft.set("Prepare customer notes");
 
-    tourBack(); // onto the tag beat
-    tourBack(); // onto the step beat
-    expect(practice(), "the task itself must survive").toBeTruthy();
-    expect(practice()!.subs, "the step was not undone").toHaveLength(0);
-    expect(practice()!.tags, "later additions were not undone").toHaveLength(0);
+    tourNext();
+
+    expect(practice()!.title).toBe("Prepare customer notes");
+    expect(get(tourSandbox).mains.some((m) => m.title === "Task 1")).toBe(false);
+    expect(get(planTaskDraft), "the draft was left in the box").toBe("");
+  });
+
+  it("one Next does not both create the task and add its step", () => {
+    startTour();
+    goToStep(planIdx());
+    tourNext();
+    expect(practice()!.subs, "one press did two beats").toHaveLength(0);
     expect(get(tourView).beatIndex).toBe(1);
+  });
+
+  it("a task the user adds by hand becomes the practice task", () => {
+    startTour();
+    goToStep(planIdx());
+    addMain("Mine, typed in the Plan tab");
+    expect(practice()!.title).toBe("Mine, typed in the Plan tab");
+    // ...and it went nowhere near the real day.
+    expect(S().mains.some((m) => m.title === "Mine, typed in the Plan tab")).toBe(false);
+  });
+
+  it("an import cannot become the practice task", () => {
+    startTour();
+    goToStep(planIdx());
+    applyImport({
+      mains: [{ title: "Imported one", subs: [], remind: null }],
+      backlog: [],
+      errors: [],
+    });
+    expect(get(tourPracticeId)).toBeNull();
+  });
+
+  it("Back from Tag removes the tag; Back again removes the step", () => {
+    startTour();
+    goToStep(planIdx());
+    tourNext();
+    tourNext();
+    tourNext();
+    expect(practice()!.tags).toHaveLength(1);
+
+    tourBack();
+    expect(practice()!.tags, "the tag survived Back").toHaveLength(0);
+    expect(practice()!.subs, "the step should still be there").toHaveLength(1);
+
+    tourBack();
+    expect(practice()!.subs, "the step survived Back").toHaveLength(0);
+    expect(practice(), "the task itself should survive").toBeTruthy();
   });
 
   it("Back from the step beat removes the practice task entirely", () => {
     startTour();
     goToStep(planIdx());
-    tourNext(); // task
-    tourNext(); // step
-    const id = get(tourPracticeId);
-    expect(id).toBeTruthy();
-
-    tourBack(); // onto the step beat
-    tourBack(); // onto the task beat
-    expect(get(tourPracticeId), "the practice id was left dangling").toBeNull();
-    expect(
-      S().mains.some((m) => m.id === id),
-      "the practice task survived",
-    ).toBe(false);
+    tourNext();
+    tourNext();
+    tourBack();
+    tourBack();
+    expect(get(tourPracticeId)).toBeNull();
+    expect(get(tourSandbox).mains.every((m) => isDemoId(m.id))).toBe(true);
     expect(get(tourView).beatIndex).toBe(0);
   });
 
-  it("Back from the Clock page re-enters Build One at 1 of 3 with nothing built", () => {
+  it("returning to Build One from a later page starts it clean", () => {
     startTour();
     goToStep(planIdx());
     for (let i = 0; i < 3; i++) tourNext();
-    tourNext(); // leaves Build One for the clock page
-    expect(get(tourStep)).toBe(stepIdx("work"));
-
+    tourNext(); // -> clock
     tourBack();
     expect(get(tourStep)).toBe(planIdx());
-    expect(get(tourView).beatIndex, "resumed mid-checklist").toBe(0);
-    expect(get(tourView).doneCount, "arrived at a checklist that was still done").toBe(0);
+    expect(get(tourView).doneCount, "reopened at 3 of 3").toBe(0);
     expect(get(tourPracticeId)).toBeNull();
   });
 
@@ -2840,116 +2812,124 @@ describe("the tour's demo day", () => {
     tourBack();
     for (let i = 0; i < 3; i++) tourNext();
 
-    const mine = S().mains.filter((m) => !isDemoId(m.id));
-    expect(mine, "Back then Next built a second task").toHaveLength(1);
-    expect(mine[0].subs, "a duplicate step").toHaveLength(1);
-    expect(mine[0].tags, "a duplicate tag").toHaveLength(1);
+    const sb = get(tourSandbox);
+    const mine = sb.mains.filter((m) => !isDemoId(m.id));
+    expect(mine).toHaveLength(1);
+    expect(mine[0].subs).toHaveLength(1);
+    expect(mine[0].tags).toHaveLength(1);
   });
 
-  it("Next on the Clock page starts the tour clock and STAYS on the page", () => {
+  // --- the clock -----------------------------------------------------------
+
+  it("Next on the clock page starts the tour clock and STAYS", () => {
     startTour();
+    goToStep(stepIdx("work"));
+    // The clock needs something to run on.
     goToStep(planIdx());
     for (let i = 0; i < 3; i++) tourNext();
-    tourNext(); // -> clock page
+    tourNext();
     const clockStep = get(tourStep);
-    expect(clockStep).toBe(stepIdx("work"));
 
-    tourNext(); // starts the clock
+    tourNext();
     expect(get(tourStep), "starting the clock turned the page").toBe(clockStep);
-    expect(get(tourSession).clockTaskId).toBe(get(tourPracticeId));
-    expect(get(tourSession).clockStartedAt).toBeGreaterThan(0);
+    expect(get(tourSandbox).clockStartedAt).toBeGreaterThan(0);
 
-    tourNext(); // only NOW does it advance
+    tourNext();
     expect(get(tourStep)).toBe(stepIdx("tray"));
   });
 
-  it("the tour clock is not the production clock - nothing real runs", () => {
+  it("the Start button and Next produce the same clock", () => {
     startTour();
     goToStep(planIdx());
     for (let i = 0; i < 3; i++) tourNext();
     tourNext();
-    tourNext(); // start
+    startTourClock();
+    expect(get(tourSandbox).clockTaskId).toBe(get(tourPracticeId));
+    expect(get(tourStep), "the real control turned the page").toBe(stepIdx("work"));
+  });
 
-    expect(S().activeMainId, "the production session was started on a demo task").toBeNull();
+  it("starting it twice is still one clock", () => {
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext();
+    startTourClock();
+    const at = get(tourSandbox).clockStartedAt;
+    startTourClock();
+    expect(get(tourSandbox).clockStartedAt).toBe(at);
+  });
+
+  it("the tour clock never starts the production session", () => {
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext();
+    tourNext();
+    expect(S().activeMainId).toBeNull();
     expect(S().startedAt).toBe(0);
-    // ...and the practice task accrues nothing.
     expect(practice()!.accrued).toBe(0);
   });
 
-  it("pressing Start on the practice card is the same as pressing Next", () => {
-    startTour();
-    goToStep(planIdx());
-    for (let i = 0; i < 3; i++) tourNext();
-    tourNext(); // clock page
-    startTourClock(); // what the card's Start button calls
-    expect(get(tourSession).clockTaskId).toBe(get(tourPracticeId));
-    expect(get(tourStep), "the real control turned the page").toBe(stepIdx("work"));
-    expect(get(tourView).allBeatsDone).toBe(true);
-  });
-
-  it("Back from the menu-bar page resets the tour clock", () => {
+  it("Back from the menu-bar page resets the clock", () => {
     startTour();
     goToStep(planIdx());
     for (let i = 0; i < 3; i++) tourNext();
     tourNext();
-    tourNext(); // clock running
+    tourNext();
     tourNext(); // -> tray
     tourBack();
     expect(get(tourStep)).toBe(stepIdx("work"));
-    expect(get(tourSession).clockStartedAt, "the clock was still running").toBe(0);
+    expect(get(tourSandbox).clockStartedAt, "the clock was still running").toBe(0);
   });
 
-  it("the tour End Day NEVER ends a real day", () => {
+  // --- End Day -------------------------------------------------------------
+
+  it("the End Day rehearsal changes nothing real", () => {
     startTour();
-    const before = JSON.parse(JSON.stringify(S()));
+    const before = dayOf(S());
     goToStep(stepIdx("endday"));
     completeTourEndDay();
 
-    const s = S();
-    expect(get(tourSession).endDayDone).toBe(true);
-    expect(s.dayNum).toBe(before.dayNum);
-    expect(s.awaitingStart).toBe(before.awaitingStart);
-    expect(s.resumable ?? null).toEqual(before.resumable ?? null);
-    expect(s.history).toEqual(before.history);
-    expect(s.carrySeed ?? []).toEqual(before.carrySeed ?? []);
-    expect(s.mains.map((m) => m.id)).toEqual(before.mains.map((m: { id: string }) => m.id));
-    // ...and above all, the restore checkpoint is intact.
-    expect(s.demoRestore).not.toBeNull();
-    expect(s.demoRestore!.mains).toEqual(before.demoRestore.mains);
+    expect(get(tourSandbox).endDayDone).toBe(true);
+    expect(dayOf(S())).toEqual(before);
+    expect(S().resumable ?? null).toBeNull();
+    expect(S().awaitingStart).toBe(before.awaitingStart);
   });
 
-  it("the End Day step completes and stays put until Next", () => {
+  it("stays on the End Day page until Next, then goes to Calendar", () => {
     startTour();
     goToStep(stepIdx("endday"));
     completeTourEndDay();
     expect(get(tourStep)).toBe(stepIdx("endday"));
-    expect(get(tourView).allBeatsDone).toBe(true);
     expect(get(tourView).finished).toBe("Day ended.");
-
     tourNext();
     expect(get(tourStep)).toBe(stepIdx("calendar"));
   });
 
-  it("Back from Calendar resets the End Day rehearsal", () => {
+  it("Back from Calendar resets the rehearsal", () => {
     startTour();
     goToStep(stepIdx("endday"));
     completeTourEndDay();
-    tourNext(); // calendar
+    tourNext();
     tourBack();
     expect(get(tourStep)).toBe(stepIdx("endday"));
-    expect(get(tourSession).endDayDone, "the rehearsal was still marked done").toBe(false);
-    expect(get(tourView).doneCount).toBe(0);
+    expect(get(tourSandbox).endDayDone).toBe(false);
   });
 
-  it("each step says its OWN thing when its checklist finishes", () => {
-    // One hardcoded line used to congratulate you on building a task after
-    // you had started a clock, ended a day or run a search.
-    const say = (id: string) => TOUR_STEPS[stepIdx(id)].finished;
-    expect(say("plan")).toBe("Task ready.");
-    expect(say("work")).toBe("Clock started.");
-    expect(say("endday")).toBe("Day ended.");
-    expect(say("search")).toBe("Found it.");
+  it("never leaves the real day looking ended", () => {
+    // "Reopen day" after onboarding was this: the rehearsal called the
+    // production endDay(), which built a real resumable day out of demo
+    // tasks.
+    startTour();
+    goToStep(stepIdx("endday"));
+    completeTourEndDay();
+    endTour();
+    expect(S().resumable ?? null).toBeNull();
+    expect(S().awaitingStart).toBe(false);
+    expect(S().history).toHaveLength(0);
   });
+
+  // --- search and history --------------------------------------------------
 
   it("a search from a previous run does not open the next run finished", () => {
     startTour();
@@ -2960,16 +2940,131 @@ describe("the tour's demo day", () => {
 
     startTour();
     goToStep(stepIdx("search"));
-    expect(get(tourSession).searched, "a retake inherited the finished search").toBe(false);
-    expect(get(tourView).allBeatsDone).toBe(false);
+    expect(get(tourSandbox).searched).toBe(false);
   });
 
-  it("retaking the tour starts from a completely fresh runtime", () => {
+  it("Back onto Search drops the search and asks the UI to empty", () => {
+    startTour();
+    goToStep(stepIdx("search"));
+    markSearched();
+    const token = get(tourSession).searchToken;
+    tourNext();
+    tourBack();
+    expect(get(tourSandbox).searched).toBe(false);
+    expect(get(tourSession).searchToken).toBeGreaterThan(token);
+  });
+
+  it("shows finished days during the tour without recording them", () => {
+    expect(get(tourHistory)).toHaveLength(0);
+    startTour();
+    expect(get(tourHistory).length).toBeGreaterThan(0);
+    expect(S().history).toHaveLength(0);
+    endTour();
+    expect(S().history).toHaveLength(0);
+    expect(get(tourHistory)).toHaveLength(0);
+  });
+
+  // --- persistence ---------------------------------------------------------
+
+  it("every save during the tour writes the real day", async () => {
+    const [a] = ids();
+    startTour();
+    for (let step = 0; step < Math.min(TOUR_LENGTH, 8); step++) {
+      goToStep(step);
+      tourNext();
+      await flushSave();
+      const onDisk = saved[saved.length - 1] as { mains: { id: string }[] };
+      expect(
+        onDisk.mains.some((m) => isDemoId(m.id)),
+        `step ${step}`,
+      ).toBe(false);
+      expect(onDisk.mains.some((m) => m.id === a)).toBe(true);
+    }
+  });
+
+  it("a practice task never reaches disk, a backup or an export", async () => {
+    startTour();
+    goToStep(planIdx());
+    planTaskDraft.set("Prepare customer notes");
+    tourNext();
+    tourNext();
+    tourNext();
+
+    await flushSave();
+    const onDisk = JSON.stringify(saved[saved.length - 1]);
+    expect(onDisk).not.toContain("Prepare customer notes");
+    expect(onDisk).not.toContain("tour-practice");
+    expect(onDisk).not.toContain("demo-");
+
+    setState({ ...S(), lastAutoBackup: "" });
+    await autoBackup();
+    const backup = String(lastBackupContents ?? "");
+    expect(backup).not.toContain("Prepare customer notes");
+    expect(backup).not.toContain("demo-");
+  });
+
+  it("quitting mid-tour needs no recovery on the way back", async () => {
+    const [a] = ids();
+    startTour();
+    goToStep(planIdx());
+    tourNext();
+
+    const persisted = JSON.parse(JSON.stringify(forPersist(S(), Date.now())));
+    expect((persisted.mains as { id: string }[]).some((m) => isDemoId(m.id))).toBe(false);
+    expect(persisted.tourSeen).toBe(true);
+
+    loadResult = { kind: "loaded", state: persisted };
+    await boot();
+    expect(S().mains.some((m) => m.id === a)).toBe(true);
+    expect(S().mains.some((m) => isDemoId(m.id))).toBe(false);
+  });
+
+  it("a reload from the other window does not tear the tour off the screen", async () => {
+    const [a] = ids();
+    startTour();
+    goToStep(planIdx());
+    tourNext();
+    const practiceTitle = practice()!.title;
+
+    const theirs = JSON.parse(JSON.stringify(forPersist(S(), Date.now()))) as {
+      mains: unknown[];
+      _rev: number;
+    };
+    theirs.mains = [...(theirs.mains as object[]), { ...mkMain("Typed in the popover") }];
+    theirs._rev = S()._rev + 1;
+    loadResult = { kind: "loaded", state: theirs };
+
+    await reloadFromDisk();
+
+    // The tour is untouched: it was never in the state that reloaded.
+    expect(get(tourStep)).toBe(planIdx());
+    expect(practice()!.title).toBe(practiceTitle);
+    expect(shown().mains.some((m) => isDemoId(m.id))).toBe(true);
+    // ...and the other window's task is in the real day, waiting.
+    expect(S().mains.some((m) => m.title === "Typed in the popover")).toBe(true);
+    expect(S().mains.some((m) => m.id === a)).toBe(true);
+  });
+
+  it("archives the REAL day when the tour spans midnight", () => {
+    const [a] = ids();
+    startTour();
+    const rolled = rolloverIfNewDay(S(), "2099-01-01");
+    expect(
+      rolled.history[0].completed.length + rolled.history[0].unfinished.length,
+    ).toBeGreaterThan(0);
+    expect(JSON.stringify(rolled.history)).not.toContain("demo-");
+    expect(rolled.carrySeed.length).toBeGreaterThan(0);
+    expect(S().mains.some((m) => m.id === a)).toBe(true);
+  });
+
+  // --- retaking ------------------------------------------------------------
+
+  it("retaking starts from a completely fresh session", () => {
     startTour();
     goToStep(planIdx());
     for (let i = 0; i < 3; i++) tourNext();
     tourNext();
-    tourNext(); // clock running
+    tourNext();
     goToStep(stepIdx("endday"));
     completeTourEndDay();
     const firstRun = get(tourSession).runId;
@@ -2977,445 +3072,22 @@ describe("the tour's demo day", () => {
 
     startTour();
     const t = get(tourSession);
+    const sb = get(tourSandbox);
     expect(t.runId).not.toBe(firstRun);
-    expect(t.practiceId).toBeNull();
-    expect(t.clockTaskId).toBeNull();
-    expect(t.clockStartedAt).toBe(0);
-    expect(t.endDayDone).toBe(false);
-    expect(t.searched).toBe(false);
+    expect(t.events).toHaveLength(0);
+    expect(sb.practiceId).toBeNull();
+    expect(sb.clockStartedAt).toBe(0);
+    expect(sb.endDayDone).toBe(false);
+    expect(sb.searched).toBe(false);
   });
 
   it("the first run knows it is the first run", () => {
-    // `first = !s.tourSeen` was read AFTER startTour() had set the flag, so
-    // the first-run wording never appeared on a first run.
     setState({ ...S(), tourSeen: false });
     startTour();
     expect(get(tourView).firstRun).toBe(true);
     endTour();
-
     startTour();
     expect(get(tourView).firstRun).toBe(false);
-  });
-
-  it("a whole tour, including the End Day rehearsal, restores the real day exactly", async () => {
-    // The invariant the entire refactor exists for.
-    //
-    // No running clock here on purpose: entering the demo BANKS whatever
-    // was running into the user's own task, which changes `accrued` -
-    // honestly, since they really did work that time. The running case is
-    // its own test below.
-    addBacklog("Later thing");
-    const before = JSON.parse(JSON.stringify(forPersist(S(), 1_000)));
-
-    startTour();
-    goToStep(planIdx());
-    for (let i = 0; i < 3; i++) tourNext();
-    tourNext();
-    tourNext(); // clock
-    goToStep(stepIdx("endday"));
-    completeTourEndDay();
-    goToStep(stepIdx("search"));
-    markSearched();
-    endTour();
-
-    const after = JSON.parse(JSON.stringify(forPersist(S(), 1_000)));
-    for (const key of [
-      "mains",
-      "interruptions",
-      "history",
-      "backlog",
-      "activeMainId",
-      "activeSubId",
-      "dayNum",
-      "dateISO",
-      "awaitingStart",
-      "carrySeed",
-      "carryDecided",
-      "resumable",
-      "demoRestore",
-    ] as const) {
-      expect(after[key] ?? null, `\`${key}\` did not come back`).toEqual(before[key] ?? null);
-    }
-
-    // ...and nothing from the tour is anywhere in what gets persisted.
-    const json = JSON.stringify(after);
-    expect(json).not.toContain("demo-");
-    expect(json).not.toContain("Task 1");
-    expect(json).not.toContain("First step");
-  });
-
-  it("a tour taken mid-task banks that time honestly and resumes the same task", async () => {
-    const [a] = ids();
-    startTask(a);
-    rewind(90_000);
-    const workedBefore = S().mains.find((m) => m.id === a)!.accrued;
-
-    startTour();
-    goToStep(planIdx());
-    for (let i = 0; i < 3; i++) tourNext();
-    tourNext();
-    tourNext(); // the TOUR clock runs on the practice task
-    endTour();
-
-    const s = S();
-    const mine = s.mains.find((m) => m.id === a)!;
-    // Their own task is timing again...
-    expect(s.activeMainId).toBe(a);
-    expect(s.startedAt).toBeGreaterThan(0);
-    // ...with the 90 seconds they actually worked banked into it, and
-    // nothing from the tour's clock added on top.
-    expect(mine.accrued).toBeGreaterThanOrEqual(workedBefore + 90_000);
-    expect(mine.accrued).toBeLessThan(workedBefore + 95_000);
-    expect(s.demoRestore).toBeNull();
-    expect(s.mains.some((m) => isDemoId(m.id))).toBe(false);
-  });
-
-  it("shows finished days during the tour without ever recording them", async () => {
-    // Calendar, Search and Stats all describe days that are over, and on a
-    // fresh install there are none - the tour pointed at an empty grid and
-    // a search that could not find anything.
-    expect(get(tourHistory), "projected days leaked outside a tour").toHaveLength(0);
-
-    startTour();
-    const shown = get(tourHistory);
-    expect(shown.length).toBeGreaterThan(0);
-    expect(shown.some((d) => d.completed.length > 0)).toBe(true);
-    // ...and none of it is in the state, before or after.
-    expect(S().history).toHaveLength(0);
-    endTour();
-    expect(S().history, "the tour wrote its sample days into history").toHaveLength(0);
-    expect(get(tourHistory)).toHaveLength(0);
-  });
-
-  it("a projected day never reaches anything persisted", async () => {
-    startTour();
-    goToStep(stepIdx("calendar"));
-    const persisted = JSON.stringify(forPersist(S(), 1_000));
-    expect(persisted).not.toContain("Reply to the client thread");
-    expect(persisted).not.toContain("Review the pricing page");
-    endTour();
-  });
-
-  it("Back onto Search asks the search UI to empty itself", () => {
-    // The query and chosen tags are local to Calendar, and moving between
-    // two adjacent Calendar steps does not destroy it - so walking back to
-    // "find it again" found the search already run and the beat ticked.
-    startTour();
-    goToStep(stepIdx("search"));
-    markSearched();
-    const token = get(tourSession).searchToken;
-    tourNext(); // -> evidence
-    tourBack(); // back onto search
-    expect(get(tourSession).searched).toBe(false);
-    expect(get(tourSession).searchToken, "the search UI was never told to reset").toBe(token + 1);
-  });
-
-  it("does not make a SECOND task when you go back onto a finished checklist", async () => {
-    // The practice task's identity came from a baseline captured when the
-    // step began. Turning the page re-baselined, so the task the user made
-    // fell INSIDE the new baseline - and stepping back made the tour treat
-    // it as never made: "0 of 4, type a task", with their task right there,
-    // and Next duly built a second one.
-    startTour();
-    const plan = TOUR_STEPS.findIndex((s) => s.id === "plan");
-    goToStep(plan);
-
-    // Do the whole checklist the way Next does.
-    for (let i = 0; i < 4; i++) tourNext();
-    const mine = S().mains.filter((m) => !isDemoId(m.id));
-    expect(mine, "the checklist did not build one task").toHaveLength(1);
-
-    // Off the step and back again.
-    goToStep(plan + 1);
-    goToStep(plan);
-    tourNext();
-
-    expect(
-      S().mains.filter((m) => !isDemoId(m.id)),
-      "going back and pressing Next built a duplicate task",
-    ).toHaveLength(1);
-  });
-
-  it("remembers a task you TYPED yourself across a page turn", async () => {
-    // The identity of a self-typed task comes from a baseline captured when
-    // the step began - and turning the page re-baselines, which put their
-    // task INSIDE the new baseline. Coming back, the tour treated it as
-    // never made: "0 of 4, type a task", with the task sitting right there,
-    // and Next built a second one.
-    startTour();
-    const plan = TOUR_STEPS.findIndex((s) => s.id === "plan");
-    goToStep(plan);
-
-    // Typed, not filled by Next - so nothing records the id explicitly.
-    addMain("my own task");
-    expect(S().mains.filter((m) => !isDemoId(m.id))).toHaveLength(1);
-
-    goToStep(plan + 1);
-    goToStep(plan);
-    tourNext();
-
-    const mineNow = S().mains.filter((m) => !isDemoId(m.id));
-    expect(mineNow, "the tour forgot the task and made another").toHaveLength(1);
-    expect(mineNow[0].title).toBe("my own task");
-  });
-
-  it("keeps the demo out of the automatic backup", async () => {
-    // The daily safety backup serialises the WHOLE live state. During the
-    // tour that is the sample day, with the user's real one nested inside
-    // `demoRestore` - so the one backup meant to save them from a bad day
-    // would contain a day they never worked. It also stamps
-    // `lastAutoBackup`, which would block a correct backup later.
-    const [a] = ids();
-    startTour();
-    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
-
-    await autoBackup();
-    expect(writtenFileNames, "a backup was written during the tour").toEqual([]);
-    expect(S().lastAutoBackup, "the day's backup slot was consumed").toBe("");
-
-    // ...and it works again the moment the tour is over.
-    endTour();
-    await autoBackup();
-    expect(writtenFileNames.length).toBe(1);
-    const written = JSON.parse(String(lastBackupContents));
-    expect(written.mains.some((m: { id: string }) => isDemoId(m.id))).toBe(false);
-    expect(written.demoRestore ?? null).toBeNull();
-    expect(written.mains.some((m: { id: string }) => m.id === a)).toBe(true);
-  });
-
-  it("archives the REAL day when the tour spans midnight", async () => {
-    // Rollover only re-dates while a demo is up, because archiving the
-    // sample day would put tasks nobody worked into history. But the real
-    // day parked in `demoRestore` still has to be archived when it comes
-    // back - otherwise yesterday's work silently becomes today's and the
-    // day number never advances.
-    const [a] = ids();
-    completeMain(a);
-    const startedOn = S().dateISO;
-    const dayBefore = S().dayNum;
-
-    startTour();
-    // Midnight, mid-tour: rollover only re-dates while the demo is up, so
-    // the sample day survives and the REAL day sits in the snapshot still
-    // stamped with the date it was parked from.
-    setState(rolloverIfNewDay(S(), todayISO()));
-    expect(
-      S().mains.some((m) => isDemoId(m.id)),
-      "the demo was rolled away",
-    ).toBe(true);
-    // Age the parked day by a day, which is what spanning midnight means.
-    S().demoRestore!.dateISO = addDays(startedOn, -1);
-    S().history.forEach((h) => void h);
-
-    endTour();
-    const s = S();
-    expect(s.dateISO).toBe(todayISO());
-    expect(s.dayNum, "the day never advanced").toBe(dayBefore + 1);
-    const archived = s.history.find((h) => h.dateISO !== todayISO());
-    expect(archived, "the real day was never archived").toBeTruthy();
-    expect(archived!.completed.length).toBeGreaterThan(0);
-    // ...and nothing from the sample day got into the record.
-    expect(s.history.some((h) => h.completed.some((c) => c.title.includes("quarterly")))).toBe(
-      false,
-    );
-  });
-
-  it("does not leave the demo authoritative when the window closes", async () => {
-    // Closing the dashboard mid-tour used to hide the window while this
-    // side flushed whatever was in memory - the SAMPLE day. The popover is
-    // still running and syncs from disk, so it picked the demo up as the
-    // user's real day. Exiting the tour is now part of closing.
-    const [a] = ids();
-    startTour();
-    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
-
-    // What the close handler does, in order.
-    endTour();
-    await flushSave();
-
-    const s = S();
-    expect(s.demoRestore).toBeNull();
-    expect(s.mains.some((m) => m.id === a)).toBe(true);
-    expect(s.tourSeen, "a half-exited tour would run again next launch").toBe(true);
-    // ...and that is what reached disk, not the demo.
-    const onDisk = saved[saved.length - 1];
-    expect(onDisk.demoRestore ?? null).toBeNull();
-    expect((onDisk.mains as { id: string }[]).some((m) => isDemoId(m.id))).toBe(false);
-  });
-
-  it("does not restart the tour from page one after a mid-tour quit", async () => {
-    // `tourSeen` is marked when the tour STARTS. The demo is window-local,
-    // so a mid-tour quit strands nothing - but it also leaves no trace the
-    // tour ran, and the dashboard starts it whenever `tourSeen` is false.
-    // Interrupting an onboarding is a decision; silently restarting it on
-    // every launch is not.
-    const [a] = ids();
-    startTour();
-    const stranded = JSON.parse(JSON.stringify(forPersist(S(), Date.now())));
-    expect(stranded.tourSeen).toBe(true);
-
-    loadResult = { kind: "loaded", state: stranded };
-    await boot();
-
-    expect(S().mains.some((m) => m.id === a)).toBe(true);
-    expect(S().tourSeen, "the tour would have restarted from page one").toBe(true);
-  });
-
-  it("a mid-tour save persists the REAL day - there is nothing to recover", async () => {
-    // The demo used to be ordinary state: persisted, backed up, exported
-    // and synced to the popover, so a crash or quit while it was up left
-    // the user booting into someone else's tasks and needing a recovery
-    // path on the way back. It is a VIEW now, projected out at the persist
-    // boundary (`forPersist`/`realDay`), so quitting mid-tour writes the
-    // day they were actually working on.
-    const [a] = ids();
-    startTour();
-    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
-
-    const persisted = JSON.parse(JSON.stringify(forPersist(S(), Date.now())));
-    expect((persisted.mains as { id: string }[]).some((m) => isDemoId(m.id))).toBe(false);
-    expect((persisted.mains as { id: string }[]).some((m) => m.id === a)).toBe(true);
-    expect(persisted.demoRestore ?? null).toBeNull();
-
-    // Booting from exactly that lands on the real day, with no restore step
-    // involved at all.
-    loadResult = { kind: "loaded", state: persisted };
-    await boot();
-    const s = S();
-    expect(s.mains.some((m) => isDemoId(m.id))).toBe(false);
-    expect(s.mains.some((m) => m.id === a)).toBe(true);
-    expect(s.demoRestore).toBeNull();
-  });
-
-  it("still un-strands a demo written by an OLDER version", async () => {
-    // Files written before the demo became window-local really do hold the
-    // sample day, with the real one nested inside `demoRestore`. Boot's
-    // restore path stays for them.
-    const [a] = ids();
-    startTour();
-    const legacy = JSON.parse(
-      JSON.stringify({ ...S(), savedAt: Date.now(), tourSeen: false, _rev: S()._rev }),
-    );
-    expect((legacy.mains as { id: string }[]).some((m) => isDemoId(m.id))).toBe(true);
-
-    loadResult = { kind: "loaded", state: legacy };
-    await boot();
-
-    const s = S();
-    expect(s.mains.some((m) => isDemoId(m.id))).toBe(false);
-    expect(s.mains.some((m) => m.id === a)).toBe(true);
-    expect(s.demoRestore).toBeNull();
-    expect(s.tourSeen).toBe(true);
-  });
-
-  it("every save during the tour writes the real day, wherever the tour is", async () => {
-    // Not just at the end: a checkpoint, a debounced save after a practice
-    // edit, an automatic backup - each one used to be a chance for the
-    // sample day to become authoritative.
-    const [a] = ids();
-    startTour();
-    for (let step = 0; step < Math.min(TOUR_LENGTH, 6); step++) {
-      goToStep(step);
-      tourNext();
-      await flushSave();
-      const onDisk = saved[saved.length - 1];
-      expect(
-        (onDisk.mains as { id: string }[]).some((m) => isDemoId(m.id)),
-        `step ${step} persisted a demo task`,
-      ).toBe(false);
-      expect((onDisk.mains as { id: string }[]).some((m) => m.id === a)).toBe(true);
-      expect(onDisk.demoRestore ?? null).toBeNull();
-    }
-  });
-
-  it("a practice task typed during the tour never reaches disk", async () => {
-    startTour();
-    goToStep(TOUR_STEPS.findIndex((t) => t.beats?.some((b) => b.fill?.kind === "task")));
-    tourNext(); // the beat that creates the practice task
-    const practice = S().mains.find((m) => !isDemoId(m.id) && m.title.length);
-    expect(practice, "the tour did not create a practice task").toBeTruthy();
-
-    await flushSave();
-    const onDisk = saved[saved.length - 1] as { mains: { id: string; title: string }[] };
-    expect(onDisk.mains.some((m) => m.title === practice!.title)).toBe(false);
-  });
-
-  it("a reload from the other window does not tear the tour off the screen", async () => {
-    // The demo is projected out of everything that reaches disk, so what
-    // comes back on a sync event is the REAL day. Applied plainly it would
-    // replace the sample tasks the tour is pointing at - the anchors vanish
-    // mid-sentence and the practice task with them.
-    const [a] = ids();
-    startTour();
-    goToStep(0);
-    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
-
-    // The other window added a task and saved.
-    const theirs = JSON.parse(JSON.stringify(forPersist(S(), Date.now()))) as {
-      mains: unknown[];
-      _rev: number;
-    };
-    theirs.mains = [...(theirs.mains as object[]), { ...mkMain("Typed in the popover") }];
-    theirs._rev = S()._rev + 1;
-    loadResult = { kind: "loaded", state: theirs };
-
-    await reloadFromDisk();
-
-    // The tour is still standing...
-    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
-    // ...and the day it is holding aside is THEIRS now, not the copy this
-    // window took before the tour started - ending the tour must not undo
-    // what they did over there.
-    const held = S().demoRestore!;
-    expect(held.mains.some((m) => m.id === a)).toBe(true);
-    expect(held.mains.some((m) => m.title === "Typed in the popover")).toBe(true);
-  });
-
-  it("ending the tour after such a reload hands back the OTHER window's day", async () => {
-    startTour();
-    const theirs = JSON.parse(JSON.stringify(forPersist(S(), Date.now()))) as {
-      mains: unknown[];
-      _rev: number;
-    };
-    theirs.mains = [...(theirs.mains as object[]), { ...mkMain("Typed in the popover") }];
-    theirs._rev = S()._rev + 1;
-    loadResult = { kind: "loaded", state: theirs };
-    await reloadFromDisk();
-
-    endTour();
-
-    expect(S().demoRestore).toBeNull();
-    expect(S().mains.some((m) => isDemoId(m.id))).toBe(false);
-    expect(S().mains.some((m) => m.title === "Typed in the popover")).toBe(true);
-  });
-
-  it("the tour never runs a clock, so no demo time can be banked as real work", async () => {
-    const [a] = ids();
-    startTask(a);
-    rewind(120_000);
-    startTour();
-    // Entering the demo banked the running session into the user's OWN
-    // task (sessionTx), and the sample day starts with nothing running.
-    expect(S().activeMainId).toBeNull();
-    expect(S().startedAt).toBe(0);
-    const held = S().demoRestore!;
-    const theirs = held.mains.find((m) => m.id === a)!;
-    expect(theirs.accrued).toBeGreaterThanOrEqual(120_000);
-
-    // ...and what reaches disk carries that banked time, not a demo task.
-    const onDisk = forPersist(S(), Date.now()) as { mains: { id: string; accrued: number }[] };
-    expect(onDisk.mains.find((m) => m.id === a)!.accrued).toBeGreaterThanOrEqual(120_000);
-  });
-
-  it("the automatic backup holds the real day even mid-tour", async () => {
-    const [a] = ids();
-    startTour();
-    await autoBackup();
-    // The tour-time guard still refuses outright, and even if it did not,
-    // the payload itself is the real day.
-    const payload = forPersist(S(), Date.now()) as { mains: { id: string }[] };
-    expect(payload.mains.some((m) => isDemoId(m.id))).toBe(false);
-    expect(payload.mains.some((m) => m.id === a)).toBe(true);
   });
 });
 

@@ -33,4 +33,6 @@ pub use dashboard::{
     hide_dashboard, register_dashboard_hide_on_close, show_dashboard, CloseRequests,
     DashboardCloseReadiness,
 };
-pub use popover::{prepare_popover_overlay, register_autohide, show_popover, toggle_popover};
+pub use popover::{
+    hide_popover_window, prepare_popover_overlay, register_autohide, show_popover, toggle_popover,
+};

@@ -24,6 +24,7 @@ import { WELLNESS_COPY, wellnessCopy } from "../domain/wellness";
 import { autoBackup, flushSave, showSaveError } from "./persistence";
 import {
   S,
+  tourOverlay,
   activeThing,
   bankOrphanSession,
   commit,
@@ -144,17 +145,16 @@ function runTick(now: number): void {
   // the already-rolled state rather than rolling again.
   checkDayRollover(now);
   if (!effectOwner) return;
-  // NOTHING that reaches outside the app may fire while the sample day is
-  // up. The tour swaps the user's tasks for demo ones, so a reminder
-  // would name a task nobody has, a check-in would ask about work nobody
-  // is doing, the tray would count time nobody spent - and the daily
-  // backup would preserve the demo instead of the day it exists to
-  // protect. The clock still TICKS - rollover above still runs, which is
-  // what keeps the date honest across midnight. (Recovering a demo
-  // interrupted by a quit comes from `enterDemo`'s own save, not from
-  // the checkpoint: that returns immediately with no active session, and
-  // entering the demo clears one.)
-  if (S().demoRestore) {
+  // NOTHING that reaches outside the app fires while the tour is on
+  // screen. The user is being introduced to Remi; a check-in asking how a
+  // real task is going, or a wellness nudge about a day they are not
+  // looking at, arrives with no context to read it by.
+  //
+  // The tour no longer swaps the user's day - the practice world is a
+  // window-local sandbox that never enters the store - so this is a
+  // courtesy rather than a correctness guard. The checkpoint still runs,
+  // so a real session left running is still banked while they take it.
+  if (get(tourOverlay)) {
     checkpoint(now);
     return;
   }

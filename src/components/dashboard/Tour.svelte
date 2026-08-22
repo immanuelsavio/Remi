@@ -43,8 +43,7 @@
     tourView,
     maybeAutoAdvance,
     cancelAutoAdvance,
-    openPopover,
-    markTrayOpened,
+    openTrayPreview,
     tourAnchors,
   } from "../../store";
   import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
@@ -65,9 +64,11 @@
   let trayError = "";
   async function openTray() {
     trayError = "";
-    const res = await openPopover();
-    if (res.ok) markTrayOpened();
-    else trayError = res.error;
+    // The controller owns this: it carries the practice task and the tour
+    // clock into the other window as an event payload, and it cancels
+    // itself if the user navigates while the open is in flight.
+    const res = await openTrayPreview();
+    if (!res.ok && res.error) trayError = res.error;
   }
 
   /** A Svelte template cannot parse a TS `as` cast, so narrow here. */
@@ -770,8 +771,9 @@
                   <p class="tf-good">✓ Both sent. That is exactly what a real one looks like.</p>
                 {:else if v.run.preview === "denied"}
                   <p class="tf-bad" role="alert">
-                    macOS is not allowing Remi to notify you. System Settings › Notifications › Remi
-                    turns it back on - everything else works without it.
+                    macOS is not allowing Remi to send banners. System Settings › Notifications ›
+                    Remi turns them on. Reminders and wellness nudges still appear inside Remi
+                    either way - only the system banner is missing.
                   </p>
                 {:else if v.run.preview === "failed"}
                   <p class="tf-bad" role="alert">

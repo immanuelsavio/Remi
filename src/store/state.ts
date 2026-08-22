@@ -18,17 +18,66 @@
  * Bypassing it is how live time gets silently lost or misattributed.
  */
 
-import { writable, get, type Readable } from "svelte/store";
+import { derived, writable, get, type Readable } from "svelte/store";
 import { daySnapshot, enrichSnapshot, carrySnapshot } from "../domain/tasks";
 import { freshDay } from "../domain/defaults";
 import { nid } from "../domain/ids";
 import { todayISO } from "../domain/dates";
-import type { DashTab, DayRecord, Main, State, Sub, WellnessKey } from "../domain/types";
+import type {
+  DashTab,
+  Phase,
+  DayRecord,
+  InterruptionEvent,
+  Main,
+  State,
+  Sub,
+  WellnessKey,
+} from "../domain/types";
 
 export const state = writable<State>(freshDay());
 
-/** Read-only view for components. */
-export const app: Readable<State> = { subscribe: state.subscribe };
+/**
+ * The tour's practice world, when one is running.
+ *
+ * Written by `store/tour.ts` (which may not be imported from here - action
+ * modules depend on this file, never the other way round) and read by
+ * `app` below. `null` whenever no tour is running, which is almost always.
+ */
+export const tourOverlay = writable<{
+  mains: Main[];
+  interruptions: InterruptionEvent[];
+} | null>(null);
+
+/**
+ * Read-only view for components - the real day, or the tour's sandbox.
+ *
+ * THE BOUNDARY. The tour used to REPLACE `state.mains` with demo tasks and
+ * park the real day inside `demoRestore`, so practice happened in the
+ * production store and every lifecycle path had to understand that the
+ * app's own state was temporarily fictional. Now the store is never
+ * touched: components read this, and this shows them the sandbox while the
+ * tour is on.
+ *
+ * Only what the tour is DEMONSTRATING is swapped - the task list and its
+ * interruptions, plus the start-day gate, since a tour that opens behind
+ * "start my day" is a tour of a screen nobody can see. Settings, history,
+ * the day number, the real session: all still the user's own, because the
+ * tour genuinely does change some of those and must not fake the rest.
+ */
+export const app: Readable<State> = derived([state, tourOverlay], ([s, sandbox]): State =>
+  sandbox
+    ? {
+        ...s,
+        mains: sandbox.mains,
+        interruptions: sandbox.interruptions,
+        activeMainId: null,
+        activeSubId: null,
+        startedAt: 0,
+        awaitingStart: false,
+        phase: s.phase === "recovery" ? ("recovery" as Phase) : ("today" as Phase),
+      }
+    : s,
+);
 
 /** A monotonically increasing tick so live timers re-render each second. */
 export const nowMs = writable<number>(Date.now());
@@ -71,6 +120,20 @@ export type RemindTarget =
   | { kind: "backlog"; id: string; title: string };
 
 export const remindTarget = writable<RemindTarget | null>(null);
+
+/**
+ * What is typed in the Plan tab's add-a-task box but not yet committed.
+ *
+ * Window-local, never persisted. It exists for one reason: the tour's Next
+ * must commit the title the person actually TYPED, not the example.
+ *
+ * Relying on the input's blur to commit first would work only as long as
+ * the click order (mousedown -> blur -> click) holds and every component
+ * keeps saving on blur - the same assumption that broke tour automation
+ * before. Publishing the draft makes the tour read the title rather than
+ * race the focus.
+ */
+export const planTaskDraft = writable<string>("");
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**

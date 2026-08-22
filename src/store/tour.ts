@@ -17,7 +17,16 @@
  */
 import { derived, get, writable, type Readable } from "svelte/store";
 
-import { demoDay, demoHistory } from "../domain/demo";
+import { demoHistory } from "../domain/demo";
+import {
+  PRACTICE_ID,
+  replay,
+  truncate,
+  type BeatAddress,
+  type Sandbox,
+  type TourEvent,
+} from "../domain/tour-sandbox";
+import { clearTrayPreview, showTrayPreview } from "./tour-preview";
 import {
   beatIndex,
   canAutoAdvance,
@@ -41,10 +50,10 @@ import {
   S,
   commit,
   dashTab,
+  planTaskDraft,
   remindTarget,
-  restoreFromDemo,
-  sessionTx,
   state,
+  tourOverlay,
   wellnessNudge,
 } from "./state";
 import { wellnessCopy } from "../domain/wellness";
@@ -103,15 +112,22 @@ const ADVANCE_HOLD_MS = 1400;
  */
 export interface TourSession {
   runId: number;
-  /** The one task this run practises on. Claimed, never inferred. */
-  practiceId: string | null;
-  /** The TOUR clock - not the app's session. Nothing real accrues. */
-  clockTaskId: string | null;
-  clockStartedAt: number;
-  /** The End Day rehearsal was confirmed. No real day ended. */
-  endDayDone: boolean;
-  /** A search was run during this tour run. */
-  searched: boolean;
+  /**
+   * WHAT THE USER DID, in order. The practice world is this replayed.
+   *
+   * Back truncates this to the destination beat and replays what is left,
+   * which is why no page needs to know how to undo another page's work -
+   * see `domain/tour-sandbox.ts`.
+   */
+  events: TourEvent[];
+  /**
+   * The instant this run began, used as `now` for every replay.
+   *
+   * Fixed per run so replaying the same log twice produces exactly the
+   * same sandbox; the demo tasks' relative times would otherwise drift by
+   * however long the render took.
+   */
+  bornAt: number;
   /** Bumped to force the search UI back to an empty query. */
   searchToken: number;
   /** The menu-bar panel was opened from the tour. */
@@ -128,11 +144,8 @@ let runSeq = 0;
 function freshSession(retake: boolean): TourSession {
   return {
     runId: ++runSeq,
-    practiceId: null,
-    clockTaskId: null,
-    clockStartedAt: 0,
-    endDayDone: false,
-    searched: false,
+    events: [],
+    bornAt: Date.now(),
     searchToken: 0,
     trayOpened: false,
     preview: "idle",
@@ -146,16 +159,72 @@ const session = writable<TourSession>(freshSession(false));
 /** Read-only for the view. */
 export const tourSession: Readable<TourSession> = { subscribe: session.subscribe };
 
-/** The facts a beat needs that the application state does not hold. */
-function factsOf(t: TourSession): TourFacts {
-  return {
-    clockRunning: !!t.clockTaskId && t.clockStartedAt > 0,
-    endDayDone: t.endDayDone,
-    searched: t.searched,
+/**
+ * THE PRACTICE WORLD: the event log, replayed.
+ *
+ * Derived, so there is exactly one way for it to change - append an event,
+ * or truncate the log - and no way for it to drift from what the user did.
+ */
+export const tourSandbox: Readable<Sandbox> = derived([session, state], ([t, s]) =>
+  replay(t.events, t.bornAt, s.dateISO),
+);
+
+function sandboxNow(): Sandbox {
+  return get(tourSandbox);
+}
+
+/** Where the tour is, as an address events can be filed under. */
+function addressNow(): BeatAddress {
+  const n = get(nav);
+  if (n.step === null) return { step: -1, beat: 0 };
+  const s = S();
+  const sb = sandboxNow();
+  const step = stepAt(n.step);
+  const beats = step.beats ?? [];
+  const ctx = {
+    beats: beats.length,
+    autoIdx: outstanding(step, s, sb),
+    done: beats.map((b) => b.done(sb)),
+    nextStep: nextShown(n.step, 1, s),
+    prevStep: nextShown(n.step, -1, s),
   };
+  return { step: n.step, beat: beatIndex(ctx, n) };
+}
+
+/**
+ * Record something the user practised.
+ *
+ * The ONLY way the sandbox changes. Filed at the beat it happened on, so
+ * Back can drop it by truncating rather than by knowing what it was.
+ */
+type EventBody = TourEvent extends infer E
+  ? E extends BeatAddress
+    ? Omit<E, "step" | "beat">
+    : never
+  : never;
+
+function record(e: EventBody, at: BeatAddress = addressNow()): void {
+  if (get(nav).step === null) return;
+  session.update((t) => ({ ...t, events: [...t.events, { ...at, ...e } as TourEvent] }));
 }
 
 const nav = writable<NavState>(INACTIVE);
+
+/**
+ * Show the sandbox to the components, or stop showing it.
+ *
+ * `state.ts` cannot import this module (action modules depend on it, not
+ * the reverse), so the practice world is published INTO a store there and
+ * `app` reads it. Nothing about the real state changes either way - which
+ * is the whole boundary in two lines.
+ *
+ * One derived subscription rather than two: `nav` and the sandbox both
+ * decide what should be on screen, and separate subscriptions would let a
+ * stale one of them win depending on which fired last.
+ */
+derived([nav, tourSandbox], ([n, sb]) =>
+  n.step === null ? null : { mains: sb.mains, interruptions: sb.interruptions },
+).subscribe((overlay) => tourOverlay.set(overlay));
 
 /**
  * The finished days the tour SHOWS, without ever recording them.
@@ -172,8 +241,8 @@ const nav = writable<NavState>(INACTIVE);
 export const tourHistory: Readable<DayRecord[]> = derived([nav, state], ([n, s]) =>
   n.step === null ? [] : demoHistory(Date.now(), s.dayNum),
 );
-/** The task this run is practising on - a view onto the session. */
-const practiceId: Readable<string | null> = derived(session, (t) => t.practiceId);
+/** The task this run is practising on - a view onto the sandbox. */
+const practiceId: Readable<string | null> = derived(tourSandbox, (sb) => sb.practiceId);
 
 /**
  * A sheet or overlay owns the screen: the tour stands aside and goes inert.
@@ -206,9 +275,9 @@ function beatsOf(step: TourStep | null): TourStep["beats"] {
 }
 
 /** First beat still outstanding, or past the end when the list is done. */
-function outstanding(step: TourStep | null, s: State, id: string | null, f: TourFacts): number {
+function outstanding(step: TourStep | null, _s: State, sb: Sandbox): number {
   const beats = beatsOf(step) ?? [];
-  const at = beats.findIndex((b) => !b.done(s, id, f));
+  const at = beats.findIndex((b) => !b.done(sb));
   return at < 0 ? beats.length : at;
 }
 
@@ -231,31 +300,42 @@ export function effectivePracticeId(s: State, recorded: string | null): string |
 }
 
 /**
- * A task was created in THIS window while the tour is running: it is what
- * the user is practising on.
+ * The user typed a task themselves, in the Plan tab, during the tour.
  *
- * Called for both routes into a practice task - the beat that types one for
- * them, and the person typing their own in the Plan tab - because both go
- * through the same `addMain`. The FIRST claim of a run wins: pressing Next
- * twice, or adding a second task to try things out, must not move the tour
- * onto a different task halfway through explaining this one.
+ * Recorded as an event like any other practice, which is what makes it
+ * survive Back correctly and prevents a second one existing. There is no
+ * "claim" any more: the log is the claim, and it cannot be confused with
+ * an import or a task the other window added, because neither of those
+ * goes through here.
  */
-export function claimPracticeTask(id: string): void {
-  if (get(nav).step === null) return; // no tour running - nothing to practise on
-  if (get(session).practiceId) return;
-  session.update((t) => ({ ...t, practiceId: id }));
+export function sandboxAddTask(title: string): void {
+  const t = title.trim();
+  if (!t) return;
+  record({ kind: "task", title: t });
 }
 
-function contextFor(n: NavState, s: State, id: string | null, f: TourFacts): NavContext {
+export function sandboxAddStep(mainId: string, title: string): void {
+  const t = title.trim();
+  if (!t || mainId !== sandboxNow().practiceId) return;
+  record({ kind: "step", title: t });
+}
+
+export function sandboxAddTag(mainId: string, tag: string): void {
+  const t = tag.trim();
+  if (!t || mainId !== sandboxNow().practiceId) return;
+  record({ kind: "tag", tag: t });
+}
+
+function contextFor(n: NavState, s: State, sb: Sandbox): NavContext {
   const step = n.step === null ? null : stepAt(n.step);
   const beats = beatsOf(step) ?? [];
   return {
     beats: beats.length,
-    autoIdx: outstanding(step, s, id, f),
+    autoIdx: outstanding(step, s, sb),
     // The actual per-beat truth, not a contiguous prefix inferred from
     // `autoIdx`: beats can be completed out of order, and a beat wrongly
     // read as outstanding is carried out twice.
-    done: beats.map((b) => b.done(s, id, f)),
+    done: beats.map((b) => b.done(sb)),
     nextStep: n.step === null ? null : nextShown(n.step, 1, s),
     prevStep: n.step === null ? null : nextShown(n.step, -1, s),
   };
@@ -268,99 +348,62 @@ function contextFor(n: NavState, s: State, id: string | null, f: TourFacts): Nav
  * component - which is where the ordering bugs came from, because Svelte's
  * dependency graph decided when each of them ran.
  */
-export const tourView = derived([nav, state, session, paused], ([n, s, run, isPaused]) => {
-  const id = effectivePracticeId(s, run.practiceId);
-  const facts = factsOf(run);
-  const step = n.step === null ? null : stepAt(n.step);
-  const beats = beatsOf(step) ?? [];
-  const ctx = contextFor(n, s, id, facts);
-  const at = beatIndex(ctx, n);
-  const done = beats.map((b) => b.done(s, id, facts));
-  return {
-    step,
-    index: n.step,
-    active: n.step !== null,
-    paused: isPaused,
-    beats,
-    beatIndex: at,
-    beat: beats[at] ?? null,
-    doneFlags: done,
-    doneCount: done.filter(Boolean).length,
-    allBeatsDone: beats.length > 0 && ctx.autoIdx >= beats.length,
-    /** The most recent beat finished BEFORE the one showing. */
-    lastDone:
-      beats
-        .slice(0, at)
-        .reverse()
-        .find((_, i) => done[at - 1 - i]) ?? null,
-    progress: n.step === null ? { pos: 1, total: 1 } : tourProgress(n.step, s),
-    lastStep: n.step === null || nextShown(n.step, 1, s) === null,
-    /**
-     * Is there anywhere for Back to go?
-     *
-     * False on the first visible step with the cursor at its first beat -
-     * where Back was rendered, enabled, and did nothing at all. A control
-     * that silently does nothing teaches people their input is being
-     * ignored.
-     */
-    canBack: n.step !== null && (at > 0 || ctx.prevStep !== null),
-    /**
-     * What to say when the checklist is finished.
-     *
-     * Per step. One hardcoded line used to congratulate you on building a
-     * task after you had started a clock or ended a day.
-     */
-    finished: step?.finished ?? "",
-    /** The tour's own runtime, for the handful of views that need it. */
-    run,
-    /** Is this the FIRST time through, as of when this run started? */
-    firstRun: !run.retake,
-  };
-});
+export const tourView = derived(
+  [nav, state, session, paused, tourSandbox],
+  ([n, s, run, isPaused, sb]) => {
+    const step = n.step === null ? null : stepAt(n.step);
+    const beats = beatsOf(step) ?? [];
+    const ctx = contextFor(n, s, sb);
+    const at = beatIndex(ctx, n);
+    const done = beats.map((b) => b.done(sb));
+    return {
+      step,
+      index: n.step,
+      active: n.step !== null,
+      paused: isPaused,
+      beats,
+      beatIndex: at,
+      beat: beats[at] ?? null,
+      doneFlags: done,
+      doneCount: done.filter(Boolean).length,
+      allBeatsDone: beats.length > 0 && ctx.autoIdx >= beats.length,
+      /** The most recent beat finished BEFORE the one showing. */
+      lastDone:
+        beats
+          .slice(0, at)
+          .reverse()
+          .find((_, i) => done[at - 1 - i]) ?? null,
+      progress: n.step === null ? { pos: 1, total: 1 } : tourProgress(n.step, s),
+      lastStep: n.step === null || nextShown(n.step, 1, s) === null,
+      /**
+       * Is there anywhere for Back to go?
+       *
+       * False on the first visible step with the cursor at its first beat -
+       * where Back was rendered, enabled, and did nothing at all. A control
+       * that silently does nothing teaches people their input is being
+       * ignored.
+       */
+      canBack: n.step !== null && (at > 0 || ctx.prevStep !== null),
+      /**
+       * What to say when the checklist is finished.
+       *
+       * Per step. One hardcoded line used to congratulate you on building a
+       * task after you had started a clock or ended a day.
+       */
+      finished: step?.finished ?? "",
+      /** The tour's own runtime, for the handful of views that need it. */
+      run,
+      /** Is this the FIRST time through, as of when this run started? */
+      firstRun: !run.retake,
+      /** The practice world, for the views that draw it. */
+      sandbox: sb,
+    };
+  },
+);
 
 // --- entering and leaving --------------------------------------------------
 
-/**
- * Put the demo day on screen and hold the real one aside.
- *
- * Routed through `sessionTx` because replacing `mains` while a task is on
- * the clock is exactly the mutation that transaction exists for: the
- * running session has to be banked to the user's OWN task first, or its
- * time is lost or credited to a demo task that does not exist.
- */
-function enterDemo(): void {
-  if (S().demoRestore) return; // already in it; never snapshot the demo
-  sessionTx((s, now) => {
-    const { mains, interruptions } = demoDay(now, s.dateISO);
-    s.demoRestore = JSON.parse(
-      JSON.stringify({
-        mains: s.mains,
-        interruptions: s.interruptions,
-        activeMainId: s.activeMainId,
-        activeSubId: s.activeSubId,
-        startedAt: s.startedAt,
-        phase: s.phase,
-        awaitingStart: s.awaitingStart,
-        dateISO: s.dateISO,
-        dayNum: s.dayNum,
-      }),
-    );
-    s.mains = mains;
-    s.interruptions = interruptions;
-    s.activeMainId = null;
-    s.activeSubId = null;
-    // Lift the Start-day gate for the duration. On a first launch the day
-    // has not begun, and behind that gate the dashboard shows the gate
-    // instead of any tab - so the demo the tour exists to point at was on
-    // screen for nobody. `restoreFromDemo` puts it back.
-    s.awaitingStart = false;
-    s.phase = "today";
-    return null;
-  });
-}
-
 export function startTour(): void {
-  enterDemo();
   // Mark it seen HERE, when it starts, not when it finishes.
   //
   // The demo is window-local and never persisted, so a quit or crash
@@ -383,9 +426,7 @@ export function startTour(): void {
   session.set(freshSession(retake));
   const s = S();
   const first = 0;
-  nav.set(
-    enterStep(first, contextFor({ ...INACTIVE, step: first }, s, null, factsOf(get(session)))),
-  );
+  nav.set(enterStep(first, contextFor({ ...INACTIVE, step: first }, s, sandboxNow())));
   dashTab.set(TOUR_STEPS[first].tab ?? get(dashTab));
 }
 
@@ -398,20 +439,29 @@ export function startTour(): void {
  * the tour ran in the same commit; as two mutations they could half-apply
  * and leave the next launch starting the tour over the real day.
  */
+/**
+ * Close the tour, however it ended.
+ *
+ * Finishing, skipping, the close button and the dashboard closing all land
+ * here - one way out, so nothing can survive an exit nobody thought about.
+ *
+ * There is no day to RESTORE any more, and that is the point of the
+ * sandbox: the user's tasks were never replaced, so ending the tour is a
+ * matter of dropping the practice world and cancelling whatever it started.
+ * The old version had to put the real day back atomically, and every path
+ * that forgot to (a crash, a close, a quit, midnight) left demo tasks
+ * looking like the user's own.
+ */
 export function endTour(): void {
   clearAdvance();
   cancelNotificationPreview();
+  closeTrayPreview();
   nav.set(INACTIVE);
   // Everything temporary goes at once, and the run id moves on - so a
-  // timer or a permission promise still in flight from this run cannot
-  // act on the next one.
+  // timer or a promise still in flight from this run cannot act on the
+  // next one, or on an app that is no longer being toured.
   session.set(freshSession(true));
-  // One transaction when there IS a demo - the day back and the flag
-  // together, so a failure between them cannot leave the tour "unseen"
-  // over a restored real day. With no demo (a tour that never got one)
-  // there is nothing to be atomic with, so a plain commit is honest.
-  if (S().demoRestore) restoreFromDemo(true);
-  else commit((s) => void (s.tourSeen = true));
+  commit((s) => void (s.tourSeen = true));
 }
 
 // --- navigation ------------------------------------------------------------
@@ -437,44 +487,45 @@ export function goToStep(step: number): void {
  * begins at beat one, genuinely outstanding.
  */
 function goTo(step: number, back = false): void {
-  if (back) resetStepPractice(step);
+  // Leaving the tray lesson at all - forwards, backwards, by any route -
+  // takes its preview down with it. This is a native side effect, not
+  // practice: there is nothing in the log to replay it back.
+  if (
+    get(nav).step !== null &&
+    stepAt(get(nav).step!).id === "tray" &&
+    stepAt(step).id !== "tray"
+  ) {
+    closeTrayPreview();
+  }
+  // Walking BACKWARDS into a page truncates the log to that page's first
+  // beat, so it opens as a clean checklist. One rule, every page.
+  if (back) rewindTo({ step, beat: 0 });
   const s = S();
-  const run = get(session);
-  nav.set(
-    enterStep(
-      step,
-      contextFor({ ...INACTIVE, step }, s, effectivePracticeId(s, run.practiceId), factsOf(run)),
-    ),
-  );
+  nav.set(enterStep(step, contextFor({ ...INACTIVE, step }, s, sandboxNow())));
   const tab = stepAt(step).tab;
   if (tab) dashTab.set(tab);
 }
 
 /**
- * Put a step's practice back to nothing, so its first beat is outstanding.
+ * BACK, in one operation, for every page and every beat.
  *
- * Only TEMPORARY practice is undone. A theme, a name or a wellness nudge
- * the person deliberately chose is a durable decision that happens to have
- * been made on a tour page - walking back past that page to re-read it must
- * not silently revert it.
+ * Truncate the log to the destination and let the sandbox be whatever
+ * replaying the remainder produces. There is nothing to undo, because
+ * nothing was ever done to the application - and no page knows about any
+ * other page's work, which is what page-specific cleanup could never
+ * manage: the permutation tests found `work → next ×4 → back` landing on
+ * an End Day beat that was still done, because the clock page's cleanup
+ * had never heard of the End Day flag.
+ *
+ * The search UI is asked to empty itself as well. That is presentation
+ * living in a component, not practice, so replay cannot reach it.
  */
-function resetStepPractice(step: number): void {
-  switch (stepAt(step).id) {
-    case "plan":
-      rewindPractice(0);
-      break;
-    case "work":
-      stopTourClock();
-      break;
-    case "endday":
-      session.update((t) => ({ ...t, endDayDone: false }));
-      break;
-    case "search":
-      resetSearch();
-      break;
-    default:
-      break;
-  }
+function rewindTo(at: BeatAddress): void {
+  session.update((t) => {
+    const kept = truncate(t.events, at);
+    if (kept.length === t.events.length) return t;
+    return { ...t, events: kept, searchToken: t.searchToken + 1 };
+  });
 }
 
 function dispatch(type: "NEXT" | "BACK"): void {
@@ -484,65 +535,16 @@ function dispatch(type: "NEXT" | "BACK"): void {
   // a timer armed a moment ago cannot undo the Back that is happening now.
   clearAdvance();
   const s = S();
-  const run = get(session);
-  const id = effectivePracticeId(s, run.practiceId);
-  const ctx = contextFor(n, s, id, factsOf(run));
+  const ctx = contextFor(n, s, sandboxNow());
   const { state: next, effect } = reduce(ctx, n, { type });
   nav.set(next);
   if (effect.do === "exit") return void endTour();
   if (effect.do === "goto") return void goTo(effect.step, effect.back === true);
-  if (effect.do === "rewind") return void rewindPractice(effect.toBeat);
+  if (effect.do === "rewind") return void rewindTo({ step: n.step, beat: effect.toBeat });
   if (effect.do === "fill") {
     const beat = (beatsOf(stepAt(n.step)) ?? [])[effect.beat];
-    if (beat?.fill) fill(beat.fill);
+    if (beat?.fill) fill(beat.fill, { step: n.step, beat: effect.beat });
   }
-}
-
-// --- undoing practice ------------------------------------------------------
-
-/**
- * Put the Build One practice back to the state beat `toBeat` starts from.
- *
- * The rule is simple and total: everything the checklist built AFTER that
- * beat is removed, so the beat itself is genuinely outstanding again and
- * pressing Next rebuilds exactly one of it. Moving the cursor alone left
- * the step still done, the count still reading 3 of 3, and Next skipping
- * over the thing the user had come back to see.
- *
- * Through `sessionTx` because the practice task can be the timed one.
- */
-function rewindPractice(toBeat: number): void {
-  const run = get(session);
-  const id = effectivePracticeId(S(), run.practiceId);
-  if (!id) return;
-
-  if (toBeat <= 0) {
-    // Back to "type a task": the task itself goes, and its id with it, so
-    // the input is empty and nothing downstream still points at it.
-    stopTourClock();
-    sessionTx((s) => {
-      s.mains = s.mains.filter((m) => m.id !== id);
-      return null;
-    });
-    session.update((t) => ({ ...t, practiceId: null }));
-    return;
-  }
-
-  sessionTx((s) => {
-    const m = s.mains.find((x) => x.id === id);
-    if (!m) return null;
-    // Beat 1 is "add a step": everything from steps onwards goes.
-    if (toBeat <= 1) {
-      m.subs = [];
-      m.tags = [];
-      m.remind = null;
-    } else if (toBeat <= 2) {
-      // Beat 2 is "add a tag": the tag and anything after it.
-      m.tags = [];
-      m.remind = null;
-    }
-    return null;
-  });
 }
 
 // --- the tour's own clock --------------------------------------------------
@@ -557,17 +559,12 @@ function rewindPractice(toBeat: number): void {
  * about the tour, so it lives in the tour's runtime.
  */
 export function startTourClock(): void {
-  const id = effectivePracticeId(S(), get(session).practiceId);
-  if (!id) return;
-  session.update((t) =>
-    t.clockTaskId === id && t.clockStartedAt > 0
-      ? t // already running - pressing Start twice is not two clocks
-      : { ...t, clockTaskId: id, clockStartedAt: Date.now() },
-  );
-}
-
-export function stopTourClock(): void {
-  session.update((t) => ({ ...t, clockTaskId: null, clockStartedAt: 0 }));
+  const sb = sandboxNow();
+  if (!sb.practiceId) return;
+  // Already running: pressing Start twice, or Start and then Next, is one
+  // clock. Recording a second event would restart it.
+  if (sb.clockTaskId && sb.clockStartedAt > 0) return;
+  record({ kind: "clock", startedAt: Date.now() });
 }
 
 // --- the End Day rehearsal -------------------------------------------------
@@ -585,7 +582,8 @@ export function stopTourClock(): void {
  */
 export function completeTourEndDay(): void {
   if (get(nav).step === null) return;
-  session.update((t) => ({ ...t, endDayDone: true }));
+  if (sandboxNow().endDayDone) return; // confirming twice is one rehearsal
+  record({ kind: "endday" });
 }
 
 /**
@@ -605,6 +603,87 @@ export const tourActive: Readable<boolean> = derived(nav, (n) => n.step !== null
 export function markTrayOpened(): void {
   if (get(nav).step === null) return;
   session.update((t) => (t.trayOpened ? t : { ...t, trayOpened: true }));
+}
+
+/**
+ * Which "open the panel" request is the current one.
+ *
+ * `open_popover` crosses to the backend and comes back, and in that time
+ * the user may have pressed Back, Next or Skip. A result arriving after
+ * that must not raise a preview for a lesson nobody is on - so the stale
+ * result closes the panel again instead.
+ */
+let trayOpenSeq = 0;
+
+/**
+ * The two window commands the tray lesson needs.
+ *
+ * Invoked here rather than through `store/ui-state.ts`: action modules may
+ * depend on `state.ts` and infrastructure only, never on each other. These
+ * are one IPC call apiece, which is infrastructure by any reading.
+ */
+async function openPopoverWindow(): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await invoke("open_popover");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: `Couldn't open the menu-bar window: ${String(e)}` };
+  }
+}
+
+async function closePopoverWindow(): Promise<void> {
+  await invoke("close_popover").catch(() => {
+    /* already closed, or no backend - either way it is not showing */
+  });
+}
+
+/**
+ * Open the menu-bar panel for the tray lesson, showing the practice task.
+ *
+ * The preview is presentation state passed as an event payload - see
+ * `store/tour-preview.ts` - never shared state. Opening the REAL popover
+ * mid-tour used to show whatever the popover genuinely had, which on a
+ * first run is the "start my day" screen: a lesson about "your task, still
+ * on the clock" pointing at a screen with neither.
+ */
+export async function openTrayPreview(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const runId = get(session).runId;
+  const seq = ++trayOpenSeq;
+  const sb = sandboxNow();
+  const task = sb.practiceId ? sb.mains.find((m) => m.id === sb.practiceId) : null;
+
+  const res = await openPopoverWindow();
+  // Back/Next/Skip happened while that was in flight. Do not resurrect the
+  // lesson: close what we just opened and say nothing.
+  if (seq !== trayOpenSeq || get(session).runId !== runId || get(nav).step === null) {
+    void closePopoverWindow();
+    clearTrayPreview();
+    return { ok: false, error: "" };
+  }
+  if (!res.ok) return res;
+
+  // EXACTLY three things cross to the other window: which run raised it,
+  // the practice task's real title, and the tour clock's absolute start.
+  // No task object, no day, nothing that could be mistaken for state.
+  showTrayPreview({
+    runId,
+    title: task?.title ?? "Your task",
+    startedAt: sb.clockStartedAt,
+  });
+  markTrayOpened();
+  return { ok: true };
+}
+
+/**
+ * Leave the tray lesson: cancel anything in flight and take the panel down.
+ *
+ * Called on every way out of that step - Back, Next, Skip, and ending the
+ * tour - so the preview cannot outlive the lesson it belongs to.
+ */
+export function closeTrayPreview(): void {
+  trayOpenSeq++; // supersede an open that has not landed yet
+  clearTrayPreview();
+  void closePopoverWindow();
 }
 
 export function tourIsActive(): boolean {
@@ -655,8 +734,7 @@ export function cancelAutoAdvance(): void {
 export function maybeAutoAdvance(): void {
   const n = get(nav);
   if (n.step === null || get(paused)) return;
-  const run0 = get(session);
-  const ctx = contextFor(n, S(), effectivePracticeId(S(), run0.practiceId), factsOf(run0));
+  const ctx = contextFor(n, S(), sandboxNow());
   if (!canAutoAdvance(ctx, n)) return;
   clearAdvance();
   const at = n.step;
@@ -664,14 +742,7 @@ export function maybeAutoAdvance(): void {
     advanceTimer = null;
     const now = get(nav);
     if (now.step !== at || get(paused)) return;
-    const run = get(session);
-    if (
-      !canAutoAdvance(
-        contextFor(now, S(), effectivePracticeId(S(), run.practiceId), factsOf(run)),
-        now,
-      )
-    )
-      return;
+    if (!canAutoAdvance(contextFor(now, S(), sandboxNow()), now)) return;
     dispatch("NEXT");
   }, ADVANCE_HOLD_MS);
 }
@@ -687,30 +758,43 @@ export function maybeAutoAdvance(): void {
  * component it touched kept saving on blur, and it wrote a step's example
  * into the add-a-TASK box the one time it guessed wrong.
  */
-function fill(f: BeatFill): void {
-  // Two of these are the tour's own rehearsals and need no app commands.
-  if (f.kind === "clock") return void startTourClock();
-  if (f.kind === "endday") return void completeTourEndDay();
-  if (!commands) return;
-  const { addMain, addSub, addTag, setRemind } = commands;
-  const id = effectivePracticeId(S(), get(session).practiceId);
+/**
+ * Carry out a beat.
+ *
+ * Every one of these is an EVENT appended to the log. Nothing here touches
+ * the application: the practice task, its step and its tag exist only in
+ * the replayed sandbox, which is why ending the tour restores nothing -
+ * there was never anything to restore.
+ */
+function fill(f: BeatFill, at: BeatAddress): void {
   switch (f.kind) {
+    case "clock":
+      return void startTourClock();
+    case "endday":
+      return void completeTourEndDay();
     case "task": {
-      // The creating action says which task it made. Nothing is inferred:
-      // an import landing in the same instant, or the popover adding a
-      // task, cannot be mistaken for the one the tour just created.
-      const made = addMain(f.title);
-      if (made) session.update((t) => ({ ...t, practiceId: made }));
+      // THE TYPED TITLE WINS. Someone who has written "Prepare customer
+      // notes" and pressed Next meant that, not the tour's example - and
+      // waiting for the input's blur to commit it first would make the
+      // outcome depend on click ordering. The draft is published as it is
+      // typed (`planTaskDraft`), so this reads it rather than racing it.
+      const typed = get(planTaskDraft).trim();
+      if (sandboxNow().practiceId) return; // one practice task per run
+      record({ kind: "task", title: typed || f.title }, at);
+      if (typed) planTaskDraft.set(""); // it is a task now, not a draft
       return;
     }
     case "step":
-      if (id) addSub(id, f.title);
+      if (!sandboxNow().practiceId) return;
+      record({ kind: "step", title: f.title }, at);
       return;
     case "tag":
-      if (id) addTag(id, f.tag);
+      if (!sandboxNow().practiceId) return;
+      record({ kind: "tag", tag: f.tag }, at);
       return;
     case "remind":
-      if (id) setRemind({ kind: "main", id }, "in", f.inMinutes);
+      // The reminder beat is gone from the script; nothing to do if a
+      // future step brings it back as practice.
       return;
   }
 }
@@ -718,13 +802,14 @@ function fill(f: BeatFill): void {
 /**
  * Record that the Calendar search was used, for the search beat.
  *
- * Into the RUN, not into persisted state. `tourSearched` was written to
- * `state.json`, so a second tour in the same process - or on the next
- * launch - opened the search step already finished.
+ * An event like any other, so walking back past the search step drops it
+ * with everything else. It used to be written to `state.json`, where it
+ * survived not just Back but the whole tour and the next launch.
  */
 export function markSearched(): void {
   if (get(nav).step === null) return;
-  session.update((t) => (t.searched ? t : { ...t, searched: true }));
+  if (sandboxNow().searched) return;
+  record({ kind: "search" });
 }
 
 // --- the notification preview ----------------------------------------------

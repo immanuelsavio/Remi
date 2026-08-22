@@ -299,14 +299,10 @@ export async function flushSave(): Promise<SaveOutcome> {
  */
 export async function autoBackup(): Promise<void> {
   const today = todayISO();
-  // NEVER during the tour. This serialises the whole live state, which
-  // while a demo is up is the SAMPLE day with the user's real one nested
-  // inside `demoRestore` - so the one backup meant to save them from a bad
-  // day would hold a day they never worked. It would also stamp
-  // `lastAutoBackup`, blocking a correct backup for the rest of the day.
-  // Guarded here rather than only at the caller: this is the thing that
-  // must not happen, so this is where it is refused.
-  if (S().demoRestore) return;
+  // The state this serialises is the user's real day even mid-tour: the
+  // practice world is a window-local sandbox that never enters the store,
+  // so a backup taken during the tour is a correct backup and needs no
+  // guard of its own.
   if (S().lastAutoBackup === today) return;
   try {
     await invoke<string>("write_autobackup", {

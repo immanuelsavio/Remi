@@ -29,6 +29,7 @@
     tourAnchor,
     tourPracticeId,
   } from "../../../store";
+  import { planTaskDraft } from "../../../store";
   import { allTags, fmt, fmtEst, mainTotal, nowMs } from "../../../view";
   import RemindControl from "../../shared/RemindControl.svelte";
   import TagEditor from "../../shared/TagEditor.svelte";
@@ -69,6 +70,26 @@
     addMain(taskDraft);
     taskDraft = "";
     queueMicrotask(() => newTaskInput?.focus());
+  }
+
+  /**
+   * Publish what is typed but not yet committed, so the tour's Next can
+   * commit THAT title rather than its own example. See `planTaskDraft`.
+   *
+   * Two-way, with a marker for who spoke last: typing updates the store,
+   * and the tour emptying the store (having committed the title itself)
+   * empties the box. Without the marker the two would fight - the store
+   * clears, this component immediately republishes the stale text, and the
+   * box never empties.
+   */
+  let publishedDraft = "";
+  $: if (taskDraft !== publishedDraft) {
+    publishedDraft = taskDraft;
+    planTaskDraft.set(taskDraft);
+  }
+  $: if ($planTaskDraft !== publishedDraft) {
+    publishedDraft = $planTaskDraft;
+    taskDraft = $planTaskDraft;
   }
 
   function commitStep(mainId: string) {

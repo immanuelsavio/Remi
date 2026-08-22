@@ -77,6 +77,7 @@ fn main() {
             commands::set_tray_title,
             commands::open_dashboard,
             commands::open_popover,
+            commands::close_popover,
             commands::dashboard_closed,
             commands::hide_dashboard_window,
             commands::dashboard_close_ack,

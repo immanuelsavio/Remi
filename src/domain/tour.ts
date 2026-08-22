@@ -10,6 +10,7 @@
  * text with extra clicks.
  */
 
+import { baseSandbox, type Sandbox } from "./tour-sandbox";
 import type { Costume, DashTab, State } from "./types";
 
 /**
@@ -65,20 +66,10 @@ export type BeatFill =
  * day. Those facts live in the tour's own runtime (`store/tour.ts`), and
  * arrive here rather than being smuggled into persisted state.
  */
-export interface TourFacts {
-  /** The tour-only clock is running on the practice task. */
-  clockRunning: boolean;
-  /** The tour's End Day confirmation was completed - no real day ended. */
-  endDayDone: boolean;
-  /** A search was run during THIS tour run. */
-  searched: boolean;
-}
+export type TourFacts = Sandbox;
 
-export const NO_FACTS: TourFacts = {
-  clockRunning: false,
-  endDayDone: false,
-  searched: false,
-};
+/** A world in which nothing has been practised yet. */
+export const NO_FACTS: TourFacts = baseSandbox(0, "1970-01-01");
 
 export interface TourBeat {
   id: string;
@@ -94,7 +85,12 @@ export interface TourBeat {
    * other window could all make a later beat inspect - and Next then
    * modify - something the user never meant to practise on.
    */
-  done: (s: State, practiceId: string | null, facts: TourFacts) => boolean;
+  /**
+   * Is it done? Reads the SANDBOX - the replayed practice - and nothing
+   * else. It used to read application state, which is why "done" survived
+   * Back: the app still had the step in it.
+   */
+  done: (sb: Sandbox) => boolean;
   /** Walk to a different element for this beat than the step's own. */
   anchor?: string;
   /**
@@ -120,6 +116,12 @@ export interface TourBeat {
 export function practiceTask(s: State, practiceId: string | null) {
   if (!practiceId) return null;
   return s.mains.find((m) => m.id === practiceId) ?? null;
+}
+
+/** The practice task inside the sandbox, or null before it is made. */
+export function sandboxPractice(sb: Sandbox) {
+  if (!sb.practiceId) return null;
+  return sb.mains.find((m) => m.id === sb.practiceId) ?? null;
 }
 
 export interface TourStep {
@@ -273,7 +275,7 @@ export const TOUR_STEPS: TourStep[] = [
         text: "Type a task in the box below and press Enter.",
         cheer: "That's a task.",
         fill: { kind: "task", title: "Task 1" },
-        done: (s, id) => !!practiceTask(s, id),
+        done: (sb) => !!sandboxPractice(sb),
       },
       {
         id: "step",
@@ -284,7 +286,7 @@ export const TOUR_STEPS: TourStep[] = [
         text: "Add a step under it - the ＋ add steps link.",
         cheer: "Steps go one level deep, on purpose.",
         fill: { kind: "step", title: "First step" },
-        done: (s, id) => (practiceTask(s, id)?.subs.length ?? 0) > 0,
+        done: (sb) => (sandboxPractice(sb)?.subs.length ?? 0) > 0,
       },
       {
         id: "tag",
@@ -292,7 +294,7 @@ export const TOUR_STEPS: TourStep[] = [
         text: "Last one: give it a tag - a project, or a kind of work.",
         cheer: "Tags are what let you pull a report for one client later.",
         fill: { kind: "tag", tag: "example" },
-        done: (s, id) => (practiceTask(s, id)?.tags.length ?? 0) > 0,
+        done: (sb) => (sandboxPractice(sb)?.tags.length ?? 0) > 0,
       },
     ],
   },
@@ -319,7 +321,7 @@ export const TOUR_STEPS: TourStep[] = [
         // machinery over a demo task would bank practice time onto a task
         // that is about to stop existing.
         fill: { kind: "clock" },
-        done: (_s, _id, facts) => facts.clockRunning,
+        done: (sb) => !!sb.clockTaskId && sb.clockStartedAt > 0,
       },
     ],
   },
@@ -354,7 +356,7 @@ export const TOUR_STEPS: TourStep[] = [
         // tasks, and left the tour pointing at anchors that no longer
         // existed - the blank screens and the "Reopen day" after onboarding.
         fill: { kind: "endday" },
-        done: (_s, _id, facts) => facts.endDayDone,
+        done: (sb) => sb.endDayDone,
       },
     ],
   },
@@ -384,7 +386,7 @@ export const TOUR_STEPS: TourStep[] = [
         // From the RUN, not from persisted state: `tourSearched` survived a
         // retake in the same process, so the search step opened already
         // finished for anyone taking the tour a second time.
-        done: (_s, _id, facts) => facts.searched,
+        done: (sb) => sb.searched,
       },
     ],
   },
@@ -413,7 +415,7 @@ export const TOUR_STEPS: TourStep[] = [
     title: "What a nudge looks like",
     ask: "notify",
     body: ["Send yourself one now, so the first real one is not a surprise."],
-    aside: "macOS will ask permission the first time. Deny it and Remi just nudges in-app.",
+    aside: "macOS asks the first time. Say no and the nudges still appear inside Remi.",
   },
   {
     id: "settings",

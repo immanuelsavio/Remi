@@ -430,6 +430,18 @@ pub async fn open_dashboard(app: AppHandle) -> Result<(), String> {
 ///
 /// Deliberately `show`, not `toggle`: a button labelled "open it" that
 /// closes it on a second press is a button that does two things.
+/// Close the menu-bar panel deliberately.
+///
+/// The tour's preview has a way back out that is NOT "click somewhere else"
+/// - a Back button inside the panel - and that button must close only this
+/// window. It must never reach for the quit path or the dashboard's close
+/// handshake, both of which end with the app going away.
+#[tauri::command]
+pub async fn close_popover(app: AppHandle) -> Result<(), String> {
+    crate::windows::hide_popover_window(&app);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn open_popover(app: AppHandle) -> Result<(), String> {
     // `show_popover` is infallible by design - the tray click has nowhere

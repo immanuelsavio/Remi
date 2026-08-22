@@ -182,6 +182,15 @@ fn hide_popover(win: &tauri::WebviewWindow) {
     let _ = win.hide();
 }
 
+/// Hide the panel from outside this module - the tour's "Back to tour"
+/// button, which must close this window and nothing else.
+pub fn hide_popover_window(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(POPOVER_LABEL) {
+        app.state::<PopoverGuard>().mark_hidden();
+        hide_popover_guarded(app, &win);
+    }
+}
+
 /// Hide, and end any opening grace with it - a closed panel is not
 /// "settling into open", and a grace left running would swallow the next
 /// genuine click-away.

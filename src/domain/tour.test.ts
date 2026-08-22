@@ -194,10 +194,13 @@ describe("the guided tour script", () => {
     // The demo tasks already carry steps, tags and a title, so a beat that
     // did not look past them would read as done before the user typed
     // anything - and the tour would skip the thing it exists to teach.
+    // The sandbox starts as the demo day with nothing practised on it, so
+    // every beat must read as outstanding - a beat that looked at "is
+    // there a task with a tag" would be done before the user typed
+    // anything, and the tour would skip what it exists to teach.
     const plan = TOUR_STEPS.find((s) => s.id === "plan");
-    const demoOnly = { ...freshDay(), mains: demoMains(Date.now()) };
     for (const b of plan?.beats ?? []) {
-      expect(b.done(demoOnly, null, NO_FACTS)).toBe(false);
+      expect(b.done(NO_FACTS)).toBe(false);
     }
   });
 
