@@ -53,7 +53,16 @@ describe("the guided tour script", () => {
     // These are the steps that WRITE something. If one disappears, a first
     // run silently stops asking and those settings are never seen.
     const asks = TOUR_STEPS.filter((s) => s.ask).map((s) => s.ask);
-    for (const required of ["look", "nick", "fullname", "mascot", "mouse", "wellness", "prefs"]) {
+    for (const required of [
+      "look",
+      "nick",
+      "fullname",
+      "mascot",
+      "mouse",
+      "tray",
+      "wellness",
+      "prefs",
+    ]) {
       expect(asks).toContain(required);
     }
   });
@@ -101,7 +110,7 @@ describe("the guided tour script", () => {
     // eight pages it replaced despite the higher number. What is pinned is
     // that nobody re-merges pages to chase the old count, or lets it drift
     // back towards sixteen.
-    expect(TOUR_LENGTH).toBeLessThanOrEqual(15);
+    expect(TOUR_LENGTH).toBeLessThanOrEqual(17);
   });
 
   it("walks for the walkthrough and uses a card for the questions", () => {

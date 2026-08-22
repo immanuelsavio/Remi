@@ -28,7 +28,7 @@ import type { Costume, DashTab, State } from "./types";
  * retake the tour is a way to change your mind, not a form that resets you.
  */
 export type TourAsk =
-  "look" | "nick" | "fullname" | "mascot" | "mouse" | "notify" | "prefs" | "wellness";
+  "look" | "nick" | "fullname" | "mascot" | "mouse" | "tray" | "notify" | "prefs" | "wellness";
 
 /**
  * One thing to actually DO, and how to tell it was done.
@@ -258,6 +258,16 @@ export const TOUR_STEPS: TourStep[] = [
     title: "The clock",
     body: ["Start runs it. Interrupt records what pulled you away, and charges it the time."],
     aside: "That record is why a two-hour task can eat a whole day.",
+  },
+  {
+    id: "tray",
+    costume: "timekeeper",
+    pose: "idle",
+    tab: "today",
+    title: "The other half",
+    ask: "tray",
+    body: ["Remi lives in your menu bar. Same day, one click, no window in the way."],
+    aside: "The clock keeps running there whether this window is open or not.",
   },
   {
     id: "endday",

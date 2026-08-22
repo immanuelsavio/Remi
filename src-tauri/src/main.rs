@@ -67,6 +67,7 @@ fn main() {
             commands::open_in_default_app,
             commands::set_tray_title,
             commands::open_dashboard,
+            commands::open_popover,
             commands::dashboard_closed,
             commands::quit_app,
             commands::factory_reset_app,
