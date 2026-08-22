@@ -10,7 +10,7 @@
    * would silently un-break a broken streak - which is exactly the lie the
    * revive heart exists to make you pay for deliberately.
    */
-  import { app, markSearched } from "../../../store";
+  import { app, markSearched, tourAnchor } from "../../../store";
   import PtoSheet from "../PtoSheet.svelte";
   import TagPicker from "../../shared/TagPicker.svelte";
   import {
@@ -146,7 +146,7 @@
   </span>
 </div>
 
-<div class="searchbar" data-tour="cal-search">
+<div class="searchbar" use:tourAnchor={"cal-search"}>
   <input
     class="in"
     type="search"
@@ -214,7 +214,7 @@
     </div>
   </div>
 
-  <div class="cal-grid" data-tour="cal-grid">
+  <div class="cal-grid" use:tourAnchor={"cal-grid"}>
     {#each DOW as d (d)}
       <div class="cal-dow">{d}</div>
     {/each}

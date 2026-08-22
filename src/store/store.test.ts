@@ -2773,9 +2773,15 @@ describe("the guided tour", () => {
     startTour();
     expect(get(tourStep)).toBe(0);
 
+    // Next now does the outstanding CHECKLIST item before it turns a page,
+    // so a step with beats takes several presses. Pressing until the index
+    // actually moves is the honest walk, and it also proves a checklist
+    // cannot trap you: every step is escapable by pressing Next.
     for (let i = 1; i < TOUR_STEPS.length; i++) {
-      tourNext();
-      expect(get(tourStep)).toBe(i);
+      const from = get(tourStep);
+      let guard = 0;
+      while (get(tourStep) === from && guard++ < 12) tourNext();
+      expect(get(tourStep), `stuck on step ${from}`).toBe(i);
       const tab = TOUR_STEPS[i].tab;
       if (tab) expect(get(dashTab)).toBe(tab);
     }
@@ -2789,9 +2795,15 @@ describe("the guided tour", () => {
 
   it("closes itself at the end, and remembers it ran", () => {
     startTour();
-    for (let i = 0; i < TOUR_LENGTH; i++) tourNext();
+    // Generous: each step may take a few presses now that Next does the
+    // checklist first. The point is that it ENDS, and tidies up when it does.
+    for (let i = 0; i < TOUR_LENGTH * 8; i++) {
+      if (get(tourStep) === null) break;
+      tourNext();
+    }
     expect(get(tourStep)).toBeNull();
     expect(S().tourSeen).toBe(true);
+    expect(S().demoRestore, "the demo outlived the tour").toBeNull();
   });
 
   it("remembers it ran even when skipped early", () => {

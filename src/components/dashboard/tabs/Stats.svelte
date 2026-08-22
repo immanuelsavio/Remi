@@ -8,7 +8,7 @@
    *   3. Estimate vs reality, and what interruptions did to the difference -
    *      the case that an estimate can be accurate while the DAY runs long.
    */
-  import { app, useRevive } from "../../../store";
+  import { app, tourAnchor, useRevive } from "../../../store";
   import {
     computeStreaks,
     dateFromISO,
@@ -95,7 +95,7 @@
 {/if}
 
 <!-- ---------- time given back ---------- -->
-<div class="givenback" data-tour="stats-given">
+<div class="givenback" use:tourAnchor={"stats-given"}>
   <div class="eyebrow">Time given back today</div>
   <div class="gb-v">{hoursStr(given)}</div>
   <div class="gb-l">

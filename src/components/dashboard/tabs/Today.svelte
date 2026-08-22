@@ -22,6 +22,7 @@
     switchToMain,
     toggleSubDone,
     track,
+    tourAnchor,
   } from "../../../store";
   import { fmt, fmtEst, isTiming, mainTotal, nowMs } from "../../../view";
   import type { Main, Sub } from "../../../view";
@@ -101,7 +102,7 @@
         · {fmt(mainTotal(active, s, $nowMs))} on “{active.title}” overall{/if}{#if active.estMs}
         · est {fmtEst(active.estMs)}{/if}
     </div>
-    <div class="gb-acts" data-tour="today-start">
+    <div class="gb-acts" use:tourAnchor={"today-start"}>
       <button class="bk-btn" on:click={() => completeMain(active.id)}>✓ Done</button>
       <button
         class="bk-btn ghost"
@@ -185,7 +186,7 @@
           {:else}
             <button
               class="startbtn"
-              data-tour="today-start"
+              use:tourAnchor={"today-start"}
               on:click={() => (timing ? switchToMain(m.id, true) : startTask(m.id))}
             >
               {timing ? "Switch" : "Start"} ▸
@@ -295,7 +296,11 @@
 
 <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
   <button class="bk-btn ghost" on:click={() => setOverlay("backlog")}>▤ Backlog</button>
-  <button class="bk-btn ghost" data-tour="today-endday" on:click={() => setOverlay("endday")}>
+  <button
+    class="bk-btn ghost"
+    use:tourAnchor={"today-endday"}
+    on:click={() => setOverlay("endday")}
+  >
     Wrap up the day ›
   </button>
 </div>

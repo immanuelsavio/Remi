@@ -10,7 +10,6 @@
  * text with extra clicks.
  */
 
-import { isDemoId } from "./demo";
 import type { Costume, DashTab, State } from "./types";
 
 /**
@@ -45,39 +44,53 @@ export type TourAsk =
  * the components they describe, and cannot get out of sync with what is
  * really there. Nothing is compulsory - Next always moves on.
  */
+/** What "do it for me" means on a beat, as a command rather than a keystroke. */
+export type BeatFill =
+  | { kind: "task"; title: string }
+  | { kind: "step"; title: string }
+  | { kind: "tag"; tag: string }
+  | { kind: "remind"; inMinutes: number };
+
 export interface TourBeat {
   id: string;
   /** The single instruction, shown while this beat is the current one. */
   text: string;
   /** Shown once it is done, so finishing a beat is visibly acknowledged. */
   cheer: string;
-  done: (s: State) => boolean;
+  /**
+   * Is it done? Reads the practice task BY ID.
+   *
+   * It used to be "the first task that is not a demo one", which is a guess
+   * dressed as an identity: a second task, an import, or an edit from the
+   * other window could all make a later beat inspect - and Next then
+   * modify - something the user never meant to practise on.
+   */
+  done: (s: State, practiceId: string | null) => boolean;
   /** Walk to a different element for this beat than the step's own. */
   anchor?: string;
   /**
-   * What Next fills in for someone who would rather watch than type.
+   * What Next does for someone who would rather watch than type.
    *
-   * Seeded into the beat's own input the moment the tour points at it, and
-   * selected, so typing replaces it - but pressing Next straight away
-   * still produces a real task with a real name rather than leaving the
-   * checklist stuck on a box nobody filled. The alternative was Next doing
-   * nothing visible on the beats that need input, which reads as broken.
-   *
-   * Data, not a callback: `domain` stays pure, and the component decides
-   * how "fill an input" is actually done.
+   * A COMMAND, not an impersonation. This used to set an input's `.value`,
+   * dispatch a synthetic input event and rely on blur to save - so the
+   * tour only worked as long as every component it touched kept saving on
+   * blur, and any change to one of them broke it silently. It goes through
+   * the same store actions a person's typing goes through.
    */
-  fill?: string;
+  fill?: BeatFill;
 }
 
 /**
- * The task the user made during the tour, if they have made one.
+ * The one task the tour is practising on, by id.
  *
- * The demo tasks are already complete - steps, tags, the lot - so beats
- * have to look past them or every one would read as done before the user
- * touched anything.
+ * `null` until the user (or Next) makes it. Beats read THIS rather than
+ * "the first non-demo task": the demo tasks already have steps, tags and
+ * titles, so a beat that merely looked past them would also happily latch
+ * onto a second task, an import, or something the other window added.
  */
-export function ownTask(s: State) {
-  return s.mains.find((m) => !isDemoId(m.id)) ?? null;
+export function practiceTask(s: State, practiceId: string | null) {
+  if (!practiceId) return null;
+  return s.mains.find((m) => m.id === practiceId) ?? null;
 }
 
 export interface TourStep {
@@ -215,37 +228,37 @@ export const TOUR_STEPS: TourStep[] = [
     beats: [
       {
         id: "task",
-        fill: "Task 1",
         text: "Type a task in the box below and press Enter.",
         cheer: "That's a task.",
-        done: (s) => !!ownTask(s),
+        fill: { kind: "task", title: "Task 1" },
+        done: (s, id) => !!practiceTask(s, id),
       },
       {
         id: "step",
-        fill: "First step",
-        // The "add steps" link and the step box it opens answer to the
-        // same name, so this points at the real way in either way. The ⋔
-        // toggle this used to name is the TODAY tab's control, not this
-        // one - following it here led nowhere.
+        // The "add steps" link and the box it opens answer to the same
+        // name, so this points at the real way in either way. The ⋔ toggle
+        // this used to name is the TODAY tab's control, not this one.
         anchor: "plan-substep",
         text: "Add a step under it - the ＋ add steps link.",
         cheer: "Steps go one level deep, on purpose.",
-        done: (s) => (ownTask(s)?.subs.length ?? 0) > 0,
+        fill: { kind: "step", title: "First step" },
+        done: (s, id) => (practiceTask(s, id)?.subs.length ?? 0) > 0,
       },
       {
         id: "tag",
-        fill: "example",
         anchor: "plan-tag",
         text: "Give it a tag - a project, or a kind of work.",
         cheer: "Tags are what let you pull a report for one client later.",
-        done: (s) => (ownTask(s)?.tags.length ?? 0) > 0,
+        fill: { kind: "tag", tag: "example" },
+        done: (s, id) => (practiceTask(s, id)?.tags.length ?? 0) > 0,
       },
       {
         id: "remind",
         anchor: "plan-remind",
         text: "Last one: set a deadline with the ⏲ beside the task's name.",
         cheer: "Remi will tell you when that comes due.",
-        done: (s) => !!ownTask(s)?.remind,
+        fill: { kind: "remind", inMinutes: 30 },
+        done: (s, id) => !!practiceTask(s, id)?.remind,
       },
     ],
   },

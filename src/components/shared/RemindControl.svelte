@@ -5,7 +5,7 @@
    * opens the picker. One component so a row never has to decide which of
    * the two to draw.
    */
-  import { openRemind, type RemindTarget } from "../../store";
+  import { openRemind, tourAnchor, type RemindTarget } from "../../store";
   import type { Remind } from "../../view";
 
   export let remind: Remind | null;
@@ -13,11 +13,11 @@
   /** Overdue badges go red; the caller passes `now` so it ticks live. */
   export let now = Date.now();
   /**
-   * `data-tour` value, so the guided tour can walk to THIS control.
+   * Registers this control as the tour's target, when a caller names one.
    *
    * A prop rather than a wrapper element: this button sits inside a flex
-   * row whose spacing is load-bearing, and a div around it to hang an
-   * attribute on would change the layout for everyone to serve the tour.
+   * row whose spacing is load-bearing, and a div around it would change
+   * the layout for everyone to serve the tour.
    */
   export let tourId: string | undefined = undefined;
 
@@ -27,7 +27,7 @@
 {#if remind}
   <button
     class="rembadge"
-    data-tour={tourId}
+    use:tourAnchor={tourId}
     class:due
     title="{remind.label} - click to change"
     on:click|stopPropagation={() => openRemind(target)}
@@ -38,7 +38,7 @@
 {:else}
   <button
     class="rembtn"
-    data-tour={tourId}
+    use:tourAnchor={tourId}
     title="Set a reminder"
     aria-label="Set a reminder"
     on:click|stopPropagation={() => openRemind(target)}>⏲</button

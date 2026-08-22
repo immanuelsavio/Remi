@@ -45,7 +45,6 @@ export {
 export { initSync, reloadFromDisk, teardownSync } from "./sync";
 export {
   dismissWellness,
-  previewNotifications,
   muteCheckins,
   snoozeWellness,
   startClock,
@@ -53,6 +52,23 @@ export {
   wellnessCopy,
   wellnessNudge,
 } from "./clock";
+export { previewNotifications, cancelNotificationPreview } from "./tour-preview";
+export {
+  startTour,
+  endTour,
+  tourStep,
+  tourNext,
+  tourBack,
+  goToStep,
+  tourView,
+  tourPaused,
+  tourPracticeId,
+  setTourPaused,
+  maybeAutoAdvance,
+  adoptPracticeTask,
+  markSearched,
+} from "./tour";
+export { tourAnchor, tourAnchors } from "./tour-anchors";
 export {
   endDay,
   pruneEmpty,
@@ -107,14 +123,8 @@ export {
   openRemind,
   remindTarget,
   setOverlay,
-  markSearched,
   openPopover,
   setPhase,
-  startTour,
-  tourStep,
-  tourNext,
-  tourBack,
-  endTour,
   toggleSubsOpen,
   type RemindTarget,
 } from "./ui-state";

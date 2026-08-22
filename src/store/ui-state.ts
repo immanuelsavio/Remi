@@ -1,13 +1,10 @@
 /** UI STATE: phase/overlay navigation and opening the dashboard. */
 
 import { invoke } from "@tauri-apps/api/core";
-import { get, writable } from "svelte/store";
+import { writable } from "svelte/store";
 
 import type { DashTab, Overlay, Phase } from "../domain/types";
-import { S, commit, dashTab, restoreFromDemo, sessionTx, showToast } from "./state";
-import { demoDay } from "../domain/demo";
-import { cancelNotificationPreview } from "./clock";
-import { nextShown, TOUR_STEPS } from "../domain/tour";
+import { commit, dashTab, showToast } from "./state";
 
 /**
  * Which task/step/backlog item the reminder sheet is currently editing, or
@@ -33,129 +30,6 @@ export function openRemind(target: RemindTarget): void {
 
 export function closeRemind(): void {
   remindTarget.set(null);
-}
-
-/**
- * The guided tour's position, or `null` when it is not running.
- *
- * Window-local: the tour is a thing happening in front of one person, not
- * state about their work, so it never reaches `state.json`. Only the
- * "already seen" flag is persisted.
- */
-export { restoreFromDemo };
-
-export const tourStep = writable<number | null>(null);
-
-/**
- * Put the demo day on screen and hold the real one aside.
- *
- * Routed through `sessionTx` and not a bare `commit`, because replacing
- * `mains` while a task is on the clock is exactly the mutation that
- * transaction exists for: the running session has to be banked to the
- * user's OWN task before the list is swapped, or its time is either lost or
- * credited to a demo task that does not exist.
- *
- * The snapshot is written to state rather than kept in a module variable,
- * so quitting mid-tour is recoverable - see `restoreFromDemo` on boot.
- */
-function enterDemo(): void {
-  if (S().demoRestore) return; // already in it; never snapshot the demo
-  sessionTx((s, now) => {
-    const { mains, interruptions } = demoDay(now, s.dateISO);
-    s.demoRestore = JSON.parse(
-      JSON.stringify({
-        mains: s.mains,
-        interruptions: s.interruptions,
-        activeMainId: s.activeMainId,
-        activeSubId: s.activeSubId,
-        startedAt: s.startedAt,
-        phase: s.phase,
-        awaitingStart: s.awaitingStart,
-        dateISO: s.dateISO,
-        dayNum: s.dayNum,
-      }),
-    );
-    s.mains = mains;
-    s.interruptions = interruptions;
-    s.activeMainId = null;
-    s.activeSubId = null;
-    // Lift the Start-day gate for the duration.
-    //
-    // This is what makes the tour INTERACTIVE rather than a slideshow. On a
-    // first launch the day has not begun, and behind that gate the tab strip
-    // is disabled and the panel renders the gate instead of any tab - so the
-    // demo tasks the tour exists to point at were on screen for nobody, and
-    // every "try adding a step" was an instruction you could not follow.
-    // `restoreFromDemo` puts the gate back, so the user is still asked to
-    // start their own day when the tour ends.
-    s.awaitingStart = false;
-    s.phase = "today";
-    return null;
-  });
-}
-
-export function startTour(): void {
-  enterDemo();
-  tourStep.set(0);
-  dashTab.set(TOUR_STEPS[0].tab ?? get(dashTab));
-}
-
-/**
- * Move to the next step the user is actually being shown.
- *
- * Steps can opt out of a tour (see `skipWhen`), so this walks forward past
- * any that no longer apply rather than landing on one and bouncing off it.
- * Running out of steps forwards is what finishes the tour.
- */
-export function tourNext(): void {
-  const at = get(tourStep);
-  if (at === null) return;
-  const next = nextShown(at, 1, S());
-  if (next === null) {
-    endTour();
-    return;
-  }
-  tourStep.set(next);
-  const tab = TOUR_STEPS[next].tab;
-  if (tab) dashTab.set(tab);
-}
-
-export function tourBack(): void {
-  const at = get(tourStep);
-  if (at === null) return;
-  const prev = nextShown(at, -1, S());
-  if (prev === null) return;
-  tourStep.set(prev);
-  const tab = TOUR_STEPS[prev].tab;
-  if (tab) dashTab.set(tab);
-}
-
-/**
- * Close the tour and remember that it ran, however it ended.
- *
- * Finishing, skipping and the close button all land here, which is the
- * point: there is exactly one way out, so the demo cannot survive an exit
- * nobody thought about.
- */
-export function endTour(): void {
-  tourStep.set(null);
-  cancelNotificationPreview();
-  // ONE transaction: the day back and the flag set together. As two
-  // separate mutations a failure between them left a half-exited tour -
-  // the demo gone but the tour still "unseen", so the next launch started
-  // it again over the real day.
-  restoreFromDemo(true);
-}
-
-/**
- * Record that the Calendar search has been used at least once.
- *
- * Idempotent on purpose: it is called from a reactive statement that fires
- * on every keystroke, and committing each time would be a save per letter.
- */
-export function markSearched(): void {
-  if (S().tourSearched) return;
-  commit((s) => void (s.tourSearched = true));
 }
 
 export function setPhase(phase: Phase): void {
