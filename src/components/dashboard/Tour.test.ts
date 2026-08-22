@@ -27,6 +27,7 @@ import Tour from "./Tour.svelte";
 import {
   addMain,
   closeRemind,
+  completeTourEndDay,
   endTour,
   goToStep,
   openRemind,
@@ -456,5 +457,75 @@ describe("the tour, on screen", () => {
     await settle();
     expect(get(tourStep), "the app's own input navigated the tour").toBe(before);
     appInput.remove();
+  });
+
+  // --- after the simulated End Day ----------------------------------------
+
+  it("every page after End Day still renders something", async () => {
+    // The End Day step used to run the production endDay() over the demo
+    // day: the demo was replaced, demoRestore invalidated and the anchors
+    // the later steps point at stopped existing - so Calendar onwards went
+    // blank.
+    startTour();
+    goToStep(indexOf("endday"));
+    completeTourEndDay();
+    await settle();
+
+    for (const id of ["calendar", "search", "evidence", "wellness", "notifications", "settings"]) {
+      document.body.innerHTML = "";
+      host = document.createElement("div");
+      document.body.appendChild(host);
+      const stepDef = TOUR_STEPS[indexOf(id)];
+      if (stepDef.anchor) anchor(stepDef.anchor);
+      await showStep(id);
+      expect(
+        host.querySelector(".tour-bubble, .tourcard"),
+        `"${id}" rendered nothing after the End Day rehearsal`,
+      ).toBeTruthy();
+      if (comp) unmount(comp);
+      comp = null;
+    }
+  });
+
+  it("the End Day rehearsal leaves the demo day and its checkpoint intact", async () => {
+    startTour();
+    const demoBefore = get(state).mains.map((m) => m.id);
+    const restore = JSON.parse(JSON.stringify(get(state).demoRestore));
+    goToStep(indexOf("endday"));
+    completeTourEndDay();
+    await settle();
+
+    expect(get(state).mains.map((m) => m.id)).toEqual(demoBefore);
+    expect(get(state).demoRestore).toEqual(restore);
+    expect(get(state).history, "a real day was archived").toHaveLength(0);
+  });
+
+  it("says the step's OWN completion line, not the task one", async () => {
+    anchor("today-endday");
+    await showStep("endday");
+    completeTourEndDay();
+    await settle();
+    expect(host.textContent).toContain("Day ended.");
+    expect(host.textContent).not.toContain("Everything else is a variation");
+  });
+
+  it("rapid Back and Next stays deterministic", async () => {
+    // Every event produces at most one transition, so a burst cannot leave
+    // the tour between pages or build two of anything.
+    anchor("plan-add");
+    await showStep("plan");
+    const plan = indexOf("plan");
+    for (let i = 0; i < 6; i++) {
+      button("Next")?.click();
+      button("Back")?.click();
+      await settle();
+    }
+    const at = get(tourStep);
+    expect(at === null || Number.isInteger(at)).toBe(true);
+    expect(at).toBeGreaterThanOrEqual(0);
+    // ...and whatever it built, it built once.
+    const mine = get(state).mains.filter((m) => !m.id.startsWith("demo-"));
+    expect(mine.length, "a burst of clicks built more than one task").toBeLessThanOrEqual(1);
+    expect(get(tourStep)).toBeLessThanOrEqual(plan + 1);
   });
 });
