@@ -125,6 +125,50 @@ install).
   "/path/to/Remi.app/Contents/Info.plist"
 `
 
+## The overlay matrix (macOS, real hardware only)
+
+The popover is an `NSPanel` configured to sit over fullscreen Spaces
+(`windows/panel.rs`). CI now COMPILES that code (the `rust-macos` job; the
+Linux job only ever saw its no-op shim), but no automated test can prove it
+BEHAVES: that needs a real session, a real menu bar, and a real second
+display. Run this grid before any release that touches windowing, and
+record the macOS version and architecture with the results.
+
+For each cell: click the tray icon, confirm the popover appears **over**
+the frontmost app anchored under the icon, type into it, then click away
+and confirm it dismisses without the app behind it losing focus.
+
+|                       | Primary display | Secondary display |
+| --------------------- | --------------- | ----------------- |
+| Ordinary Space        | [ ]             | [ ]               |
+| Fullscreen browser    | [ ]             | [ ]               |
+| Fullscreen VS Code    | [ ]             | [ ]               |
+| Fullscreen video      | [ ]             | [ ]               |
+| Fullscreen native app | [ ]             | [ ]               |
+| Menu bar set to hide  | [ ]             | [ ]               |
+
+Then:
+
+- [ ] Move the app between displays repeatedly and click the tray each
+      time. The popover follows the monitor whose menu bar was CLICKED -
+      it is anchored from the tray icon, not from the window's previous
+      monitor (`monitor_for_point`).
+- [ ] Unplug the second display while the popover is open; it must not
+      strand itself off-screen.
+- [ ] Record: macOS version(s) tested, Apple Silicon and/or Intel.
+
+## Before publishing a release
+
+The release workflow creates a DRAFT and cross-compiles both
+architectures from one arm64 runner - which proves each binary builds and
+is correctly ad-hoc signed, never that it RUNS.
+
+- [ ] Install the arm64 archive on Apple Silicon: it launches, tracks
+      time, quits cleanly.
+- [ ] Install the x86_64 archive on an Intel Mac (or Rosetta on Apple
+      Silicon at minimum, noting which): same three things.
+- [ ] Only then publish the draft.
+
 Record which of these were completed and which couldn't be (e.g. running
 in a headless CI environment) alongside any automated verification
 results.
