@@ -163,11 +163,27 @@ fn helper_script(pid: u32, version: &str) -> String {
     // `--version` pins the exact release the user was shown, so a release
     // published between the check and the click cannot substitute itself.
     // Waiting on the PID is what lets install.sh see Remi as stopped.
+    //
+    // The installer comes from the TAG, not from `main`. Pinning the
+    // release while fetching the script from a moving branch pinned only
+    // half the update: whatever was on `main` at that moment - mid-edit,
+    // mid-force-push, or worse - is what ran. A tag is immutable, so the
+    // script that installs vX.Y.Z is the script that shipped with it.
+    //
+    // It is also downloaded, checked and only then run, rather than piped
+    // straight into an interpreter: `curl | bash` executes whatever
+    // arrives, including a truncated half-script from a dropped
+    // connection. `set -e` cannot save a shell that is being fed a file
+    // as it downloads.
     format!(
         "while kill -0 {pid} 2>/dev/null; do sleep 1; done; \
          sleep 1; \
-         curl -fsSL https://raw.githubusercontent.com/{REPO}/main/install.sh \
-           | bash -s -- --version {version} --launch"
+         d=$(mktemp -d) || exit 1; \
+         trap 'rm -rf \"$d\"' EXIT; \
+         curl -fsSL -o \"$d/install.sh\" \
+           https://raw.githubusercontent.com/{REPO}/v{version}/install.sh || exit 1; \
+         head -n1 \"$d/install.sh\" | grep -q '^#!' || exit 1; \
+         bash \"$d/install.sh\" --version {version} --launch"
     )
 }
 
@@ -242,6 +258,28 @@ mod tests {
         assert!(
             script.contains("--launch"),
             "should come back up afterwards"
+        );
+        // The installer is fetched from the TAG. Pinning the release while
+        // pulling the script from a moving branch pinned only half the
+        // update - whatever sat on `main` at that instant is what ran.
+        assert!(
+            script.contains("/v0.2.0/install.sh"),
+            "the installer must come from the tag, not from main: {script}"
+        );
+        assert!(
+            !script.contains("main/install.sh"),
+            "must not fetch the installer from a mutable branch"
+        );
+        // Downloaded, checked, THEN run. Piping into an interpreter
+        // executes whatever arrives, including a truncated half-script
+        // from a dropped connection.
+        assert!(
+            !script.contains("| bash"),
+            "must not pipe a download straight into a shell: {script}"
+        );
+        assert!(
+            script.contains("grep -q '^#!'"),
+            "must sanity-check what it downloaded"
         );
     }
 

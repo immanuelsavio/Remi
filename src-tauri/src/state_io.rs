@@ -154,8 +154,12 @@ fn rev_of(v: &serde_json::Value) -> u64 {
 /// Outcome of a compare-and-swap write attempt.
 #[derive(Debug, PartialEq, Eq)]
 pub enum CasOutcome {
-    /// Written successfully; carries the new revision now on disk.
-    Written(u64),
+    /// Written successfully: the new revision now on disk, plus any
+    /// non-fatal warning worth telling the user about (a backup copy that
+    /// could not be refreshed, say - the data landed, the safety net is
+    /// thinner than promised, and silence about that is how the promise
+    /// became false).
+    Written(u64, Option<String>),
     /// The caller's `expected_rev` did not match what's currently on disk -
     /// SOMEONE ELSE (the other window) wrote a newer revision first. The
     /// write is rejected rather than silently overwriting their change;
@@ -215,20 +219,47 @@ pub fn write_state_cas(
     if let serde_json::Value::Object(map) = &mut stamped {
         map.insert("_rev".into(), serde_json::json!(next_rev));
     }
-    write_state(folder, &stamped)?;
-    Ok(CasOutcome::Written(next_rev))
+    let warning = write_state_reporting(folder, &stamped)?;
+    Ok(CasOutcome::Written(next_rev, warning))
 }
 
 /// Atomically persist the state (see the STATE I/O contract above).
 pub fn write_state(folder: &Path, state: &serde_json::Value) -> Result<(), String> {
+    write_state_reporting(folder, state).map(|_| ())
+}
+
+/// `write_state`, plus any non-fatal warning worth telling the user about.
+pub fn write_state_reporting(
+    folder: &Path,
+    state: &serde_json::Value,
+) -> Result<Option<String>, String> {
+    let mut warning: Option<String> = None;
     fs::create_dir_all(folder).map_err(|e| e.to_string())?;
     let dest = state_path(folder);
     let body = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
 
     match try_read(&dest) {
         // Back up the prior GOOD file.
+        //
+        // A failure here was silently ignored, immediately before replacing
+        // the only good copy that existed - so the documented promise ("a
+        // `.bak` of the last-known-good is kept") could quietly be false at
+        // exactly the moment it mattered. One retry, then the failure is
+        // REPORTED rather than swallowed.
+        //
+        // It does not abort the write. The live file is the user's current
+        // work and getting it to disk matters more than the safety copy;
+        // refusing to save because a backup failed would turn a degraded
+        // backup into lost work. The caller surfaces the warning.
         Ok(Some(_)) => {
-            let _ = fs::copy(&dest, backup_path(folder));
+            if fs::copy(&dest, backup_path(folder)).is_err() {
+                if let Err(e) = fs::copy(&dest, backup_path(folder)) {
+                    warning = Some(format!(
+                        "Saved, but couldn't refresh the backup copy: {e}. \
+                         Your data is written; the safety copy may be older."
+                    ));
+                }
+            }
         }
         // First-ever write: seed `.bak` with the same content, so corruption
         // before the second save is still recoverable.
@@ -260,7 +291,7 @@ pub fn write_state(folder: &Path, state: &serde_json::Value) -> Result<(), Strin
     if let Ok(dir) = fs::File::open(folder) {
         let _ = dir.sync_all();
     }
-    Ok(())
+    Ok(warning)
 }
 
 #[cfg(not(windows))]
@@ -395,6 +426,27 @@ mod tests {
     }
 
     #[test]
+    fn a_backup_that_cannot_be_refreshed_is_reported_but_does_not_block_the_save() {
+        // The durability doc promises a `.bak` of the last-known-good. A
+        // failed copy was silently ignored, immediately before replacing
+        // the only good copy - so the promise could be false at exactly
+        // the moment it mattered, with nobody told.
+        let d = tempdir().unwrap();
+        write_state(d.path(), &v(r#"{"dayNum":1}"#)).unwrap();
+
+        // Make the backup path un-writable by putting a DIRECTORY there.
+        let bak = backup_path(d.path());
+        fs::remove_file(&bak).ok();
+        fs::create_dir_all(&bak).unwrap();
+
+        let warning = write_state_reporting(d.path(), &v(r#"{"dayNum":2}"#)).unwrap();
+        assert!(warning.is_some(), "a failed backup must be reported");
+        // ...and the user's actual work still landed. Refusing to save
+        // because a backup failed turns a thin safety net into lost work.
+        assert_eq!(load_state(d.path()).state.unwrap()["dayNum"], 2);
+    }
+
+    #[test]
     fn an_ordinary_save_is_refused_over_an_unreadable_file() {
         // THE HOLE. A malformed live file used to read as revision 0, and a
         // frontend that has just shown the recovery screen also sits at
@@ -422,7 +474,7 @@ mod tests {
         fs::write(state_path(d.path()), "{not json at all").unwrap();
 
         let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":7}"#), 0, true).unwrap();
-        assert!(matches!(outcome, CasOutcome::Written(1)));
+        assert!(matches!(outcome, CasOutcome::Written(1, _)));
         assert_eq!(load_state(d.path()).state.unwrap()["dayNum"], 7);
     }
 
@@ -453,7 +505,7 @@ mod tests {
     fn cas_first_write_at_revision_zero_succeeds_and_stamps_rev_one() {
         let d = tempdir().unwrap();
         let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap();
-        assert_eq!(outcome, CasOutcome::Written(1));
+        assert!(matches!(outcome, CasOutcome::Written(1, _)));
         let on_disk = load_state(d.path()).state.unwrap();
         assert_eq!(on_disk["_rev"], 1);
     }
@@ -463,7 +515,7 @@ mod tests {
         let d = tempdir().unwrap();
         write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap(); // rev -> 1
         let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":2}"#), 1, false).unwrap();
-        assert_eq!(outcome, CasOutcome::Written(2));
+        assert!(matches!(outcome, CasOutcome::Written(2, _)));
     }
 
     #[test]
@@ -501,7 +553,7 @@ mod tests {
         // ...but retrying with the ACTUAL current revision succeeds.
         let retried =
             write_state_cas(d.path(), &v(r#"{"dayNum":99}"#), current_rev, false).unwrap();
-        assert_eq!(retried, CasOutcome::Written(current_rev + 1));
+        assert!(matches!(retried, CasOutcome::Written(r, _) if r == current_rev + 1));
         assert_eq!(load_state(d.path()).state.unwrap()["dayNum"], 99);
     }
 
@@ -510,6 +562,6 @@ mod tests {
         let d = tempdir().unwrap();
         // No prior write at all - the file doesn't exist yet.
         let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap();
-        assert_eq!(outcome, CasOutcome::Written(1));
+        assert!(matches!(outcome, CasOutcome::Written(1, _)));
     }
 }

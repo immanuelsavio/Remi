@@ -214,7 +214,12 @@ export function endTour(): void {
   nav.set(INACTIVE);
   practiceId.set(null);
   paused.set(false);
-  restoreFromDemo(true);
+  // One transaction when there IS a demo - the day back and the flag
+  // together, so a failure between them cannot leave the tour "unseen"
+  // over a restored real day. With no demo (a tour that never got one)
+  // there is nothing to be atomic with, so a plain commit is honest.
+  if (S().demoRestore) restoreFromDemo(true);
+  else commit((s) => void (s.tourSeen = true));
 }
 
 // --- navigation ------------------------------------------------------------

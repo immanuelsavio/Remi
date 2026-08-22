@@ -97,8 +97,13 @@ export async function setStandardDaily(list: string[]): Promise<void> {
   commit((s) => void (s.standardDaily = clean));
   try {
     await invoke("set_standard_daily_list", { list: clean });
-  } catch {
-    /* settings unwritable - state.json still has it */
+  } catch (e) {
+    // NOT silent. This list lives in two places, and settings.json is the
+    // one boot prefers - so a failure here means the OLD list quietly wins
+    // back at the next launch, undoing an edit the user watched succeed.
+    // Saying so is the difference between a bad write and a bad write
+    // nobody knows about.
+    showToast(`Routines saved for now, but couldn't be written to settings: ${String(e)}`);
   }
 }
 

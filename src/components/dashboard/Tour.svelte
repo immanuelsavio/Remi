@@ -693,7 +693,7 @@
                 {/each}
                 <p class="tf-note">
                   {#if first}
-                    All off unless you say otherwise.
+                    Reminders and the menu-bar timer start on; the rest are yours to choose.
                   {:else}
                     These are your current settings. Change what you like, or leave them and carry
                     on.

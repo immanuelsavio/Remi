@@ -141,10 +141,12 @@ export async function flushSave(): Promise<void> {
     try {
       const now = Date.now();
       const payload = forPersist(S(), now);
-      const res = await invoke<{ rev?: number; stale?: boolean; currentRev?: number }>(
-        "save_app_state",
-        { state: payload },
-      );
+      const res = await invoke<{
+        rev?: number;
+        stale?: boolean;
+        currentRev?: number;
+        warning?: string | null;
+      }>("save_app_state", { state: payload });
       if (res?.stale) {
         // The OTHER window saved a newer revision first. Rust rejected
         // this write rather than silently overwriting it - reload from
@@ -181,6 +183,13 @@ export async function flushSave(): Promise<void> {
       // last-save time, and the NEXT save's CAS check compares against
       // what's actually on disk now. Only on SUCCESS - a failed write
       // must not make the live state believe it was saved.
+      // A save that landed but could not refresh the safety copy. Said
+      // once, not every tick - a warning repeated every 250ms is noise
+      // that teaches people to ignore warnings.
+      if (res?.warning && res.warning !== lastBackupWarning) {
+        lastBackupWarning = res.warning;
+        showToast(res.warning);
+      }
       const newRev = res?.rev ?? 0;
       state.update((s) => ({ ...s, savedAt: now, _rev: newRev }));
       revision++;
@@ -302,7 +311,11 @@ export async function boot(): Promise<void> {
   // truth).
   try {
     const list = await invoke<string[]>("get_standard_daily");
-    if (Array.isArray(list) && list.length) {
+    // Only when the state file has nothing of its own. Settings used to
+    // win outright, which is how a failed settings write became a silent
+    // revert: the state file held the new list, settings held the old one,
+    // and the next boot handed the old one back.
+    if (Array.isArray(list) && list.length && !S().standardDaily.length) {
       commit((s) => void (s.standardDaily = list));
     }
   } catch {
@@ -312,7 +325,14 @@ export async function boot(): Promise<void> {
   // A demo stranded by quitting mid-tour would otherwise boot the user into
   // someone else's tasks with their own day nowhere in sight. Undone before
   // anything is shown.
-  restoreFromDemo();
+  //
+  // `true` marks the tour as run, and that is a deliberate policy rather
+  // than an omission: without it `tourSeen` stayed false and the dashboard
+  // started the whole thing again from page one over the restored real
+  // day, every launch, until someone happened to finish it. Interrupting
+  // an onboarding is a decision; silently restarting it is not. Settings →
+  // Help is how to get it back.
+  restoreFromDemo(true);
 
   // They uninstalled, kept their history, and have come back. Say so once,
   // then clear the marker so the next launch is an ordinary one.
@@ -347,6 +367,9 @@ let unlistenQuitRequest: UnlistenFn | null = null;
  */
 let quitInFlight: Promise<void> | null = null;
 
+/** The last backup warning shown, so it is not repeated on every save. */
+let lastBackupWarning: string | null = null;
+
 /**
  * THE quit barrier: flush, and only invoke `quit_app` if that flush
  * actually succeeded. Both the tray menu's `quit-requested` event and the
@@ -361,14 +384,19 @@ export async function requestQuit(): Promise<void> {
   if (quitInFlight) return quitInFlight;
   const run = (async () => {
     try {
+      // The lock is held across BOTH halves. It used to be released the
+      // moment the flush finished - before `quit_app` had even been
+      // called - which left a window in which a second Quit started an
+      // entire second shutdown sequence over the top of the first.
       await flushSave();
+      await invoke("quit_app");
     } finally {
-      // Whether this attempt succeeds or fails, the NEXT quit request
-      // (e.g. a retry after fixing the problem) must be allowed to start
-      // its own attempt, not be stuck observing this failed one forever.
+      // ...and released afterwards either way. On failure so a retry can
+      // start its own attempt; on success because `quit_app` returning at
+      // all means the process did NOT go away, and a lock left set there
+      // would make the app permanently unquittable.
       quitInFlight = null;
     }
-    await invoke("quit_app");
   })();
   quitInFlight = run;
   return run;

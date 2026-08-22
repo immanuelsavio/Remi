@@ -70,7 +70,10 @@ pub async fn save_app_state(
         expected_rev,
         over_malformed.unwrap_or(false),
     )? {
-        CasOutcome::Written(rev) => Ok(serde_json::json!({ "rev": rev })),
+        CasOutcome::Written(rev, warning) => Ok(serde_json::json!({
+            "rev": rev,
+            "warning": warning,
+        })),
         CasOutcome::Stale { current_rev } => {
             Ok(serde_json::json!({ "stale": true, "currentRev": current_rev }))
         }
