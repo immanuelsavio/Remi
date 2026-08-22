@@ -10,8 +10,30 @@
 use std::fs;
 use std::io::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 use crate::paths::settings_path;
+
+/// Serializes the WHOLE read-modify-write of `settings.json`.
+///
+/// The atomic write below prevents a torn FILE; it does nothing about a
+/// lost UPDATE. Two patches to two different keys, arriving at once from
+/// the two webviews that share this process, both read the same original
+/// map, and whichever rename lands second writes back a map that never
+/// contained the other's key - silently reverting it, with both callers
+/// told the write succeeded.
+///
+/// The lock has to span read → mutate → write, not just the write: locking
+/// only the write leaves the read outside, which is where the staleness
+/// comes from.
+///
+/// Poisoning is recovered from rather than propagated: a panic in an
+/// earlier patch says nothing about the file's integrity (the read
+/// validates it and an interrupted atomic write leaves the live file
+/// untouched), and refusing every settings write for the rest of the
+/// process's life over it would turn one panic into a permanently broken
+/// preferences file.
+static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
 
 /// Read `settings.json` as a JSON object. A missing file is an empty object;
 /// a PRESENT-but-malformed one is an error, so we never clobber a
@@ -45,11 +67,25 @@ pub fn read_settings_at(
 }
 
 /// Merge one key into `settings.json`, preserving every other key.
+///
+/// The read-modify-write runs under `SETTINGS_LOCK`, so two concurrent
+/// patches to different keys cannot both read the same original map and
+/// have the second silently drop the first's key.
 pub fn patch_settings(key: &str, value: serde_json::Value) -> Result<(), String> {
-    let path = settings_path();
-    let mut map = read_settings()?;
+    patch_settings_at(&settings_path(), key, value)
+}
+
+/// `patch_settings` against an explicit path, so the concurrency contract
+/// is testable without touching the real home directory.
+pub fn patch_settings_at(
+    path: &std::path::Path,
+    key: &str,
+    value: serde_json::Value,
+) -> Result<(), String> {
+    let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut map = read_settings_at(path)?;
     map.insert(key.to_string(), value);
-    write_settings_at(&path, &map)
+    write_settings_at(path, &map)
 }
 
 /// Atomically persist `settings.json` (or any single JSON-object file at
@@ -210,6 +246,76 @@ mod tests {
         let result = read_settings_at(&path);
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
+    }
+
+    /// The bug this guards: `patch_settings` is a read-modify-write, and
+    /// both webviews share one process. Two patches to DIFFERENT keys
+    /// running at once would each read the same original map, and the
+    /// rename that landed second wrote back a map that never contained the
+    /// other's key - a silently reverted preference, with both callers
+    /// told their write succeeded. The atomic write prevents a torn file;
+    /// it does nothing about a lost update.
+    #[test]
+    fn concurrent_patches_to_different_keys_both_survive() {
+        let d = tempdir().unwrap();
+        let path = d.path().join("settings.json");
+        write_settings_at(&path, &serde_json::Map::new()).unwrap();
+
+        // Enough rounds that an unsynchronized read-modify-write loses at
+        // least one key essentially every run, rather than occasionally.
+        for round in 0..40 {
+            let p1 = path.clone();
+            let p2 = path.clone();
+            let a = std::thread::spawn(move || {
+                patch_settings_at(&p1, "autoUpdate", serde_json::json!(true)).unwrap();
+            });
+            let b = std::thread::spawn(move || {
+                patch_settings_at(&p2, "dataFolder", serde_json::json!("/custom")).unwrap();
+            });
+            a.join().unwrap();
+            b.join().unwrap();
+
+            let map = read_settings_at(&path).unwrap();
+            assert_eq!(
+                map.get("autoUpdate"),
+                Some(&serde_json::json!(true)),
+                "round {round}: autoUpdate was lost by a concurrent patch"
+            );
+            assert_eq!(
+                map.get("dataFolder"),
+                Some(&serde_json::json!("/custom")),
+                "round {round}: dataFolder was lost by a concurrent patch"
+            );
+
+            write_settings_at(&path, &serde_json::Map::new()).unwrap();
+        }
+    }
+
+    /// A patch must never erase keys it does not know about, even while
+    /// another patch is running against the same file.
+    #[test]
+    fn a_concurrent_patch_preserves_a_pre_existing_unknown_key() {
+        let d = tempdir().unwrap();
+        let path = d.path().join("settings.json");
+        let mut seed = serde_json::Map::new();
+        seed.insert("deviceId".into(), serde_json::json!("abc-123"));
+        write_settings_at(&path, &seed).unwrap();
+
+        let p1 = path.clone();
+        let p2 = path.clone();
+        let a = std::thread::spawn(move || {
+            patch_settings_at(&p1, "seenVersion", serde_json::json!("1.2.3")).unwrap();
+        });
+        let b = std::thread::spawn(move || {
+            patch_settings_at(&p2, "standardDaily", serde_json::json!(["Standup"])).unwrap();
+        });
+        a.join().unwrap();
+        b.join().unwrap();
+
+        let map = read_settings_at(&path).unwrap();
+        assert_eq!(map.get("deviceId").unwrap(), "abc-123");
+        assert_eq!(map.get("seenVersion").unwrap(), "1.2.3");
+        assert_eq!(map.get("standardDaily").unwrap()[0], "Standup");
     }
 
     #[test]
