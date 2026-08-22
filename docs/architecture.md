@@ -46,7 +46,8 @@ src/
     types.ts, defaults.ts, ids.ts, dates.ts, time.ts, hydration.ts,
     persistence-shape.ts, tasks.ts, streaks.ts, reminders.ts, trainer.ts,
     imports.ts, usage-logs.ts, theme.ts, tags.ts, search.ts, report.ts,
-    tour.ts
+    tour.ts, tour-nav.ts, wellness.ts, demo.ts, day-state.ts, name.ts,
+    mascot.ts
   store/                     the Svelte store + everything that mutates
     index.ts                 public facade - the ONLY module components import from
     state.ts                 the writable, sessionTx, commit, snapshot readers
@@ -58,7 +59,10 @@ src/
     break-actions.ts         start/extend/resume a break
     backlog-actions.ts       backlog CRUD
     telemetry.ts             opt-in usage counters
-    ui-state.ts               phase/overlay navigation
+    ui-state.ts              phase/overlay navigation
+    tour.ts                  the guided tour's controller (steps, beats,
+                             the practice task, typed beat commands)
+    tour-anchors.ts          registry of what the tour may point at
     settings-actions.ts      preferences, data folder, quit/uninstall
     import-export.ts         structured-text import, JSON backup export/restore
     report-actions.ts        range/tag selection + writing the work record out

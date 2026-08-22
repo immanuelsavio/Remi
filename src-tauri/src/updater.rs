@@ -170,11 +170,17 @@ fn helper_script(pid: u32, version: &str) -> String {
     // mid-force-push, or worse - is what ran. A tag is immutable, so the
     // script that installs vX.Y.Z is the script that shipped with it.
     //
-    // It is also downloaded, checked and only then run, rather than piped
-    // straight into an interpreter: `curl | bash` executes whatever
-    // arrives, including a truncated half-script from a dropped
-    // connection. `set -e` cannot save a shell that is being fed a file
-    // as it downloads.
+    // It is also downloaded and only then run, rather than piped straight
+    // into an interpreter: `curl | bash` starts EXECUTING a file that is
+    // still arriving, so a dropped connection runs half a script. `curl -f
+    // -o … || exit 1` is what makes that impossible - the shebang check is
+    // a cheap sanity test that the response is a script at all (a proxy
+    // error page, say), not a truncation check, since a truncated script
+    // still begins with `#!`.
+    //
+    // A tag is immutable in practice but force-pushable in principle; a
+    // commit SHA, or a checksum published with the release, would be
+    // stronger. Worth doing before this is relied on at scale.
     format!(
         "while kill -0 {pid} 2>/dev/null; do sleep 1; done; \
          sleep 1; \

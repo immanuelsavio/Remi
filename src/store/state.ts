@@ -387,8 +387,16 @@ export function restoreFromDemo(markSeen = false): void {
   // The real day may now be yesterday's. An ordinary rollover archives it,
   // advances the day number and carries what was unfinished - all the
   // things skipping it silently swallowed.
-  const rolled = rolloverIfNewDay(S());
-  if (rolled !== S()) setState(rolled);
+  //
+  // Published unconditionally. In the `awaitingStart` branch rollover
+  // re-dates IN PLACE and hands back the same object, so an identity check
+  // would skip the publish and leave every subscriber on a stale date until
+  // the next unrelated commit.
+  //
+  // No `bankOrphanSession` wrapper here, unlike the clock's call site: the
+  // `sessionTx` immediately above has just re-stamped `startedAt` to now, so
+  // there is no orphaned interval to bank.
+  setState(rolloverIfNewDay(S()));
 }
 
 /**

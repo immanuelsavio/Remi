@@ -166,6 +166,13 @@ pub enum CasOutcome {
     /// carries the actual current revision so the caller can reload and
     /// retry from a known-good baseline.
     Stale { current_rev: u64 },
+    /// The live file is unreadable and this caller did not ask to overwrite
+    /// it. Deliberately an OUTCOME rather than an error: an error here
+    /// propagated all the way up through the quit barrier, which only quits
+    /// after a successful flush - so a damaged file made the app
+    /// unquittable at exactly the moment the user wanted to close it and go
+    /// look at their files.
+    RefusedMalformed { reason: String },
 }
 
 /// Compare-and-swap write: only persists `state` if the revision currently
@@ -203,10 +210,12 @@ pub fn write_state_cas(
         // pass it.
         Err(e) => {
             if !over_malformed {
-                return Err(format!(
-                    "refusing to save over an unreadable state file ({e}) - restore a backup, \
-                     or move the file aside first"
-                ));
+                return Ok(CasOutcome::RefusedMalformed {
+                    reason: format!(
+                        "Your data file can't be read, so Remi is not writing over it. \
+                         A copy is in the recovery folder; restore a backup to carry on. ({e})"
+                    ),
+                });
             }
             0
         }
@@ -457,8 +466,11 @@ mod tests {
         fs::create_dir_all(d.path()).unwrap();
         fs::write(state_path(d.path()), "{not json at all").unwrap();
 
-        let err = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap_err();
-        assert!(err.contains("refusing to save"), "got: {err}");
+        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap();
+        assert!(
+            matches!(outcome, CasOutcome::RefusedMalformed { .. }),
+            "an ordinary save must be refused, not written"
+        );
         // Untouched, byte for byte.
         assert_eq!(
             fs::read_to_string(state_path(d.path())).unwrap(),

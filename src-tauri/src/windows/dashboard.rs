@@ -11,6 +11,13 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
 use crate::paths::DASHBOARD_LABEL;
 
+/// How long the frontend gets to tidy up and ask for the window to be
+/// hidden before it is hidden regardless.
+///
+/// Long enough for a flush to land on a slow disk, short enough that a dead
+/// webview does not read as a frozen window.
+const CLOSE_GRACE_MS: u64 = 3000;
+
 /// Set once the dashboard has registered its close listener.
 ///
 /// The same handshake shape as `QuitReadiness`, for the same reason: an
@@ -71,13 +78,27 @@ pub fn register_dashboard_hide_on_close(app: &AppHandle) {
                 let ready = handle
                     .try_state::<DashboardCloseReadiness>()
                     .is_some_and(|r| r.is_ready());
-                if ready {
-                    let _ = handle.emit("dashboard-close-requested", ());
-                } else {
+                if !ready {
                     // Nobody is listening and nobody ever will be - hiding
                     // directly is better than a window that cannot close.
                     let _ = dash.hide();
+                    return;
                 }
+                let _ = handle.emit("dashboard-close-requested", ());
+                // ...and a bounded fallback. Readiness latches once and is
+                // never cleared, so a webview that dies, hangs or reloads
+                // AFTER marking ready would leave this emitting into
+                // nothing - a window that can never be closed, which is the
+                // exact failure the handshake exists to prevent. If the
+                // frontend has not asked us to hide within this window, it
+                // is not going to.
+                let w = dash.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(CLOSE_GRACE_MS));
+                    if w.is_visible().unwrap_or(false) {
+                        let _ = w.hide();
+                    }
+                });
             }
         });
     }

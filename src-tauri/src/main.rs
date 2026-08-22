@@ -27,7 +27,7 @@ mod tray;
 mod updater;
 mod windows;
 
-use tray::{QuitReadiness, TrayHandle};
+use tray::{QuitReadiness, Quitting, TrayHandle};
 use windows::{
     prepare_popover_overlay, register_autohide, register_dashboard_hide_on_close, show_dashboard,
     DashboardCloseReadiness, PopoverGuard, TrayAnchor,
@@ -52,6 +52,7 @@ fn main() {
         .manage(TrayAnchor::default())
         .manage(PopoverGuard::default())
         .manage(QuitReadiness::default())
+        .manage(Quitting::default())
         .manage(DashboardCloseReadiness::default())
         .invoke_handler(tauri::generate_handler![
             commands::load_app_state,
@@ -127,6 +128,20 @@ fn main() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = &event {
                 show_dashboard(app);
+            }
+            // A menu-bar app does not stop existing because no window is on
+            // screen. Both windows spend most of their life HIDDEN, and
+            // Tauri's default is to exit once it believes the last one has
+            // gone - which showed up as the app silently vanishing (exit
+            // code 0, no panic) with the day unsaved, because that path
+            // bypasses the quit barrier entirely. The only way out is now a
+            // deliberate one, and every deliberate one flushes first.
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                let deliberate =
+                    tauri::Manager::try_state::<Quitting>(app).is_some_and(|q| q.is_quitting());
+                if !deliberate {
+                    api.prevent_exit();
+                }
             }
             let _ = (app, &event);
         });

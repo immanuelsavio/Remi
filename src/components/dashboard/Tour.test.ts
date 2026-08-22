@@ -125,6 +125,7 @@ describe("the tour, on screen", () => {
       const shown = host.querySelector(".tour-bubble, .tourcard");
       expect(shown, `step "${step.id}" rendered nothing at all`).toBeTruthy();
       comp.$destroy();
+      comp = undefined as unknown as Tour;
     }
   });
 
@@ -165,7 +166,6 @@ describe("the tour, on screen", () => {
 
     closeRemind();
     await settle();
-    // eslint-disable-next-line no-console
     expect(host.querySelector(".tour-bubble"), "the tour never came back").toBeTruthy();
   });
 

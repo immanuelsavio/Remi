@@ -77,6 +77,9 @@ pub async fn save_app_state(
         CasOutcome::Stale { current_rev } => {
             Ok(serde_json::json!({ "stale": true, "currentRev": current_rev }))
         }
+        CasOutcome::RefusedMalformed { reason } => {
+            Ok(serde_json::json!({ "refused": true, "reason": reason }))
+        }
     }
 }
 
@@ -355,6 +358,11 @@ pub async fn dashboard_close_listener_ready(app: AppHandle) -> Result<(), String
 /// out would be Activity Monitor / Task Manager.
 #[tauri::command]
 pub async fn quit_app(app: AppHandle) -> Result<(), String> {
+    // Mark the exit as DELIBERATE before asking for it, or the guard in
+    // `main.rs` refuses it and the app becomes unquittable.
+    if let Some(q) = app.try_state::<crate::tray::Quitting>() {
+        q.begin();
+    }
     app.exit(0);
     Ok(())
 }
@@ -547,6 +555,9 @@ pub async fn reset_and_uninstall_app(app: AppHandle, keep_history: bool) -> Resu
 
     let errors = uninstall_data(&data_folder(), &settings_path(), keep_history);
     if errors.is_empty() {
+        if let Some(q) = app.try_state::<crate::tray::Quitting>() {
+            q.begin();
+        }
         app.exit(0);
         Ok(())
     } else {
