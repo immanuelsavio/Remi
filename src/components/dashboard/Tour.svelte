@@ -128,7 +128,31 @@
     }
   }
   /** A beat can point somewhere other than the step it belongs to. */
-  $: liveAnchor = step?.ask ? undefined : (beat?.anchor ?? step?.anchor);
+  /**
+   * Where to point, best first, as a stable "a|b" key.
+   *
+   * A beat's own anchor is the preference, but it may not EXIST yet: press
+   * Next on "type a task" without typing one and the step's add-a-step box
+   * has nothing to attach to, because there is no task. The step's own
+   * anchor is the fallback, so the tour keeps walking instead of collapsing
+   * to a centred card - which is what it did, and it looked like the tour
+   * had lost its place.
+   *
+   * Joined into one string on purpose: an array literal is a new reference
+   * every recompute, and the reactive statement below would re-run the
+   * search on every store tick.
+   */
+  $: anchorKey = step?.ask ? "" : [beat?.anchor, step?.anchor].filter(Boolean).join("|");
+  /** The preferred anchor, for the upgrade check in the poll. */
+  $: wantKey = anchorKey.split("|")[0] ?? "";
+  /**
+   * Pointing at the fallback, because this beat's own control is not there.
+   *
+   * Happens when a beat is skipped past its prerequisite - Next on "type a
+   * task" without typing one leaves nothing to add a step TO. Saying so is
+   * better than an instruction aimed at a control that does not exist.
+   */
+  $: beatBlocked = !!beat?.anchor && !!anchorEl && anchorEl.dataset.tour !== beat.anchor;
 
   /**
    * A modal is open over the app - stand aside until it closes.
@@ -246,13 +270,27 @@
    * frames rather than guessing a delay means it is found the instant it is
    * there, and gives up rather than hanging if it never appears.
    */
-  async function findAnchor(key: string, token: number): Promise<HTMLElement | null> {
+  /** On screen and big enough to ring, or not really there. */
+  function usable(el: HTMLElement | null): el is HTMLElement {
+    // offsetParent is null for a display:none ancestor - present in the
+    // DOM but not on screen, which is not something to point at.
+    return !!el && el.offsetParent !== null && el.getBoundingClientRect().width > 0;
+  }
+
+  function lookup(key: string): HTMLElement | null {
+    const el = document.querySelector<HTMLElement>(`[data-tour="${key}"]`);
+    return usable(el) ? el : null;
+  }
+
+  async function findAnchor(keys: string[], token: number): Promise<HTMLElement | null> {
     for (let f = 0; f < 40; f++) {
       if (token !== findToken) return null;
-      const el = document.querySelector<HTMLElement>(`[data-tour="${key}"]`);
-      // offsetParent is null for a display:none ancestor - present in the
-      // DOM but not on screen, which is not something to point at.
-      if (el && el.offsetParent !== null && el.getBoundingClientRect().width > 0) return el;
+      // Preference order every frame, so the fallback is only taken while
+      // the better target genuinely is not there.
+      for (const key of keys) {
+        const el = lookup(key);
+        if (el) return el;
+      }
       await new Promise((r) => requestAnimationFrame(() => r(null)));
     }
     return null;
@@ -381,9 +419,9 @@
   }
 
   /** Latch onto the step's element (or give up and fall back to a card). */
-  async function attach(key: string | undefined) {
+  async function attach(keys: string) {
     const token = ++findToken;
-    if (!key) {
+    if (!keys) {
       searching = false;
       anchorEl = null;
       ring = null;
@@ -391,7 +429,7 @@
     }
     searching = true;
     anchorEl = null;
-    const el = await findAnchor(key, token);
+    const el = await findAnchor(keys.split("|"), token);
     if (token !== findToken) return;
     searching = false;
     anchorEl = el;
@@ -427,7 +465,7 @@
 
   // Re-latch whenever the step changes. `i` is in the dependency list so
   // going back to a step with the same anchor still re-runs.
-  $: if (typeof document !== "undefined") void attach(i !== null ? liveAnchor : undefined);
+  $: if (typeof document !== "undefined") void attach(i !== null ? anchorKey : "");
 
   // The first placement has to guess the bubble's height, because it is
   // computed before the bubble exists. This corrects it the moment the real
@@ -448,7 +486,17 @@
       // for the life of the window, and the tour runs for two minutes of
       // it, so the check is what keeps this from being a timer that ticks
       // forever for nothing.
-      if (i !== null && anchorEl) measure();
+      if (i === null || !anchorEl) return;
+      // The preferred target may have appeared since we settled for the
+      // fallback - add the task the beat was waiting on and its step box
+      // exists now. `anchorKey` has not changed, so nothing else would
+      // re-run the search, and the ring would sit on the wrong control for
+      // the rest of the step.
+      if (wantKey && anchorEl.dataset.tour !== wantKey) {
+        const better = lookup(wantKey);
+        if (better) anchorEl = better;
+      }
+      measure();
     }, 400);
   });
 
@@ -582,6 +630,9 @@
                 <p class="tb-cheer">✓ {lastDone.cheer}</p>
               {/if}
               <p class="tb-do">{beat.text}</p>
+              {#if beatBlocked}
+                <p class="tb-note">Not there yet - do the one before it first.</p>
+              {/if}
             {:else}
               <p class="tb-cheer">✓ {lastDone?.cheer}</p>
               <p class="tb-do">That is a whole task. Everything else is a variation on it.</p>
@@ -1000,6 +1051,11 @@
   .tour-bubble .tb-cheer {
     font-size: 12px;
     color: var(--success-ink);
+    margin: 0 0 4px;
+  }
+  .tour-bubble .tb-note {
+    font-size: 11.5px;
+    color: var(--ink-faint);
     margin: 0 0 4px;
   }
   .tour-bubble .tb-do {
