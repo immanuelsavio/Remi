@@ -53,6 +53,30 @@ Out of scope:
 - Anything requiring an attacker to already have write access to the user's
   home directory or the installed app bundle.
 
+## What the in-app updater does, and what it proves
+
+The updater resolves the release tag to its **commit SHA** and fetches
+`install.sh` from that commit. A tag is only a pointer - `git tag -f` moves
+it - so "from the tag" pinned a name rather than a file; a SHA cannot be
+made to mean something else later. If the SHA cannot be resolved, the
+update is refused rather than falling back to the tag.
+
+Be clear about what that is and is not:
+
+- It **is** immutability: the script that runs is the script that shipped
+  with the release you were shown, byte for byte.
+- It is **not** authenticity. The SHA, the archive and the checksum all
+  come from the same GitHub release, so anyone who could publish a release
+  under this repository could publish a consistent set of all three. What
+  would close that is notarisation, or a manifest signed with a key that
+  does not live in the repository. Neither exists yet; this is a beta
+  distribution model, deliberately described as one.
+
+Release builds are additionally gated: a tag whose commit is not an
+ancestor of `origin/main` is refused, and the GitHub Release is created as
+a **draft** so nothing is downloadable until a human has smoke-tested the
+ARM and Intel builds on real hardware and published it.
+
 ## What the installer does
 
 For transparency, since it is the piece that asks for the most trust:

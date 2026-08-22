@@ -159,16 +159,58 @@ fn validate_version(version: &str) -> Result<(), String> {
 /// Split out from the spawn so the command can be asserted on in a test -
 /// this string decides what gets executed on the user's machine, which is
 /// not something to leave unexamined.
-fn helper_script(pid: u32, version: &str) -> String {
+/// Resolve `v{version}` to the immutable commit SHA it points at.
+///
+/// A tag is a POINTER. `git tag -f v1.2.3 <anything> && git push --force`
+/// moves it, and the release workflow's own guard only checks the tag at
+/// the moment it is pushed - so fetching the installer "from the tag" pins
+/// a name, not a file. A commit SHA cannot be moved.
+fn resolve_tag_commit(version: &str) -> Result<String, String> {
+    let url = format!("https://api.github.com/repos/{REPO}/commits/v{version}");
+    let out = Command::new("curl")
+        .args([
+            "-fsSL",
+            "--max-time",
+            "15",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-A",
+            "remi-updater",
+            &url,
+        ])
+        .output()
+        .map_err(|e| format!("Couldn't reach GitHub to verify the update: {e}"))?;
+    if !out.status.success() {
+        return Err("Couldn't verify which commit that release was built from.".into());
+    }
+    let body = String::from_utf8_lossy(&out.stdout);
+    let sha = json_str(&body, "sha");
+    validate_sha(&sha)?;
+    Ok(sha)
+}
+
+/// A commit SHA and nothing else.
+///
+/// Interpolated into a URL inside a shell command, so it gets the same
+/// allowlist treatment as the version: 40 hex characters, or refuse.
+fn validate_sha(sha: &str) -> Result<(), String> {
+    if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(());
+    }
+    Err("Couldn't verify which commit that release was built from.".into())
+}
+
+fn helper_script(pid: u32, version: &str, sha: &str) -> String {
     // `--version` pins the exact release the user was shown, so a release
     // published between the check and the click cannot substitute itself.
     // Waiting on the PID is what lets install.sh see Remi as stopped.
     //
-    // The installer comes from the TAG, not from `main`. Pinning the
-    // release while fetching the script from a moving branch pinned only
-    // half the update: whatever was on `main` at that moment - mid-edit,
-    // mid-force-push, or worse - is what ran. A tag is immutable, so the
-    // script that installs vX.Y.Z is the script that shipped with it.
+    // The installer comes from an immutable COMMIT, not from `main` and not
+    // from the tag. Fetching from a moving branch pinned only half the
+    // update - whatever was on `main` at that moment, mid-edit or
+    // mid-force-push, is what ran - and a tag is only a pointer, which
+    // `git tag -f` moves. A commit SHA is the one name that cannot be made
+    // to mean something else later.
     //
     // It is also downloaded and only then run, rather than piped straight
     // into an interpreter: `curl | bash` starts EXECUTING a file that is
@@ -178,16 +220,17 @@ fn helper_script(pid: u32, version: &str) -> String {
     // error page, say), not a truncation check, since a truncated script
     // still begins with `#!`.
     //
-    // A tag is immutable in practice but force-pushable in principle; a
-    // commit SHA, or a checksum published with the release, would be
-    // stronger. Worth doing before this is relied on at scale.
+    // Still not authenticity: the SHA is resolved from the same GitHub
+    // release this is updating to, so it proves immutability, not that the
+    // release is genuine. Notarisation, or a manifest signed with a key
+    // that does not live in the repository, is what would.
     format!(
         "while kill -0 {pid} 2>/dev/null; do sleep 1; done; \
          sleep 1; \
          d=$(mktemp -d) || exit 1; \
          trap 'rm -rf \"$d\"' EXIT; \
          curl -fsSL -o \"$d/install.sh\" \
-           https://raw.githubusercontent.com/{REPO}/v{version}/install.sh || exit 1; \
+           https://raw.githubusercontent.com/{REPO}/{sha}/install.sh || exit 1; \
          head -n1 \"$d/install.sh\" | grep -q '^#!' || exit 1; \
          bash \"$d/install.sh\" --version {version} --launch"
     )
@@ -202,10 +245,15 @@ fn helper_script(pid: u32, version: &str) -> String {
 #[tauri::command]
 pub async fn install_update(version: String) -> Result<(), String> {
     validate_version(&version)?;
+    // Resolved BEFORE anything is spawned, and a failure refuses the
+    // update rather than quietly falling back to the movable tag: an
+    // update that cannot be pinned is one the user should decide about,
+    // with the release page in front of them.
+    let sha = resolve_tag_commit(&version)?;
     let pid = std::process::id();
     Command::new("bash")
         .arg("-c")
-        .arg(helper_script(pid, &version))
+        .arg(helper_script(pid, &version, &sha))
         .spawn()
         .map_err(|e| format!("Couldn't start the updater: {e}"))?;
     Ok(())
@@ -252,7 +300,8 @@ mod tests {
 
     #[test]
     fn the_helper_waits_for_exit_then_pins_the_version() {
-        let script = helper_script(4242, "0.2.0");
+        let sha = "a".repeat(40);
+        let script = helper_script(4242, "0.2.0", &sha);
         assert!(
             script.contains("kill -0 4242"),
             "must wait for THIS process to exit"
@@ -265,12 +314,13 @@ mod tests {
             script.contains("--launch"),
             "should come back up afterwards"
         );
-        // The installer is fetched from the TAG. Pinning the release while
-        // pulling the script from a moving branch pinned only half the
-        // update - whatever sat on `main` at that instant is what ran.
+        // The installer is fetched from an immutable COMMIT. From `main` it
+        // would be whatever sat there at that instant; from the tag it
+        // would be whatever the tag was last pointed at, which `git tag -f`
+        // decides.
         assert!(
-            script.contains("/v0.2.0/install.sh"),
-            "the installer must come from the tag, not from main: {script}"
+            script.contains(&format!("/{sha}/install.sh")),
+            "the installer must come from a commit SHA: {script}"
         );
         assert!(
             !script.contains("main/install.sh"),
@@ -309,5 +359,30 @@ mod tests {
         for good in ["0.1.0", "1.2.3", "0.2.0-beta.1", "10.0.0-rc1"] {
             assert!(validate_version(good).is_ok(), "must accept {good:?}");
         }
+    }
+
+    #[test]
+    fn a_sha_that_is_not_a_sha_is_refused() {
+        // It is interpolated into a URL inside a shell command, so it gets
+        // the same allowlist treatment as the version.
+        assert!(validate_sha(&"a".repeat(40)).is_ok());
+        assert!(validate_sha("").is_err());
+        assert!(validate_sha("main").is_err());
+        assert!(validate_sha(&"a".repeat(39)).is_err(), "too short");
+        assert!(
+            validate_sha("../../../etc/passwd; rm -rf ~").is_err(),
+            "a path traversal / command injection attempt was accepted"
+        );
+        assert!(
+            validate_sha(&format!("{}g", "a".repeat(39))).is_err(),
+            "non-hex accepted"
+        );
+    }
+
+    #[test]
+    fn the_helper_never_fetches_from_a_branch_or_a_tag() {
+        let script = helper_script(1, "1.2.3", &"b".repeat(40));
+        assert!(!script.contains("/main/"), "fetched from a moving branch");
+        assert!(!script.contains("/v1.2.3/install.sh"), "fetched from a tag");
     }
 }
