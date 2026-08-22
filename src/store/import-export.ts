@@ -9,7 +9,7 @@ import { exportSuffix, nid } from "../domain/ids";
 import { hydrate, looksLikeRemiState } from "../domain/hydration";
 import { forPersist } from "../domain/persistence-shape";
 import type { ParsedImport } from "../domain/imports";
-import { flushSave, StaleWriteError } from "./persistence";
+import { allowOverwritingMalformedOnce, flushSave, StaleWriteError } from "./persistence";
 import {
   S,
   bankOrphanSession,
@@ -119,6 +119,9 @@ export async function restoreBackup(text: string): Promise<RestoreResult> {
   applyTheme(S().mode, S().accent);
 
   try {
+    // The one write allowed over an unreadable state file: refusing here
+    // too would strand the user with a broken file and no way past it.
+    allowOverwritingMalformedOnce();
     await flushSave();
     showToast("Backup restored");
     return { ok: true };
