@@ -10,14 +10,25 @@ import {
   type NavState,
 } from "./tour-nav";
 
-/** A four-beat step in the middle of the tour. */
-const ctx = (over: Partial<NavContext> = {}): NavContext => ({
-  beats: 4,
-  autoIdx: 0,
-  nextStep: 8,
-  prevStep: 6,
-  ...over,
-});
+/**
+ * A four-beat step in the middle of the tour.
+ *
+ * `done` defaults to the contiguous prefix `autoIdx` describes - the
+ * ordinary case, where the checklist has been worked through in order.
+ * Tests that care about OUT-OF-ORDER completion pass their own.
+ */
+const ctx = (over: Partial<NavContext> = {}): NavContext => {
+  const beats = over.beats ?? 4;
+  const autoIdx = over.autoIdx ?? 0;
+  return {
+    beats,
+    autoIdx,
+    done: Array.from({ length: beats }, (_, i) => i < autoIdx),
+    nextStep: 8,
+    prevStep: 6,
+    ...over,
+  };
+};
 const nav = (over: Partial<NavState> = {}): NavState => ({
   step: 7,
   cursor: null,
@@ -123,5 +134,84 @@ describe("tour navigation", () => {
   it("progress alone never moves someone who is driving", () => {
     const driving = nav({ cursor: 1 });
     expect(reduce(ctx({ autoIdx: 3 }), driving, { type: "PROGRESS" }).state).toEqual(driving);
+  });
+});
+
+describe("beats completed OUT OF ORDER", () => {
+  // The old rule inferred "already done" from `at < autoIdx` - a contiguous
+  // prefix. A person who does the third thing themselves and then presses
+  // Next on the first leaves a hole in that prefix, and every beat past the
+  // hole reads as outstanding: Next carries them out again, and the tour
+  // adds a duplicate step, tag or reminder to their task.
+  const holed = ctx({ beats: 4, autoIdx: 1, done: [true, false, true, false] });
+
+  it("does not redo a beat that is done but sits past an outstanding one", () => {
+    const r = reduce(holed, nav({ cursor: 2 }), { type: "NEXT" });
+    expect(r.effect).toEqual({ do: "none" });
+    expect(r.state.cursor).toBe(3);
+  });
+
+  it("still does the beat that is genuinely outstanding", () => {
+    const r = reduce(holed, nav({ cursor: 1 }), { type: "NEXT" });
+    expect(r.effect).toEqual({ do: "fill", beat: 1 });
+    expect(r.state.cursor).toBe(2);
+  });
+
+  it("the last beat is done by its own control, so Next only moves the cursor", () => {
+    const r = reduce(ctx({ beats: 2, autoIdx: 0, done: [false, true] }), nav({ cursor: 1 }), {
+      type: "NEXT",
+    });
+    expect(r.effect).toEqual({ do: "none" });
+  });
+
+  it("a missing flag is treated as NOT done - it never silently skips work", () => {
+    const r = reduce(ctx({ beats: 2, autoIdx: 0, done: [] }), nav({ cursor: 0 }), { type: "NEXT" });
+    expect(r.effect).toEqual({ do: "fill", beat: 0 });
+  });
+});
+
+describe("the ends of the tour", () => {
+  it("BACK on the first visible step does nothing at all", () => {
+    const r = reduce(
+      ctx({ beats: 0, autoIdx: 0, done: [], prevStep: null }),
+      nav({ cursor: null }),
+      {
+        type: "BACK",
+      },
+    );
+    expect(r.effect).toEqual({ do: "none" });
+    expect(r.state).toEqual(nav({ cursor: null }));
+  });
+
+  it("BACK from the first BEAT of the first step still does nothing", () => {
+    const r = reduce(ctx({ autoIdx: 0, prevStep: null }), nav({ cursor: 0 }), { type: "BACK" });
+    expect(r.effect).toEqual({ do: "none" });
+    expect(r.state.cursor).toBe(0);
+  });
+
+  it("NEXT past the last step exits", () => {
+    const r = reduce(ctx({ beats: 0, autoIdx: 0, done: [], nextStep: null }), nav(), {
+      type: "NEXT",
+    });
+    expect(r.effect).toEqual({ do: "exit" });
+    expect(r.state).toEqual(INACTIVE);
+  });
+
+  it("rapid repeated NEXT walks the checklist once, one beat per press", () => {
+    // Each press moves the cursor, so pressing four times does four
+    // different beats rather than the same one four times.
+    let state = nav({ cursor: null });
+    const effects = [];
+    for (let i = 0; i < 4; i++) {
+      const r = reduce(ctx({ autoIdx: 0 }), state, { type: "NEXT" });
+      state = r.state;
+      effects.push(r.effect);
+    }
+    expect(effects).toEqual([
+      { do: "fill", beat: 0 },
+      { do: "fill", beat: 1 },
+      { do: "fill", beat: 2 },
+      { do: "fill", beat: 3 },
+    ]);
   });
 });

@@ -164,6 +164,10 @@ function contextFor(n: NavState, s: State, id: string | null): NavContext {
   return {
     beats: beats.length,
     autoIdx: outstanding(step, s, id),
+    // The actual per-beat truth, not a contiguous prefix inferred from
+    // `autoIdx`: beats can be completed out of order, and a beat wrongly
+    // read as outstanding is carried out twice.
+    done: beats.map((b) => b.done(s, id)),
     nextStep: n.step === null ? null : nextShown(n.step, 1, s),
     prevStep: n.step === null ? null : nextShown(n.step, -1, s),
   };
@@ -202,6 +206,15 @@ export const tourView = derived([nav, state, practiceId, paused], ([n, s, record
         .find((_, i) => done[at - 1 - i]) ?? null,
     progress: n.step === null ? { pos: 1, total: 1 } : tourProgress(n.step, s),
     lastStep: n.step === null || nextShown(n.step, 1, s) === null,
+    /**
+     * Is there anywhere for Back to go?
+     *
+     * False on the first visible step with the cursor at its first beat -
+     * where Back was rendered, enabled, and did nothing at all. A control
+     * that silently does nothing teaches people their input is being
+     * ignored.
+     */
+    canBack: n.step !== null && (at > 0 || ctx.prevStep !== null),
   };
 });
 

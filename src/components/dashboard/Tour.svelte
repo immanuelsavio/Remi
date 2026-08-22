@@ -335,9 +335,30 @@
    * dialog that lies about what it contains is worse than no dialog.
    */
   let focusedFor: number | null = null;
+  /** Where focus was before the card took it, so it can be handed back. */
+  let focusReturn: HTMLElement | null = null;
   $: if (mode === "card" && !v.paused && surface && v.index !== focusedFor) {
     focusedFor = v.index;
+    if (!surface.contains(document.activeElement)) {
+      focusReturn = document.activeElement as HTMLElement | null;
+    }
     void focusCard(surface);
+  }
+  /**
+   * A sheet took the screen: forget which step we focused for.
+   *
+   * The card is destroyed while the tour is paused and rebuilt when the
+   * sheet closes - on the SAME step. Keyed on the index alone, the guard
+   * above saw "already focused for this step" and left focus wherever the
+   * sheet had dropped it: outside a dialog still claiming to be modal.
+   */
+  $: if (v.paused) focusedFor = null;
+  /** The tour ended, or the card became a bubble: hand focus back. */
+  $: if ((!v.active || mode !== "card") && focusReturn) {
+    const back = focusReturn;
+    focusReturn = null;
+    focusedFor = null;
+    if (back.isConnected) back.focus();
   }
   async function focusCard(el: HTMLElement) {
     await tick();
@@ -357,10 +378,25 @@
     const focusable = surface.querySelectorAll<HTMLElement>(
       'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     );
-    if (!focusable.length) return;
+    if (!focusable.length) {
+      // Nothing to move to, so the only correct move is not to leave.
+      e.preventDefault();
+      return;
+    }
     const firstEl = focusable[0];
     const lastEl = focusable[focusable.length - 1];
-    const active = document.activeElement;
+    const active = document.activeElement as HTMLElement | null;
+    // The card surface itself is `tabindex="-1"` and is what focus lands on
+    // when a card opens, so it is NOT in the list above. Shift+Tab from
+    // there matched neither edge and walked out behind a dialog declaring
+    // `aria-modal`. Anything not in the list - the surface, or an element
+    // that has since been removed - wraps to the appropriate end.
+    const known = Array.prototype.includes.call(focusable, active);
+    if (!known) {
+      e.preventDefault();
+      (e.shiftKey ? lastEl : firstEl).focus();
+      return;
+    }
     if (e.shiftKey && active === firstEl) {
       e.preventDefault();
       lastEl.focus();
@@ -454,7 +490,9 @@
           <div class="tb-acts">
             <button class="tf-ghost sm" on:click={endTour}>Skip</button>
             <span class="tf-spacer"></span>
-            <button class="tf-ghost sm" on:click={tourBack}>Back</button>
+            {#if v.canBack}
+              <button class="tf-ghost sm" on:click={tourBack}>Back</button>
+            {/if}
             <button class="tf-next sm" class:ready={v.allBeatsDone} on:click={tourNext}>
               {v.beat ? "Next" : v.lastStep ? "Finish" : "Next"}
             </button>
@@ -724,7 +762,9 @@
             {v.lastStep ? "Done" : "Skip the tour"}
           </button>
           <span class="tf-spacer"></span>
-          <button class="tf-ghost" on:click={tourBack}>Back</button>
+          {#if v.canBack}
+            <button class="tf-ghost" on:click={tourBack}>Back</button>
+          {/if}
           <button class="tf-next" on:click={tourNext}>
             {v.lastStep ? "Finish" : "Next"}
           </button>

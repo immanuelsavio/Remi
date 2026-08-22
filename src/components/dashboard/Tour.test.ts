@@ -212,4 +212,153 @@ describe("the tour, on screen", () => {
     expect(host.textContent).toContain("add steps");
     expect(sub.dataset.tour).toBe("plan-substep");
   });
+
+  // --- the buttons, actually clicked ---------------------------------------
+  //
+  // Everything above tests what the tour DRAWS. These press the controls a
+  // person presses: every navigation regression this tour has shipped lived
+  // between the reducer and the button wired to it, and no test ever
+  // clicked either one.
+
+  /** The card/bubble button whose label matches. */
+  function button(label: string): HTMLButtonElement | null {
+    const all = [...host.querySelectorAll<HTMLButtonElement>("button")];
+    return all.find((b) => b.textContent?.trim().toLowerCase() === label.toLowerCase()) ?? null;
+  }
+
+  it("clicking Next turns the page", async () => {
+    await showStep("look");
+    const before = get(tourStep)!;
+    button("Next")!.click();
+    await settle();
+    expect(get(tourStep)).toBeGreaterThan(before);
+  });
+
+  it("clicking Back returns to the previous page", async () => {
+    await showStep("look");
+    const start = get(tourStep)!;
+    button("Next")!.click();
+    await settle();
+    button("Back")!.click();
+    await settle();
+    expect(get(tourStep)).toBe(start);
+  });
+
+  it("renders NO Back button on the first step - it would do nothing", async () => {
+    // It used to render, enabled, and silently do nothing. A control that
+    // ignores you teaches you that the app ignores you.
+    await showStep(TOUR_STEPS[0].id);
+    expect(button("Back"), "Back was rendered where it cannot go anywhere").toBeNull();
+  });
+
+  it("Back appears as soon as there is somewhere to go", async () => {
+    await showStep(TOUR_STEPS[0].id);
+    button("Next")!.click();
+    await settle();
+    expect(button("Back")).toBeTruthy();
+  });
+
+  it("rapid repeated Next clicks walk the checklist once, not once per click", async () => {
+    anchor("plan-add");
+    await showStep("plan");
+    const beats = TOUR_STEPS[indexOf("plan")].beats!.length;
+    for (let i = 0; i < beats + 2; i++) {
+      button("Next")?.click();
+      await settle();
+    }
+    // One practice task, however hard the button was pressed.
+    const mine = get(state).mains.filter((m) => !m.id.startsWith("demo-"));
+    expect(mine.length, "rapid clicking built more than one practice task").toBeLessThanOrEqual(1);
+  });
+
+  it("Back during the auto-advance hold wins - the timer does not undo it", async () => {
+    anchor("plan-add");
+    await showStep("plan");
+    const plan = indexOf("plan");
+    const beats = TOUR_STEPS[plan].beats!.length;
+    // Finish the checklist, which arms the automatic page turn.
+    for (let i = 0; i < beats; i++) {
+      button("Next")!.click();
+      await settle();
+    }
+    // ...and go back before it fires.
+    button("Back")!.click();
+    await settle();
+    const after = get(tourStep);
+    // Wait out the hold: nothing may move.
+    await new Promise((r) => setTimeout(r, 1600));
+    await settle();
+    expect(get(tourStep), "the pending timer undid a deliberate Back").toBe(after);
+  });
+
+  it("Skip ends the tour and puts the real day back", async () => {
+    await showStep("look");
+    const skip = button("Skip") ?? button("Skip tour");
+    expect(skip, "no Skip control").toBeTruthy();
+    skip!.click();
+    await settle();
+    expect(get(tourStep)).toBeNull();
+    expect(get(state).demoRestore).toBeNull();
+  });
+
+  it("puts focus back INTO the card when a sheet closes on the same step", async () => {
+    // `focusedFor` remembered only the step index. The card is destroyed
+    // while a sheet is up and rebuilt on the SAME step when it closes, so
+    // the guard said "already focused for this step" and left focus
+    // wherever the sheet had dropped it - outside a dialog still claiming
+    // to be modal.
+    await showStep("look");
+    const card = host.querySelector<HTMLElement>(".tourcard")!;
+    expect(card.contains(document.activeElement)).toBe(true);
+
+    openRemind({ kind: "main", id: "demo-1", title: "Draft the quarterly update" });
+    await settle();
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.focus();
+
+    closeRemind();
+    await settle();
+    const again = host.querySelector<HTMLElement>(".tourcard")!;
+    expect(again.contains(document.activeElement), "focus never came back to the card").toBe(true);
+  });
+
+  it("Shift+Tab from the card surface wraps to the last control, not out of the dialog", async () => {
+    // The surface is `tabindex="-1"` and is what focus lands on when a card
+    // opens, so it matched neither edge of the trap and Shift+Tab walked
+    // straight out behind an `aria-modal` dialog.
+    await showStep("look");
+    const card = host.querySelector<HTMLElement>(".tourcard")!;
+    card.focus();
+    const focusable = [...card.querySelectorAll<HTMLElement>("button, a[href], input, textarea")];
+    expect(focusable.length).toBeGreaterThan(0);
+
+    card.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }));
+    await settle();
+    expect(card.contains(document.activeElement), "Shift+Tab escaped the modal card").toBe(true);
+    expect(document.activeElement).toBe(focusable[focusable.length - 1]);
+  });
+
+  it("Tab from the last control wraps to the first", async () => {
+    await showStep("look");
+    const card = host.querySelector<HTMLElement>(".tourcard")!;
+    const focusable = [...card.querySelectorAll<HTMLElement>("button, a[href], input, textarea")];
+    const last = focusable[focusable.length - 1];
+    last.focus();
+    card.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    await settle();
+    expect(document.activeElement).toBe(focusable[0]);
+  });
+
+  it("hands focus back to the app when the tour ends", async () => {
+    const opener = document.createElement("button");
+    document.body.appendChild(opener);
+    opener.focus();
+    await showStep("look");
+    expect(host.querySelector(".tourcard")!.contains(document.activeElement)).toBe(true);
+
+    endTour();
+    await settle();
+    expect(document.activeElement, "focus was left on a destroyed card").toBe(opener);
+  });
 });

@@ -29,6 +29,17 @@ export interface NavContext {
   beats: number;
   /** First beat not yet done - equal to `beats` when the list is finished. */
   autoIdx: number;
+  /**
+   * Whether each beat is done, in order.
+   *
+   * "Already done" used to be inferred as `at < autoIdx` - a contiguous
+   * prefix. Beats can be completed out of order (the user does the third
+   * thing themselves, then presses Next on the first), and for those the
+   * inference is wrong in the expensive direction: it says "not done" for a
+   * beat that is, so Next carries it out a second time and the tour adds a
+   * duplicate step, tag or reminder.
+   */
+  done: boolean[];
   /** Visible step to move to, or null at that end of the tour. */
   nextStep: number | null;
   prevStep: number | null;
@@ -119,9 +130,9 @@ export function reduce(ctx: NavContext, nav: NavState, ev: NavEvent): NavResult 
       const at = beatIndex(ctx, nav);
       // Still something on the checklist: do THAT, and stay on the page.
       if (at < ctx.beats) {
-        // Already done - stepped back onto it - so just move along rather
-        // than doing it twice.
-        const alreadyDone = at < ctx.autoIdx;
+        // Already done - stepped back onto it, or done out of order by
+        // hand - so just move along rather than doing it twice.
+        const alreadyDone = ctx.done[at] === true;
         return stay(
           { ...nav, cursor: Math.min(ctx.beats, at + 1) },
           alreadyDone ? { do: "none" } : { do: "fill", beat: at },
