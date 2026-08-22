@@ -23,7 +23,7 @@ import { daySnapshot, enrichSnapshot, carrySnapshot } from "../domain/tasks";
 import { freshDay } from "../domain/defaults";
 import { nid } from "../domain/ids";
 import { todayISO } from "../domain/dates";
-import type { DashTab, DayRecord, Main, State, Sub } from "../domain/types";
+import type { DashTab, DayRecord, Main, State, Sub, WellnessKey } from "../domain/types";
 
 export const state = writable<State>(freshDay());
 
@@ -47,6 +47,16 @@ export interface Toast {
   action?: () => void;
 }
 export const toast = writable<Toast | null>(null);
+
+/**
+ * The wellness card currently on screen, or null.
+ *
+ * Lives here rather than in `clock.ts` because two action modules need it -
+ * the clock raises it, and the tour's preview both raises and cancels one -
+ * and action modules may only depend on this one. Window-local: it is a
+ * thing being shown to a person, not a fact about their day.
+ */
+export const wellnessNudge = writable<WellnessKey | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**

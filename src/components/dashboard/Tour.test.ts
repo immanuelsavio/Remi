@@ -24,7 +24,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 import Tour from "./Tour.svelte";
-import { tourStep } from "../../store";
+import { endTour, goToStep, startTour, tourAnchor } from "../../store";
 // The facade exposes `app` read-only, deliberately. A test needs to place
 // the world, so it goes through the store's own setter.
 import { setState, state } from "../../store/state";
@@ -39,6 +39,9 @@ function anchor(key: string, top = 100): HTMLElement {
   const input = document.createElement("input");
   el.appendChild(input);
   document.body.appendChild(el);
+  // The tour reads a REGISTRY now, not the DOM - elements put themselves in
+  // it with the `tourAnchor` action, so a stub has to do the same.
+  cleanups.push(tourAnchor(el, key).destroy);
   Object.defineProperty(el, "offsetParent", { get: () => document.body });
   el.getBoundingClientRect = () =>
     ({
@@ -58,10 +61,12 @@ const indexOf = (id: string) => TOUR_STEPS.findIndex((s) => s.id === id);
 
 let host: HTMLElement;
 let comp: Tour;
+let cleanups: (() => void)[] = [];
 
 /** Mount the tour sitting on one step, with the DOM it expects. */
 async function showStep(id: string) {
-  tourStep.set(indexOf(id));
+  startTour();
+  goToStep(indexOf(id));
   comp = new Tour({ target: host });
   // The anchor search polls animation frames before it settles.
   for (let f = 0; f < 8; f++) {
@@ -71,6 +76,8 @@ async function showStep(id: string) {
 }
 
 beforeEach(() => {
+  cleanups.forEach((fn) => fn());
+  cleanups = [];
   document.body.innerHTML = "";
   host = document.createElement("div");
   document.body.appendChild(host);
@@ -80,7 +87,9 @@ beforeEach(() => {
 
 afterEach(() => {
   comp?.$destroy();
-  tourStep.set(null);
+  cleanups.forEach((fn) => fn());
+  cleanups = [];
+  endTour();
 });
 
 describe("the tour, on screen", () => {

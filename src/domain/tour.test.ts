@@ -194,7 +194,7 @@ describe("the guided tour script", () => {
     const plan = TOUR_STEPS.find((s) => s.id === "plan");
     const demoOnly = { ...freshDay(), mains: demoMains(Date.now()) };
     for (const b of plan?.beats ?? []) {
-      expect(b.done(demoOnly)).toBe(false);
+      expect(b.done(demoOnly, null)).toBe(false);
     }
   });
 
@@ -213,9 +213,10 @@ describe("the guided tour script", () => {
 
     const marked = new Set<string>();
     for (const src of Object.values(sources)) {
-      for (const m of src.matchAll(/data-tour="([^"{]+)"/g)) marked.add(m[1]);
-      // Dynamic forms (`data-tour={mine ? "plan-tag" : undefined}`) hide the
-      // name inside the expression, so take those spellings too.
+      // `use:tourAnchor={...}` - the name may be a literal or hidden inside
+      // a conditional, so take every anchor-shaped string in a file that
+      // uses the action at all.
+      if (!src.includes("tourAnchor")) continue;
       for (const m of src.matchAll(/"((?:plan|today|cal|stats)-[a-z]+)"/g)) marked.add(m[1]);
     }
 
@@ -234,7 +235,7 @@ describe("the guided tour script", () => {
     const plan = TOUR_STEPS.find((s) => s.id === "plan");
     const typing = (plan?.beats ?? []).filter((b) => b.id !== "remind");
     expect(typing.length).toBeGreaterThan(0);
-    for (const b of typing) expect(b.fill?.trim()).toBeTruthy();
+    for (const b of typing) expect(b.fill?.kind).toBeTruthy();
   });
 
   it("only lets a beat without its own anchor be the first one", () => {

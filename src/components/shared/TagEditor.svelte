@@ -6,14 +6,14 @@
    * is entirely in reusing it - a project you label three different ways
    * cannot be reported on.
    */
-  import { addTag, removeTag } from "../../store";
+  import { addTag, removeTag, tourAnchor } from "../../store";
   import { parseTags } from "../../view";
 
   export let mainId: string;
   export let tags: string[];
   /** Every tag already in use, for the datalist. */
   export let suggestions: string[] = [];
-  /** `data-tour` value, so the guided tour can walk to this row. */
+  /** Registers this row as the tour's target, when a caller names one. */
   export let tourId: string | undefined = undefined;
 
   let draft = "";
@@ -26,7 +26,7 @@
   }
 </script>
 
-<div class="tagrow" data-tour={tourId}>
+<div class="tagrow" use:tourAnchor={tourId}>
   {#each tags as t (t)}
     <span class="tag">
       #{t}

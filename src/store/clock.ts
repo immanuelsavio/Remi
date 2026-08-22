@@ -19,6 +19,7 @@ import { get, writable } from "svelte/store";
 import { dueReminders } from "../domain/reminders";
 import { todayISO } from "../domain/dates";
 import type { WellnessKey } from "../domain/types";
+import { WELLNESS_COPY, wellnessCopy } from "../domain/wellness";
 import { autoBackup, flushSave, showSaveError } from "./persistence";
 import {
   S,
@@ -29,10 +30,14 @@ import {
   rolloverIfNewDay,
   setState,
   showToast,
+  wellnessNudge,
 } from "./state";
 
 /** The wellness nudge currently on screen (at most one). */
-export const wellnessNudge = writable<WellnessKey | null>(null);
+// Re-exported: it lives in `state.ts` so the tour can cancel a preview
+// without one action module importing another.
+export { wellnessNudge };
+export { wellnessCopy };
 
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 /** How often a running session is checkpointed to disk. */
@@ -228,18 +233,6 @@ function checkReminders(now: number): void {
   );
 }
 
-const WELLNESS_COPY: Record<WellnessKey, { icon: string; title: string; msg: string }> = {
-  water: { icon: "💧", title: "Water break", msg: "Take a sip of water." },
-  stand: { icon: "🧍", title: "Stand up", msg: "Stand and stretch for a moment." },
-  walk: { icon: "🚶", title: "Take a walk", msg: "A short walk resets your focus." },
-  lunch: { icon: "🍽️", title: "Lunch time", msg: "Have you eaten? Step away for lunch." },
-  breakr: { icon: "☕", title: "Take a break", msg: "You've been at it a while, take a breather." },
-};
-
-export function wellnessCopy(k: WellnessKey) {
-  return WELLNESS_COPY[k];
-}
-
 /** Opt-in, one at a time, never during a break, and never touches the clock. */
 function checkWellness(now: number): void {
   const s = S();
@@ -288,37 +281,6 @@ function fireWellness(key: WellnessKey, now: number): void {
  * card. `nativeNotify` already swallows a refusal, so a denied permission
  * leaves the in-app nudge doing its job and nothing looks broken.
  */
-let previewTimer: ReturnType<typeof setTimeout> | null = null;
-
-export function previewNotifications(): void {
-  // One sequence at a time. Pressing the button twice used to queue a
-  // second delayed pair on top of the first.
-  cancelNotificationPreview();
-  void nativeNotify("Draft the quarterly update", "This is what a deadline looks like.");
-  // Staggered so they do not stack into one indistinguishable pile.
-  previewTimer = setTimeout(() => {
-    previewTimer = null;
-    const c = WELLNESS_COPY.water;
-    void nativeNotify(c.title, c.msg);
-    wellnessNudge.set("water");
-  }, 1400);
-}
-
-/**
- * Drop a preview that has not fired yet, and any card it already raised.
- *
- * Leaving the tour is the obvious case: a wellness card appearing a second
- * later, over an app that is no longer explaining anything, is a nudge the
- * user never enabled.
- */
-export function cancelNotificationPreview(): void {
-  if (previewTimer) {
-    clearTimeout(previewTimer);
-    previewTimer = null;
-  }
-  if (get(wellnessNudge) === "water") wellnessNudge.set(null);
-}
-
 export function dismissWellness(): void {
   wellnessNudge.set(null);
 }

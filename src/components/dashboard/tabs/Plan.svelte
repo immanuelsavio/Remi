@@ -26,6 +26,7 @@
     setSubTitle,
     startDay,
     toggleShowSubs,
+    tourAnchor,
   } from "../../../store";
   import { allTags, fmt, fmtEst, mainTotal, nowMs } from "../../../view";
   import { isDemoId } from "../../../domain/demo";
@@ -135,7 +136,7 @@
          already have all three, so ringing one would point at an answer
          instead of the work. -->
     {@const mine = m.id === tourTaskId}
-    <div class="main-input-row" data-tour={mine ? "plan-mine" : undefined}>
+    <div class="main-input-row" use:tourAnchor={mine ? "plan-mine" : undefined}>
       <div class="idx">{i + 1}</div>
       <div class="col">
         <div style="display:flex; align-items:center; gap:7px;">
@@ -231,7 +232,7 @@
             {/each}
             <input
               class="subinput"
-              data-tour={mine ? "plan-substep" : undefined}
+              use:tourAnchor={mine ? "plan-substep" : undefined}
               placeholder="＋ add a step…"
               autocomplete="off"
               bind:value={stepDrafts[m.id]}
@@ -242,7 +243,7 @@
         {:else}
           <button
             class="addsub-link"
-            data-tour={mine ? "plan-substep" : undefined}
+            use:tourAnchor={mine ? "plan-substep" : undefined}
             on:click={() => toggleShowSubs(m.id)}
           >
             ＋ add steps (optional)
@@ -258,7 +259,7 @@
   <!-- The always-present trailing box: type, Enter, keep going.
        `data-tour` is what the guided tour walks Remi over to - see
        `domain/tour.ts`. Moving this row means moving the attribute with it. -->
-  <div class="main-input-row" data-tour="plan-add">
+  <div class="main-input-row" use:tourAnchor={"plan-add"}>
     <div class="idx">{s.mains.length + 1}</div>
     <div class="col">
       <input
