@@ -49,10 +49,11 @@
     tourNext,
     tourStep,
     remindTarget,
+    setRemind,
   } from "../../store";
   import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
   import { ACCENTS, clockLabel } from "../../view";
-  import { stepAt, tourProgress } from "../../domain/tour";
+  import { ownTask, stepAt, tourProgress } from "../../domain/tour";
   import type { TourBeat } from "../../domain/tour";
   import { COSTUMES } from "../../domain/types";
   import Mascot from "../shared/Mascot.svelte";
@@ -94,12 +95,20 @@
    * one, and only turns the page once the list is finished or skipped
    * past. Reset on every step change.
    */
-  let cursor = 0;
+  let cursor: number | null = null;
   $: if (i !== null) {
     void i;
-    cursor = 0;
+    cursor = null;
   }
-  $: beatIdx = Math.min(beats.length, Math.max(cursor, autoIdx));
+  // Doing something re-syncs the checklist to what is actually outstanding,
+  // so completing a beat always shows the next one rather than leaving the
+  // bubble wherever Back last pointed it.
+  let seenAuto = -1;
+  $: if (autoIdx !== seenAuto) {
+    seenAuto = autoIdx;
+    cursor = null;
+  }
+  $: beatIdx = Math.min(beats.length, cursor ?? autoIdx);
   $: beat = beats[beatIdx] ?? null;
   /** Every beat genuinely DONE - not merely skipped past. */
   $: allBeatsDone = beats.length > 0 && autoIdx >= beats.length;
@@ -459,8 +468,35 @@
   function handOverFocus(el: HTMLElement) {
     if (!beats.length) return;
     const field = el instanceof HTMLInputElement ? el : el.querySelector<HTMLInputElement>("input");
-    if (field) field.focus();
-    else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    if (!field) {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      return;
+    }
+    field.focus();
+    seedField(field);
+  }
+
+  /**
+   * Put the beat's example into an empty box, and select it.
+   *
+   * Selected rather than merely typed in: the first keystroke replaces the
+   * whole thing, so it reads as a suggestion rather than something to
+   * delete first. Only ever into an EMPTY field - overwriting what somebody
+   * has already typed to make a demo tidier would be indefensible.
+   *
+   * Assigning `.value` bypasses Svelte's `bind:value`, so the input event is
+   * dispatched by hand; without it the component's own draft stays empty and
+   * the commit on blur has nothing to save.
+   */
+  function seedField(field: HTMLInputElement) {
+    const example = beat?.fill;
+    // Never onto a beat already done. Back can land on a finished beat with
+    // an empty box beside it, and seeding there would have Next make a
+    // SECOND task called "Task 1" - the runaway this was meant to end.
+    if (!example || beat?.done(s) || field.value.trim()) return;
+    field.value = example;
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    field.select();
   }
 
   // Re-latch whenever the step changes. `i` is in the dependency list so
@@ -529,6 +565,50 @@
    * on. Escape leaves an app field alone too - there it usually means
    * "cancel what I am typing", not "abandon the tour".
    */
+  /**
+   * Next: do the outstanding beat, then move on.
+   *
+   * Committing what is in the box - the default the tour seeded, or
+   * whatever was typed over it - is what makes Next mean the same thing on
+   * every beat. Blurring is the commit: the app's own inputs already save
+   * on blur, so this goes through the same path a person leaving the field
+   * would, rather than a second write path that could drift from it.
+   */
+  function onNext() {
+    if (!beat) {
+      tourNext();
+      return;
+    }
+    // Stepped back onto something already done: just move along. Committing
+    // again would duplicate it.
+    if (beat.done(s)) {
+      cursor = beatIdx + 1;
+      return;
+    }
+    const el = document.activeElement;
+    if (el instanceof HTMLInputElement && el.value.trim()) {
+      el.blur();
+      return; // the commit advances `autoIdx`, which moves the checklist on
+    }
+    if (beat.id === "remind") {
+      const own = ownTask(s);
+      // The one beat whose control is a sheet rather than a field. Half an
+      // hour is a plausible default and it is trivially changeable.
+      if (own) setRemind({ kind: "main", id: own.id }, "in", 30);
+      return;
+    }
+    cursor = beatIdx + 1;
+  }
+
+  /** Back walks the checklist before it leaves the page. */
+  function onBack() {
+    if (beatIdx > 0) {
+      cursor = beatIdx - 1;
+      return;
+    }
+    tourBack();
+  }
+
   function onKey(e: KeyboardEvent) {
     if (i === null) return;
     const el = e.target as HTMLElement | null;
@@ -645,14 +725,10 @@
           <div class="tb-acts">
             <button class="tf-ghost sm" on:click={endTour}>Skip</button>
             <span class="tf-spacer"></span>
-            {#if i > 0}
-              <button class="tf-ghost sm" on:click={tourBack}>Back</button>
+            {#if i > 0 || beatIdx > 0}
+              <button class="tf-ghost sm" on:click={onBack}>Back</button>
             {/if}
-            <button
-              class="tf-next sm"
-              class:ready={allBeatsDone}
-              on:click={() => (beat ? (cursor = beatIdx + 1) : tourNext())}
-            >
+            <button class="tf-next sm" class:ready={allBeatsDone} on:click={onNext}>
               {beat ? "Next" : lastStep ? "Finish" : "Next"}
             </button>
           </div>

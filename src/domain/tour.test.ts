@@ -208,6 +208,16 @@ describe("the guided tour script", () => {
     }
   });
 
+  it("gives every typing beat an example Next can commit", () => {
+    // Next has to mean the same thing on every beat. On the ones that want
+    // input it commits what is in the box, so there has to be something in
+    // the box for someone who would rather watch than type.
+    const plan = TOUR_STEPS.find((s) => s.id === "plan");
+    const typing = (plan?.beats ?? []).filter((b) => b.id !== "remind");
+    expect(typing.length).toBeGreaterThan(0);
+    for (const b of typing) expect(b.fill?.trim()).toBeTruthy();
+  });
+
   it("clamps an out-of-range index instead of returning undefined", () => {
     expect(stepAt(-5)).toBe(TOUR_STEPS[0]);
     expect(stepAt(9999)).toBe(TOUR_STEPS[TOUR_LENGTH - 1]);

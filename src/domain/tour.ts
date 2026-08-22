@@ -54,6 +54,19 @@ export interface TourBeat {
   done: (s: State) => boolean;
   /** Walk to a different element for this beat than the step's own. */
   anchor?: string;
+  /**
+   * What Next fills in for someone who would rather watch than type.
+   *
+   * Seeded into the beat's own input the moment the tour points at it, and
+   * selected, so typing replaces it - but pressing Next straight away
+   * still produces a real task with a real name rather than leaving the
+   * checklist stuck on a box nobody filled. The alternative was Next doing
+   * nothing visible on the beats that need input, which reads as broken.
+   *
+   * Data, not a callback: `domain` stays pure, and the component decides
+   * how "fill an input" is actually done.
+   */
+  fill?: string;
 }
 
 /**
@@ -202,12 +215,14 @@ export const TOUR_STEPS: TourStep[] = [
     beats: [
       {
         id: "task",
+        fill: "Task 1",
         text: "Type a task in the box below and press Enter.",
         cheer: "That's a task.",
         done: (s) => !!ownTask(s),
       },
       {
         id: "step",
+        fill: "First step",
         // The "add steps" link and the step box it opens answer to the
         // same name, so this points at the real way in either way. The ⋔
         // toggle this used to name is the TODAY tab's control, not this
@@ -219,6 +234,7 @@ export const TOUR_STEPS: TourStep[] = [
       },
       {
         id: "tag",
+        fill: "example",
         anchor: "plan-tag",
         text: "Give it a tag - a project, or a kind of work.",
         cheer: "Tags are what let you pull a report for one client later.",
