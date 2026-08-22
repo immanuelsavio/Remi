@@ -8,7 +8,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { applyTheme } from "../domain/theme";
 import { hydrate } from "../domain/hydration";
-import { S, state } from "./state";
+import { keepLocalView, S, state } from "./state";
 import { windowId } from "./persistence";
 
 let unlistenState: UnlistenFn | null = null;
@@ -58,10 +58,7 @@ export async function reloadFromDisk(): Promise<void> {
       next.dayNum === cur.dayNum &&
       next.awaitingStart === cur.awaitingStart;
     if (sameDay) {
-      next.phase = cur.phase;
-      next.overlay = cur.overlay;
-      next.subsOpen = cur.subsOpen;
-      next.ciStage = cur.ciStage;
+      keepLocalView(next, cur);
     }
     state.set(next);
     applyTheme(next.mode, next.accent);

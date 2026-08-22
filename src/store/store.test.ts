@@ -123,7 +123,7 @@ import { todayISO } from "../domain/dates";
 import { isDemoId } from "../domain/demo";
 import { TOUR_STEPS } from "../domain/tour";
 import { forPersist } from "../domain/persistence-shape";
-import { rolloverIfNewDay, toast } from "./state";
+import { keepLocalView, rolloverIfNewDay, toast } from "./state";
 import type { State } from "../domain/types";
 import {
   S,
@@ -1932,6 +1932,50 @@ describe("uninstalling but keeping history", () => {
     expect(s.userName).toBe("Sam");
     expect(s.trainerOn).toBe(true);
     expect("history" in s).toBe(true);
+  });
+});
+
+describe("merging a reload with what this window is looking at", () => {
+  const view = (over: Partial<State> = {}) => ({ ...freshDay(), ...over }) as State;
+
+  it("lets the CLOCK decide the phase, not the window", () => {
+    // The bug: start a task in the dashboard and disk gets phase "active".
+    // The popover reloads, re-imposes its own "today", and now holds a
+    // running session on a screen that says nothing is running - then its
+    // next checkpoint WRITES that contradiction back over the truth.
+    const fromDisk = view({ phase: "active", activeMainId: "m1", startedAt: 1000 });
+    const thisWindow = view({ phase: "today" });
+    keepLocalView(fromDisk, thisWindow);
+    expect(fromDisk.phase).toBe("active");
+  });
+
+  it("heals a file that already disagrees with itself", () => {
+    const fromDisk = view({ phase: "today", activeMainId: "m1", startedAt: 1000 });
+    keepLocalView(fromDisk, view({ phase: "today" }));
+    expect(fromDisk.phase).toBe("active");
+  });
+
+  it("drops a stale 'active' when the clock has stopped", () => {
+    const fromDisk = view({ phase: "today", activeMainId: null, startedAt: 0 });
+    keepLocalView(fromDisk, view({ phase: "active" }));
+    expect(fromDisk.phase).toBe("today");
+  });
+
+  it("still keeps where the window is when nothing contradicts it", () => {
+    // The reason the preservation exists at all: the popover sitting on its
+    // task list is no business of the dashboard's.
+    const fromDisk = view({ phase: "today", activeMainId: null, startedAt: 0 });
+    keepLocalView(fromDisk, view({ phase: "startday", subsOpen: true }));
+    expect(fromDisk.phase).toBe("startday");
+    expect(fromDisk.subsOpen).toBe(true);
+  });
+
+  it("never pulls a window out of recovery", () => {
+    // Recovery is not a view of the day - it is "this window could not read
+    // your data". Nothing off disk should overrule that.
+    const fromDisk = view({ phase: "active", activeMainId: "m1", startedAt: 1000 });
+    keepLocalView(fromDisk, view({ phase: "recovery" }));
+    expect(fromDisk.phase).toBe("recovery");
   });
 });
 
