@@ -100,6 +100,7 @@ export function freshDay(dayNum = 1, carry: CarrySnapshot[] = []): State {
     metrics: { days: {}, errors: [] },
     savedAt: 0,
     overlay: null,
+    tourSearched: false,
     switchReason: "",
     subsOpen: false,
     ciStage: 0,

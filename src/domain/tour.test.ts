@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { nextShown, stepAt, stepShown, TOUR_LENGTH, TOUR_STEPS, tourProgress } from "./tour";
 import { freshDay } from "./defaults";
+import { demoMains } from "./demo";
 
 describe("the guided tour script", () => {
   it("covers the features someone has to be shown", () => {
@@ -111,7 +112,7 @@ describe("the guided tour script", () => {
       if (s.ask) expect(s.anchor).toBeUndefined();
     }
     const walking = TOUR_STEPS.filter((s) => s.anchor).map((s) => s.id);
-    expect(walking).toEqual(["plan", "work", "endday", "calendar", "evidence"]);
+    expect(walking).toEqual(["plan", "work", "endday", "calendar", "search", "evidence"]);
   });
 
   it("drops the pages about the mouse when there is no mouse", () => {
@@ -149,6 +150,33 @@ describe("the guided tour script", () => {
     const p = tourProgress(last, off);
     expect(p.total).toBe(TOUR_LENGTH - 1);
     expect(p.pos).toBe(p.total);
+  });
+
+  it("makes the doing steps DOING, not reading", () => {
+    // The whole reason the plan step has beats: "add a task, a step, a tag
+    // and a deadline" as one paragraph is four things to hold at once.
+    const plan = TOUR_STEPS.find((s) => s.id === "plan");
+    expect(plan?.beats?.map((b) => b.id)).toEqual(["task", "step", "tag", "remind"]);
+    for (const s of TOUR_STEPS) {
+      for (const b of s.beats ?? []) {
+        // Every beat must be able to tell it is finished, or the tour
+        // strands the user on an instruction it cannot acknowledge.
+        expect(typeof b.done).toBe("function");
+        expect(b.text.trim().length).toBeGreaterThan(0);
+        expect(b.cheer.trim().length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("reads the beats off real state, not off the demo tasks", () => {
+    // The demo tasks already carry steps, tags and a title, so a beat that
+    // did not look past them would read as done before the user typed
+    // anything - and the tour would skip the thing it exists to teach.
+    const plan = TOUR_STEPS.find((s) => s.id === "plan");
+    const demoOnly = { ...freshDay(), mains: demoMains(Date.now()) };
+    for (const b of plan?.beats ?? []) {
+      expect(b.done(demoOnly)).toBe(false);
+    }
   });
 
   it("clamps an out-of-range index instead of returning undefined", () => {

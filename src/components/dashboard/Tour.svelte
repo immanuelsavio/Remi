@@ -40,6 +40,7 @@
     setFullName,
     setUserName,
     toggleWellness,
+    previewNotifications,
     setWellnessEvery,
     setWellnessHour,
     wellnessCopy,
@@ -50,6 +51,7 @@
   import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
   import { ACCENTS, clockLabel } from "../../view";
   import { stepAt, tourProgress } from "../../domain/tour";
+  import type { TourBeat } from "../../domain/tour";
   import { COSTUMES } from "../../domain/types";
   import Mascot from "../shared/Mascot.svelte";
 
@@ -65,6 +67,23 @@
    */
   $: prog = i === null ? { pos: 1, total: 1 } : tourProgress(i, s);
   $: lastStep = prog.pos === prog.total;
+
+  // ---- beats -------------------------------------------------------------
+  /**
+   * The step's checklist, and which item is being asked for right now.
+   *
+   * `done` is a pure read of state, so this recomputes itself whenever the
+   * user actually does something - no events to wire, and it cannot claim
+   * a beat is finished when the app disagrees.
+   */
+  $: beats = (step?.beats ?? []) as TourBeat[];
+  $: doneCount = beats.filter((b) => b.done(s)).length;
+  $: beat = beats.find((b) => !b.done(s)) ?? null;
+  $: allBeatsDone = beats.length > 0 && !beat;
+  /** The last beat finished, so the acknowledgement has something to say. */
+  $: lastDone = doneCount > 0 ? beats[doneCount - 1] : null;
+  /** A beat can point somewhere other than the step it belongs to. */
+  $: liveAnchor = step?.ask ? undefined : (beat?.anchor ?? step?.anchor);
   $: first = !s.tourSeen;
 
   /** A Svelte template cannot parse a TS `as` cast, so narrow here. */
@@ -279,8 +298,7 @@
 
   // Re-latch whenever the step changes. `i` is in the dependency list so
   // going back to a step with the same anchor still re-runs.
-  $: if (typeof document !== "undefined")
-    void attach(i !== null && step && !step.ask ? step.anchor : undefined);
+  $: if (typeof document !== "undefined") void attach(i !== null ? liveAnchor : undefined);
 
   // The first placement has to guess the bubble's height, because it is
   // computed before the bubble exists. This corrects it the moment the real
@@ -403,6 +421,29 @@
           {#each step.body as para (para)}
             <p>{para}</p>
           {/each}
+
+          {#if beats.length}
+            <!-- ONE instruction at a time. The list of ticks says how far
+                 through you are without making you read four things. -->
+            <div class="tb-beats">
+              <span class="tb-dots" aria-hidden="true">
+                {#each beats as b (b.id)}
+                  <i class:on={b.done(s)}></i>
+                {/each}
+              </span>
+              <span class="tb-count">{doneCount} of {beats.length}</span>
+            </div>
+            {#if beat}
+              {#if lastDone}
+                <p class="tb-cheer">✓ {lastDone.cheer}</p>
+              {/if}
+              <p class="tb-do">{beat.text}</p>
+            {:else}
+              <p class="tb-cheer">✓ {lastDone?.cheer}</p>
+              <p class="tb-do">That is a whole task. Everything else is a variation on it.</p>
+            {/if}
+          {/if}
+
           {#if step.aside}
             <p class="tf-aside">{step.aside}</p>
           {/if}
@@ -412,7 +453,7 @@
             {#if i > 0}
               <button class="tf-ghost sm" on:click={tourBack}>Back</button>
             {/if}
-            <button class="tf-next sm" on:click={tourNext}>
+            <button class="tf-next sm" class:ready={allBeatsDone} on:click={tourNext}>
               {lastStep ? "Finish" : "Next"}
             </button>
           </div>
@@ -618,6 +659,17 @@
                   </div>
                 {/each}
               </div>
+            {:else if step.ask === "notify"}
+              <div class="tf-ask">
+                <button class="tf-send" on:click={previewNotifications}>
+                  Send me a deadline and a water nudge
+                </button>
+                <p class="tf-note">
+                  Two real notifications, a second apart - the kind a deadline sends, then the kind
+                  a wellness nudge sends. The second also shows the in-app card, since that one
+                  arrives both ways.
+                </p>
+              </div>
             {:else if step.ask === "prefs"}
               <div class="tf-ask tf-prefs">
                 {#each PREFS as pref (pref.key)}
@@ -756,6 +808,63 @@
     line-height: 1.55;
     color: var(--ink-soft);
     margin: 0 0 8px;
+  }
+  /* The checklist: a row of ticks, then the ONE thing to do next. */
+  .tb-beats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0 6px;
+  }
+  .tb-dots {
+    display: flex;
+    gap: 4px;
+  }
+  .tb-dots i {
+    width: 18px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    transition: background 200ms ease;
+  }
+  .tb-dots i.on {
+    background: var(--accent);
+  }
+  .tb-count {
+    font-family: var(--font-num);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .tour-bubble .tb-cheer {
+    font-size: 12px;
+    color: var(--success-ink);
+    margin: 0 0 4px;
+  }
+  .tour-bubble .tb-do {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0 0 4px;
+  }
+  /* Once every beat is done, Next is the obvious thing to press. */
+  .tf-next.ready {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .tf-send {
+    width: 100%;
+    padding: 11px 13px;
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tf-send:hover {
+    filter: brightness(1.06);
   }
   .tb-acts {
     display: flex;

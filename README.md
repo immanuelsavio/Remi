@@ -11,6 +11,11 @@
 
 </div>
 
+> **macOS only, for now.** Remi is developed and tested on macOS 10.15+, and that is the
+> only platform with published builds. The Windows code paths compile but have **never been
+> run** — no builds are published and nothing there is tested. Linux is unexplored. See
+> [Platform support](#platform-support).
+
 ---
 
 ## What Remi is
@@ -286,10 +291,14 @@ There are invariants here that have broken real user data before. **Read
 
 ### Platform support
 
-macOS 10.15+ is what ships today: the installer, the release artifacts and the manual test
-checklist are all macOS. Windows code paths exist and compile (including an atomic-replace
-implementation for state writes), but there are **no published Windows builds yet** and it is
-untested. Linux is possible via Tauri but unexplored.
+**macOS 10.15+ is the only platform Remi has actually been run on.** The installer, the
+release artifacts, the manual smoke-test checklist and every hour of real use are macOS.
+
+Windows code paths exist and compile — including an atomic-replace implementation for state
+writes — but nothing there has been executed, let alone tested: no published builds, no
+smoke test, no verification that the tray, the popover overlay or the notification path
+behave at all. Treat the Windows target as unfinished source, not as a supported platform.
+Linux is possible via Tauri but unexplored.
 
 ---
 

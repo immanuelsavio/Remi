@@ -641,6 +641,16 @@ export interface State {
 
   // ---- transient UI (stripped before persisting) ----
   overlay?: Overlay;
+  /**
+   * The user has run a search on the Calendar at least once this session.
+   *
+   * Exists so the tour's "find it again" beat can tell that the search was
+   * actually used. Transient like the rest of the UI scratch above it: it
+   * describes what is happening in front of a person right now, never
+   * anything about their work, and it must not survive a restart or the
+   * beat would read as done on a tour that never showed it.
+   */
+  tourSearched?: boolean;
   switchReason?: string;
   subsOpen?: boolean;
   /** Bounded check-in: how many pings have fired this session (0..3, 3 = stop). */
@@ -650,4 +660,4 @@ export interface State {
 }
 
 /** Fields that must never be written to disk (pure UI/session scratch). */
-export const TRANSIENT_KEYS = ["overlay", "switchReason", "subsOpen"] as const;
+export const TRANSIENT_KEYS = ["overlay", "switchReason", "subsOpen", "tourSearched"] as const;

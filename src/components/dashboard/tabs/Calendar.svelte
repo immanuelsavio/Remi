@@ -10,7 +10,7 @@
    * would silently un-break a broken streak - which is exactly the lie the
    * revive heart exists to make you pay for deliberately.
    */
-  import { app } from "../../../store";
+  import { app, markSearched } from "../../../store";
   import PtoSheet from "../PtoSheet.svelte";
   import TagPicker from "../../shared/TagPicker.svelte";
   import {
@@ -59,6 +59,9 @@
   let includeUnfinished = false;
   $: knownTags = allTags([...s.mains, ...s.history.flatMap((h) => h.completed)]);
   $: searching = query.trim().length > 0 || searchTags.length > 0;
+  // One commit, the first time a search is actually run. The tour's "find
+  // it again" beat reads this; nothing else does, and it never reaches disk.
+  $: if (searching) markSearched();
   $: hits = searching
     ? searchDays([...byDate.values()], {
         text: query,
@@ -143,7 +146,7 @@
   </span>
 </div>
 
-<div class="searchbar">
+<div class="searchbar" data-tour="cal-search">
   <input
     class="in"
     type="search"

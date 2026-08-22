@@ -10,6 +10,7 @@
  * text with extra clicks.
  */
 
+import { isDemoId } from "./demo";
 import type { Costume, DashTab, State } from "./types";
 
 /**
@@ -26,7 +27,45 @@ import type { Costume, DashTab, State } from "./types";
  * Every one writes a real setting and shows the CURRENT value, so on a
  * retake the tour is a way to change your mind, not a form that resets you.
  */
-export type TourAsk = "look" | "nick" | "fullname" | "mascot" | "mouse" | "prefs" | "wellness";
+export type TourAsk =
+  "look" | "nick" | "fullname" | "mascot" | "mouse" | "notify" | "prefs" | "wellness";
+
+/**
+ * One thing to actually DO, and how to tell it was done.
+ *
+ * A step with beats stops being a caption and becomes a checklist that
+ * reads the app: the bubble shows ONE instruction, and swaps to the next
+ * the moment the state says that one has happened. Telling somebody "add a
+ * task, then a step, then a tag, then a deadline" in a single paragraph is
+ * four things to hold at once; showing the second only after the first has
+ * landed is one thing at a time, and it proves the app did what they
+ * expected as they go.
+ *
+ * `done` is a pure read of state, so beats need no events, no wiring into
+ * the components they describe, and cannot get out of sync with what is
+ * really there. Nothing is compulsory - Next always moves on.
+ */
+export interface TourBeat {
+  id: string;
+  /** The single instruction, shown while this beat is the current one. */
+  text: string;
+  /** Shown once it is done, so finishing a beat is visibly acknowledged. */
+  cheer: string;
+  done: (s: State) => boolean;
+  /** Walk to a different element for this beat than the step's own. */
+  anchor?: string;
+}
+
+/**
+ * The task the user made during the tour, if they have made one.
+ *
+ * The demo tasks are already complete - steps, tags, the lot - so beats
+ * have to look past them or every one would read as done before the user
+ * touched anything.
+ */
+export function ownTask(s: State) {
+  return s.mains.find((m) => !isDemoId(m.id)) ?? null;
+}
 
 export interface TourStep {
   /** Stable id, so a step can be linked to or resumed by name. */
@@ -69,6 +108,8 @@ export interface TourStep {
    * you change your mind and go back.
    */
   skipWhen?: (s: State) => boolean;
+  /** Things to do on this step, revealed one at a time as each is done. */
+  beats?: TourBeat[];
   /**
    * What Remi wears on this page, and how it is standing.
    *
@@ -154,9 +195,39 @@ export const TOUR_STEPS: TourStep[] = [
     costume: "planner",
     pose: "idle",
     tab: "plan",
-    title: "Tasks and steps",
-    body: ["Steps go one level deep. Tags group tasks for a report later."],
-    aside: "Try it: add a task below, press Enter, then add a step under it.",
+    title: "Build one, properly",
+    body: ["Four small things, one at a time. This is a real task - keep it if you like it."],
+    // Reading about steps and tags teaches nobody. Making one task carry
+    // all four is ninety seconds and it sticks.
+    beats: [
+      {
+        id: "task",
+        text: "Type a task in the box below and press Enter.",
+        cheer: "That's a task.",
+        done: (s) => !!ownTask(s),
+      },
+      {
+        id: "step",
+        anchor: "plan-mine",
+        text: "Now a step under it - open it with ⋔ and add one.",
+        cheer: "Steps go one level deep, on purpose.",
+        done: (s) => (ownTask(s)?.subs.length ?? 0) > 0,
+      },
+      {
+        id: "tag",
+        anchor: "plan-mine",
+        text: "Give it a tag - a project or a kind of work.",
+        cheer: "Tags are what let you pull a report for one client later.",
+        done: (s) => (ownTask(s)?.tags.length ?? 0) > 0,
+      },
+      {
+        id: "remind",
+        anchor: "plan-mine",
+        text: "Last one: set a deadline with the ⏰ beside the task.",
+        cheer: "Remi will tell you when that comes due.",
+        done: (s) => !!ownTask(s)?.remind,
+      },
+    ],
   },
   {
     id: "work",
@@ -184,7 +255,24 @@ export const TOUR_STEPS: TourStep[] = [
     pose: "idle",
     tab: "calendar",
     title: "History",
-    body: ["Every day, searchable. Green finished; orange left something open."],
+    body: ["Every day you have finished. Green done; orange left something open."],
+  },
+  {
+    id: "search",
+    anchor: "cal-search",
+    costume: "detective",
+    pose: "idle",
+    tab: "calendar",
+    title: "Finding it again",
+    body: ["The tag you set is the fastest way back to work you have already done."],
+    beats: [
+      {
+        id: "tagsearch",
+        text: "Press one of the tag chips, or type a word you used.",
+        cheer: "That is every day that touched it, with the time it took.",
+        done: (s) => s.tourSearched === true,
+      },
+    ],
   },
   {
     id: "evidence",
@@ -202,6 +290,16 @@ export const TOUR_STEPS: TourStep[] = [
     title: "Looking after yourself",
     ask: "wellness",
     body: ["Optional, one at a time, and never during a break."],
+  },
+  {
+    id: "notifications",
+    costume: "timekeeper",
+    pose: "ready",
+    tab: "settings",
+    title: "What a nudge looks like",
+    ask: "notify",
+    body: ["Send yourself one now, so the first real one is not a surprise."],
+    aside: "macOS will ask permission the first time. Deny it and Remi just nudges in-app.",
   },
   {
     id: "settings",
