@@ -408,11 +408,26 @@ export function clampCursor(total: number, at: number): number {
 /**
  * Should finishing the list turn the page on its own?
  *
- * Only while the tour is still driving. Once someone has taken the wheel,
- * the page waits for them.
+ * Three conditions, and the third is the one that is easy to miss.
+ *
+ *   - the list is finished
+ *   - the tour is still driving (`cursor === null`) - once someone has
+ *     taken the wheel, the page waits for them
+ *   - the list was UNFINISHED when this step was entered (`armed`)
+ *
+ * Without the last one, pressing Back onto a step whose checklist is
+ * already complete re-arms the advance and throws you forward again a
+ * moment later - so Back looks broken when it worked perfectly. Turning
+ * the page is a reward for finishing something HERE, not a fact about the
+ * state of the world when you arrive.
  */
-export function shouldAutoAdvance(total: number, autoIdx: number, cursor: number | null): boolean {
-  return total > 0 && autoIdx >= total && cursor === null;
+export function shouldAutoAdvance(
+  total: number,
+  autoIdx: number,
+  cursor: number | null,
+  armed: boolean,
+): boolean {
+  return armed && total > 0 && autoIdx >= total && cursor === null;
 }
 
 /** Clamp an index to a real step. */
