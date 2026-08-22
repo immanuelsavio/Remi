@@ -157,17 +157,19 @@
   {#if !ready}
     <div class="startday"><div class="lede">Loading today…</div></div>
 
-    <!-- ================= THE TOUR'S TRAY PREVIEW =================
-         Ahead of every real screen: while the tour is explaining this
-         window, this window is the illustration. Presentation only - it
-         arrives as an event payload and is never persisted, so the practice
-         task cannot become the popover's real day. -->
-  {:else if $trayPreview}
-    <TourPreview preview={$trayPreview} />
-
-    <!-- ================= RECOVERY ================= -->
+    <!-- While the tour is explaining this window, this window is the
+         illustration. Presentation only - it arrives as an event payload
+         and is never persisted, so the practice task cannot become the
+         popover's real day. -->
+    <!-- ================= RECOVERY =================
+         Ahead of even the tour: "we could not read your data" outranks an
+         illustration, whatever else is happening. -->
   {:else if s.phase === "recovery"}
     <Recovery />
+
+    <!-- ================= THE TOUR'S TRAY PREVIEW ================= -->
+  {:else if $trayPreview}
+    <TourPreview preview={$trayPreview} />
 
     <!-- ================= BREAK ================= -->
   {:else if s.phase === "break"}

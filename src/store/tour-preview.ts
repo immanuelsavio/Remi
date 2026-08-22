@@ -21,6 +21,8 @@
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { writable, type Readable } from "svelte/store";
 
+import { tourRunningAnywhere } from "./state";
+
 /** Everything the preview screen needs. Deliberately tiny and flat. */
 export interface TrayPreview {
   /** Which tour run raised it, so a stale one can be recognised. */
@@ -37,6 +39,23 @@ const preview = writable<TrayPreview | null>(null);
 export const trayPreview: Readable<TrayPreview | null> = { subscribe: preview.subscribe };
 
 const EVENT = "tour-tray-preview";
+/**
+ * "A tour is running over here."
+ *
+ * The tour lives in the dashboard and the background effects live in the
+ * popover, so quieting reminders and nudges during onboarding needs a
+ * signal that crosses windows. Presentation, like the preview: nothing
+ * about it is persisted, and a window that misses it simply behaves as it
+ * always did.
+ */
+const RUNNING_EVENT = "tour-running";
+
+export function broadcastTourRunning(running: boolean): void {
+  tourRunningAnywhere.set(running);
+  void emit(RUNNING_EVENT, running).catch(() => {
+    /* no event bus - the other window keeps its ordinary behaviour */
+  });
+}
 
 /**
  * Show (or update) the preview in the other window.
@@ -58,12 +77,16 @@ export function clearTrayPreview(): void {
 }
 
 let unlisten: UnlistenFn | null = null;
+let unlistenRunning: UnlistenFn | null = null;
 
-/** Listen for the dashboard raising or dropping a preview. */
+/** Listen for the dashboard raising or dropping a preview, and for a tour. */
 export async function initTrayPreview(): Promise<void> {
   try {
     unlisten = await listen<TrayPreview | null>(EVENT, (ev) => {
       preview.set(ev.payload ?? null);
+    });
+    unlistenRunning = await listen<boolean>(RUNNING_EVENT, (ev) => {
+      tourRunningAnywhere.set(ev.payload === true);
     });
   } catch {
     /* no event bus - the popover shows its ordinary screens */
@@ -73,5 +96,8 @@ export async function initTrayPreview(): Promise<void> {
 export function teardownTrayPreview(): void {
   unlisten?.();
   unlisten = null;
+  unlistenRunning?.();
+  unlistenRunning = null;
   preview.set(null);
+  tourRunningAnywhere.set(false);
 }

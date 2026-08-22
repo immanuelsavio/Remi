@@ -43,6 +43,16 @@ export const state = writable<State>(freshDay());
  * modules depend on this file, never the other way round) and read by
  * `app` below. `null` whenever no tour is running, which is almost always.
  */
+/**
+ * Is a tour running in ANY window?
+ *
+ * The tour runs in the dashboard; background effects run in the popover.
+ * A window-local flag therefore cannot quiet them - the window that knows
+ * about the tour is not the window that fires the notifications. Broadcast
+ * across windows (`store/tour-preview.ts`) and read by `clock.ts`.
+ */
+export const tourRunningAnywhere = writable(false);
+
 export const tourOverlay = writable<{
   mains: Main[];
   interruptions: InterruptionEvent[];
@@ -564,7 +574,22 @@ export function repairActiveRefs(s: State): void {
 
 export function beginSession(s: State, mainId: string, subId: string | null, now: number): void {
   const m = s.mains.find((x) => x.id === mainId);
-  if (m && !m.firstStartedAt) m.firstStartedAt = now;
+  // NOTHING may be put on the clock that is not in this day.
+  //
+  // `repairActiveRefs` runs BEFORE this in `sessionTx`, so a dangling id
+  // arriving here was never repaired - it was written afterwards. That is
+  // exactly what happened when a Start button on a tour SAMPLE row reached
+  // `startTask`: the tour draws the sandbox, so the id belonged to a task
+  // the real day has never contained. The result was a `demo-` id in
+  // `state.json`, the user's genuinely running task silently banked and
+  // stopped, and an app that came out of onboarding believing a task that
+  // does not exist was on the clock.
+  //
+  // Refusing here rather than in each caller is deliberate: every start
+  // path funnels through this function, so this is the only place that can
+  // make the guarantee for all of them.
+  if (!m) return;
+  if (!m.firstStartedAt) m.firstStartedAt = now;
   s.activeMainId = mainId;
   s.activeSubId = subId;
   s.startedAt = now;

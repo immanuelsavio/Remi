@@ -114,8 +114,12 @@ wrong?
   This keeps the module graph a star, not a cycle. If two action modules
   need to call each other's logic, either the shared logic belongs in
   `state.ts`, or the facade (`store/index.ts`) is the right place to
-  compose them — see `provideBeatCommands`, which is how the tour performs
-  a task mutation without importing `task-actions.ts`.
+  compose them — see the facade's `addMain`/`startTask`/`switchToMain`
+  wrappers, which route a mutation to the tour's sandbox while a tour is
+  running and to `task-actions.ts` otherwise, without either module
+  importing the other. `store/tour-preview.ts` is a further documented
+  exception: it is cross-window presentation infrastructure, imported by
+  `tour.ts`, and depends on nothing but `state.ts`.
   `persistence.ts` and `clock.ts` are the documented exceptions: they are
   infrastructure, and several action modules depend on them. Nothing may
   depend on an action module.
@@ -124,30 +128,39 @@ wrong?
   as an explicit parameter — this is what makes the domain tests
   deterministic with no fake timers.
 
-## The tour's demo day is a VIEW, never authoritative state
+## The tour practises in a SANDBOX, never in the store
 
-`startTour()` puts a sample day on screen and holds the user's real one in
-`state.demoRestore`. That demo must never leave this window:
+The tour used to replace `state.mains` with demo tasks and park the real
+day in `state.demoRestore`, so practice happened in the production store
+and every exit, close, quit, crash, midnight, backup and second window had
+to know the app's own state was temporarily fictional. It does not any
+more:
 
-- `forPersist()` (`src/domain/persistence-shape.ts`) projects it out via
-  `realDay()`. Every persisted payload goes through there — the save, the
-  automatic backup, a manual export, the factory-reset seed — so "sample
-  tasks never reach disk" is one rule, not a guard in each of them. Do not
-  add a new persist path that skips it.
-- `keepLocalDemo()` (`src/store/state.ts`) keeps a running tour on screen
-  across a cross-window reload, and re-parks the INCOMING day as what the
-  tour is holding aside — so ending the tour hands back the other window's
-  newer day, not a stale copy.
-- `tourSeen` is marked when the tour STARTS. Nothing is stranded by a
-  mid-tour quit any more, but nothing records that it ran either, and the
-  dashboard starts the tour whenever `tourSeen` is false.
-- The practice task is CLAIMED by the action that created it (the facade's
-  `addMain` → `claimPracticeTask`), never inferred from "the first task not
-  in a baseline". An import, or a task added in the popover, must not be
-  able to become it.
+- **Practice is an event log, replayed.** `src/domain/tour-sandbox.ts` is a
+  pure, deterministic model: `replay(events)` builds the practice world,
+  and Back is `truncate(events, destination)` followed by a replay. Do not
+  add page-specific Back cleanup — that is what this replaced, and it does
+  not compose (a clock page that knows nothing about the End Day flag
+  leaves a beat "done" after Back).
+- **The store is never touched by practice.** The sandbox is published into
+  `tourOverlay` (`state.ts`) and the `app` derived store shows it to
+  components. `state` itself keeps the user's real day throughout, so
+  ending the tour restores nothing — nothing was borrowed. `tourSeen` is
+  the one deliberate write a tour makes.
+- **The facade is the boundary.** `addMain`/`addSub`/`addTag` route to the
+  sandbox while a tour runs; `startTask`/`switchToMain`/`startSub` become
+  the tour clock or a no-op; `completeMain`/`removeMain`/`toggleSubDone`
+  are refused. `beginSession` additionally refuses any id that is not in
+  the day, so no sandbox id can reach a session by any route.
+- **Native effects carry generation tokens.** The tray preview crosses
+  windows as exactly `{runId, title, startedAt}` and is never persisted;
+  the notification preview carries `runId` plus a per-press sequence. Every
+  async result checks its token is still current before acting.
+- `tourSeen` is marked when the tour STARTS, so interrupting an onboarding
+  does not silently restart it on the next launch.
 
-Boot still un-strands a demo written by an OLDER version; that path is for
-legacy files, not for normal operation.
+Boot still un-strands a demo written by an OLDER version (`restoreFromDemo`
+in `persistence.ts`); that path is for legacy files only.
 
 ## Legacy migration
 

@@ -26,7 +26,7 @@ import {
   type Sandbox,
   type TourEvent,
 } from "../domain/tour-sandbox";
-import { clearTrayPreview, showTrayPreview } from "./tour-preview";
+import { broadcastTourRunning, clearTrayPreview, showTrayPreview } from "./tour-preview";
 import {
   beatIndex,
   canAutoAdvance,
@@ -58,31 +58,6 @@ import {
 } from "./state";
 import { wellnessCopy } from "../domain/wellness";
 import { invoke } from "@tauri-apps/api/core";
-
-/**
- * The task mutations a beat performs, injected by the facade.
- *
- * CLAUDE.md: action modules import only `state.ts`, and where two need to
- * meet, "the facade (`store/index.ts`) is the right place to compose
- * them". Importing `task-actions` directly here would be a new edge in a
- * graph the project deliberately keeps a star - and duplicating the
- * mutations instead would be worse still, since they route through
- * `sessionTx` and the tag/reminder normalisers for reasons of their own.
- */
-export interface BeatCommands {
-  /** Returns the id of the task it created - see `fill`. */
-  addMain: (title: string) => string | null;
-  addSub: (mainId: string, title: string) => void;
-  addTag: (mainId: string, tag: string) => void;
-  setRemind: (target: { kind: "main"; id: string }, kind: "in", raw: number) => void;
-}
-
-let commands: BeatCommands | null = null;
-
-/** Wire the beat commands. Called once, by the facade. */
-export function provideBeatCommands(next: BeatCommands): void {
-  commands = next;
-}
 
 /** How long the last acknowledgement stays up before the page turns. */
 const ADVANCE_HOLD_MS = 1400;
@@ -203,9 +178,10 @@ type EventBody = TourEvent extends infer E
     : never
   : never;
 
-function record(e: EventBody, at: BeatAddress = addressNow()): void {
+function record(e: EventBody, at: BeatAddress | undefined = undefined): void {
   if (get(nav).step === null) return;
-  session.update((t) => ({ ...t, events: [...t.events, { ...at, ...e } as TourEvent] }));
+  const where = at ?? addressNow();
+  session.update((t) => ({ ...t, events: [...t.events, { ...where, ...e } as TourEvent] }));
 }
 
 const nav = writable<NavState>(INACTIVE);
@@ -238,8 +214,8 @@ derived([nav, tourSandbox], ([n, sb]) =>
  * Empty when no tour is running, which is what makes the merge a no-op the
  * rest of the time.
  */
-export const tourHistory: Readable<DayRecord[]> = derived([nav, state], ([n, s]) =>
-  n.step === null ? [] : demoHistory(Date.now(), s.dayNum),
+export const tourHistory: Readable<DayRecord[]> = derived([nav, state, session], ([n, s, run]) =>
+  n.step === null ? [] : demoHistory(run.bornAt, s.dayNum),
 );
 /** The task this run is practising on - a view onto the sandbox. */
 const practiceId: Readable<string | null> = derived(tourSandbox, (sb) => sb.practiceId);
@@ -279,24 +255,6 @@ function outstanding(step: TourStep | null, _s: State, sb: Sandbox): number {
   const beats = beatsOf(step) ?? [];
   const at = beats.findIndex((b) => !b.done(sb));
   return at < 0 ? beats.length : at;
-}
-
-/**
- * The practice task's id, or null if there isn't one yet.
- *
- * Nothing is inferred. It used to fall back to "the first task that is not
- * in the baseline this step started with" - a guess that an import, or a
- * task the popover added while the tour was open, could satisfy before the
- * task the user actually typed. A task becomes the practice task by being
- * CLAIMED (`claimPracticeTask`), which only ever happens for a task created
- * in this window while the tour is running.
- *
- * A claimed task that has since been deleted stops being the practice task:
- * a beat asking "add a step to it" must not point at something gone.
- */
-export function effectivePracticeId(s: State, recorded: string | null): string | null {
-  if (!recorded) return null;
-  return s.mains.some((m) => m.id === recorded) ? recorded : null;
 }
 
 /**
@@ -424,6 +382,12 @@ export function startTour(): void {
   // A completely fresh runtime. A retake used to inherit the previous
   // run's finished search, and any clock or End Day rehearsal with it.
   session.set(freshSession(retake));
+  // Whatever was half-typed in the Plan box belongs to the day the user
+  // was on, not to the practice about to start - and would otherwise be
+  // committed as the practice task's title by the first Next.
+  planTaskDraft.set("");
+  // Tell the other window, which is where the reminders and nudges live.
+  broadcastTourRunning(true);
   const s = S();
   const first = 0;
   nav.set(enterStep(first, contextFor({ ...INACTIVE, step: first }, s, sandboxNow())));
@@ -461,6 +425,8 @@ export function endTour(): void {
   // timer or a promise still in flight from this run cannot act on the
   // next one, or on an app that is no longer being toured.
   session.set(freshSession(true));
+  planTaskDraft.set("");
+  broadcastTourRunning(false);
   commit((s) => void (s.tourSeen = true));
 }
 
@@ -487,6 +453,17 @@ export function goToStep(step: number): void {
  * begins at beat one, genuinely outstanding.
  */
 function goTo(step: number, back = false): void {
+  // Leaving the notifications lesson cancels its pending second banner.
+  // `stillCurrent` only asked whether A tour was running, so a nudge armed
+  // on that page arrived while the user was reading the next one.
+  const leaving = get(nav).step;
+  if (
+    leaving !== null &&
+    stepAt(leaving).id === "notifications" &&
+    stepAt(step).id !== "notifications"
+  ) {
+    cancelNotificationPreview();
+  }
   // Leaving the tray lesson at all - forwards, backwards, by any route -
   // takes its preview down with it. This is a native side effect, not
   // practice: there is nothing in the log to replay it back.
@@ -558,13 +535,29 @@ function dispatch(type: "NEXT" | "BACK"): void {
  * ends. The tour needs the APPEARANCE of a running clock, which is a fact
  * about the tour, so it lives in the tour's runtime.
  */
-export function startTourClock(): void {
+/**
+ * Start the tour clock BECAUSE a particular row's Start was pressed.
+ *
+ * The practice row starts the lesson's clock; a sample row does nothing,
+ * because a sample task is an illustration and putting one "on the clock"
+ * would be teaching something untrue. Either way nothing real runs.
+ */
+export function startTourClockFor(mainId: string): void {
+  if (mainId !== sandboxNow().practiceId) return;
+  startTourClock();
+}
+
+export function startTourClock(at?: BeatAddress): void {
   const sb = sandboxNow();
   if (!sb.practiceId) return;
   // Already running: pressing Start twice, or Start and then Next, is one
   // clock. Recording a second event would restart it.
   if (sb.clockTaskId && sb.clockStartedAt > 0) return;
-  record({ kind: "clock", startedAt: Date.now() });
+  // `at` matters: `dispatch` moves the cursor BEFORE running the effect,
+  // so filing this at `addressNow()` would address it one beat past where
+  // it happened. Harmless while these steps have a single beat, and a trap
+  // the moment one gains a second.
+  record({ kind: "clock", startedAt: Date.now() }, at);
 }
 
 // --- the End Day rehearsal -------------------------------------------------
@@ -580,10 +573,10 @@ export function startTourClock(): void {
  * the blank screen, the repeated Back pages, the leaked tour tasks and the
  * "Reopen day" after onboarding, all from one call.
  */
-export function completeTourEndDay(): void {
+export function completeTourEndDay(at?: BeatAddress): void {
   if (get(nav).step === null) return;
   if (sandboxNow().endDayDone) return; // confirming twice is one rehearsal
-  record({ kind: "endday" });
+  record({ kind: "endday" }, at);
 }
 
 /**
@@ -614,6 +607,12 @@ export function markTrayOpened(): void {
  * result closes the panel again instead.
  */
 let trayOpenSeq = 0;
+
+/** Is the tour on the step that owns the tray preview? */
+function onTrayStep(): boolean {
+  const at = get(nav).step;
+  return at !== null && stepAt(at).id === "tray";
+}
 
 /**
  * The two window commands the tray lesson needs.
@@ -653,13 +652,19 @@ export async function openTrayPreview(): Promise<{ ok: true } | { ok: false; err
   const task = sb.practiceId ? sb.mains.find((m) => m.id === sb.practiceId) : null;
 
   const res = await openPopoverWindow();
-  // Back/Next/Skip happened while that was in flight. Do not resurrect the
-  // lesson: close what we just opened and say nothing.
-  if (seq !== trayOpenSeq || get(session).runId !== runId || get(nav).step === null) {
+  // Did the user LEAVE while that was in flight? Only that closes the
+  // panel again. A second press of the same button is not a departure -
+  // treating it as one made a double-click open, open, then close, so the
+  // panel ended up hidden while the dashboard believed it was showing.
+  const left = get(session).runId !== runId || get(nav).step === null || !onTrayStep();
+  if (left) {
     void closePopoverWindow();
     clearTrayPreview();
     return { ok: false, error: "" };
   }
+  // Superseded by a newer open of the SAME lesson: that call owns the
+  // preview now. Leave the window alone and say nothing.
+  if (seq !== trayOpenSeq) return { ok: false, error: "" };
   if (!res.ok) return res;
 
   // EXACTLY three things cross to the other window: which run raised it,
@@ -691,18 +696,6 @@ export function tourIsActive(): boolean {
 }
 
 // --- search ----------------------------------------------------------------
-
-/**
- * Forget that a search happened, and ask the search UI to empty itself.
- *
- * `tourSearched` used to live in persisted state, so it survived a retake
- * in the same process and the search step opened already finished. The
- * token is what makes Calendar's own query and tag selection reset without
- * depending on the component happening to be destroyed.
- */
-function resetSearch(): void {
-  session.update((t) => ({ ...t, searched: false, searchToken: t.searchToken + 1 }));
-}
 
 export function tourNext(): void {
   dispatch("NEXT");
@@ -769,9 +762,9 @@ export function maybeAutoAdvance(): void {
 function fill(f: BeatFill, at: BeatAddress): void {
   switch (f.kind) {
     case "clock":
-      return void startTourClock();
+      return void startTourClock(at);
     case "endday":
-      return void completeTourEndDay();
+      return void completeTourEndDay(at);
     case "task": {
       // THE TYPED TITLE WINS. Someone who has written "Prepare customer
       // notes" and pressed Next meant that, not the tour's example - and
@@ -807,7 +800,14 @@ function fill(f: BeatFill, at: BeatAddress): void {
  * survived not just Back but the whole tour and the next launch.
  */
 export function markSearched(): void {
-  if (get(nav).step === null) return;
+  const at = get(nav).step;
+  if (at === null) return;
+  // ONLY on the step whose beat this is. The Calendar step sits on the
+  // same tab with the same search box, so searching there filed an event
+  // that made the LATER search step open already finished - and Back could
+  // not clear it, because truncating to the search step keeps an event
+  // addressed to the calendar step before it.
+  if (!(stepAt(at).beats ?? []).some((b) => b.id === "tagsearch")) return;
   if (sandboxNow().searched) return;
   record({ kind: "search" });
 }

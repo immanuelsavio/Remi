@@ -254,6 +254,7 @@ import {
   planTaskDraft,
   openTrayPreview,
   trayPreview,
+  tourRunningAnywhere,
   closePopoverToTour,
   tourView,
   startTourClock,
@@ -278,7 +279,6 @@ import {
   welcomeBack,
 } from "./index";
 import { StaleWriteError } from "./persistence";
-import { effectivePracticeId } from "./tour";
 import { get } from "svelte/store";
 
 /**
@@ -3175,6 +3175,87 @@ describe("the tour's sandbox", () => {
     expect(cmds).not.toContain("quit_app");
     expect(cmds).not.toContain("hide_dashboard_window");
     expect(cmds).not.toContain("request_quit");
+  });
+
+  it("a search on the CALENDAR step does not pre-finish the search step", () => {
+    // Both steps sit on the same tab with the same search box. Filing the
+    // event from the calendar step made the search step open already
+    // finished - and Back could not clear it, because truncating to the
+    // search step keeps an event addressed to the step before it.
+    startTour();
+    goToStep(stepIdx("calendar"));
+    markSearched();
+    expect(get(tourSandbox).searched, "a calendar search counted as the lesson").toBe(false);
+
+    goToStep(stepIdx("search"));
+    expect(get(tourView).allBeatsDone).toBe(false);
+    markSearched();
+    expect(get(tourSandbox).searched).toBe(true);
+  });
+
+  it("the clock event is filed on the beat it happened on", () => {
+    // `dispatch` moves the cursor BEFORE running the effect, so an event
+    // taking the address of "now" lands one beat late - harmless while
+    // these steps have one beat, a trap the moment one gains a second.
+    startTour();
+    goToStep(planIdx());
+    for (let i = 0; i < 3; i++) tourNext();
+    tourNext(); // -> clock page
+    tourNext(); // start it
+    const clock = get(tourSession).events.find((e) => e.kind === "clock")!;
+    expect(clock.step).toBe(stepIdx("work"));
+    expect(clock.beat, "the clock event was filed past its own beat").toBe(0);
+  });
+
+  it("the End Day event is filed on its own beat too", () => {
+    startTour();
+    goToStep(stepIdx("endday"));
+    tourNext();
+    const e = get(tourSession).events.find((x) => x.kind === "endday")!;
+    expect(e.step).toBe(stepIdx("endday"));
+    expect(e.beat).toBe(0);
+  });
+
+  it("opening the tray twice leaves it OPEN", async () => {
+    // A second press of the same button is not a departure. Treating it as
+    // one made a double-click open, open, then close - the panel hidden
+    // while the dashboard believed it was showing.
+    startTour();
+    goToStep(stepIdx("tray"));
+    await Promise.all([openTrayPreview(), openTrayPreview()]);
+    expect(get(trayPreview), "a double-click tore the preview down").toBeTruthy();
+    expect(invoked.some((c) => c.cmd === "close_popover")).toBe(false);
+  });
+
+  it("leaving the notifications page cancels its pending banner", async () => {
+    vi.useFakeTimers();
+    try {
+      startTour();
+      goToStep(stepIdx("notifications"));
+      previewNotifications();
+      await vi.advanceTimersByTimeAsync(10);
+      notified.length = 0;
+      tourNext(); // on to the next page while the second one is pending
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(
+        notified.some((n) => n.title === "Water break"),
+        "a nudge arrived on a page that was not about notifications",
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      endTour();
+    }
+  });
+
+  it("tells the OTHER window a tour is running, so it can stay quiet", () => {
+    // The tour runs in the dashboard; reminders and nudges run in the
+    // popover. A window-local flag is false in the only window that fires
+    // anything, which is what silently disabled the guard.
+    expect(get(tourRunningAnywhere)).toBe(false);
+    startTour();
+    expect(get(tourRunningAnywhere)).toBe(true);
+    endTour();
+    expect(get(tourRunningAnywhere)).toBe(false);
   });
 
   it("the first run knows it is the first run", () => {

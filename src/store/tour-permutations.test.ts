@@ -35,8 +35,14 @@ import { forPersist } from "../domain/persistence-shape";
 import { TOUR_STEPS, stepShown } from "../domain/tour";
 import { S, setState, state } from "./state";
 import {
+  addMain,
+  completeMain,
   endTour,
   goToStep,
+  removeMain,
+  startTask,
+  switchToMain,
+  toggleSubDone,
   startTour,
   tourBack,
   tourNext,
@@ -47,13 +53,27 @@ import {
   tourView,
 } from "./index";
 
-/** A day with two real tasks, exactly as `reset()` in store.test.ts makes. */
+/**
+ * What the user's own task list looked like when the walk began.
+ *
+ * Every invariant check compares against THIS rather than against "empty":
+ * a person can take the tour with work already on the clock, and the
+ * promise is that the tour changes none of it.
+ */
+let realDaySnapshot = "[]";
+
 function realDay() {
   setState({ ...freshDay(), awaitingStart: false, phase: "today" });
   state.update((s) => {
     s.mains = [];
     return s;
   });
+  realDaySnapshot = JSON.stringify(S().mains);
+}
+
+/** Re-baseline after deliberately setting up a real day. */
+function baselineRealDay() {
+  realDaySnapshot = JSON.stringify(S().mains);
 }
 
 const idx = (id: string) => TOUR_STEPS.findIndex((t) => t.id === id);
@@ -82,7 +102,11 @@ function checkInvariants(where: string) {
   // architecture could not say - the practice task WAS a real task, with
   // the real day parked in `demoRestore`.
   const sb = get(tourSandbox);
-  expect(s.mains, `${where}: the real task list was written to`).toHaveLength(0);
+  // The real day is whatever it was when this walk began - not necessarily
+  // empty, since a person can take the tour mid-task.
+  expect(JSON.stringify(s.mains), `${where}: the real task list was written to`).toBe(
+    realDaySnapshot,
+  );
   expect(
     (s as { demoRestore?: unknown }).demoRestore ?? null,
     `${where}: the real day was parked aside`,
@@ -253,5 +277,111 @@ describe("the tour under every order of presses", () => {
     expect(sb.clockTaskId).toBeNull();
     expect(sb.endDayDone).toBe(false);
     expect(S().mains, "the real day was touched at all").toHaveLength(0);
+  });
+
+  // --- the buttons the tour DRAWS ------------------------------------------
+  //
+  // Pressing Next and Back is not the only thing a person does during a
+  // tour: every row the tour renders is a real component with real
+  // controls, and the tour points at them on purpose. The suite above
+  // could not see that, and the gap was a genuine bug - Start on a SAMPLE
+  // row reached the production `startTask`, wrote a `demo-` id into
+  // `state.json`, silently stopped the user's own running task, and left
+  // the app believing a nonexistent task was on the clock after the tour
+  // had ended.
+
+  /** Everything a dashboard row can do to the task it belongs to. */
+  const rowActions = [
+    (id: string) => startTask(id),
+    (id: string) => switchToMain(id, true),
+    (id: string) => switchToMain(id, false),
+    (id: string) => completeMain(id),
+    (id: string) => removeMain(id),
+    (id: string) => toggleSubDone(id, `${id}-sub`),
+  ];
+
+  it("no control on any row the tour draws can touch the real day", () => {
+    realDay();
+    // A real day with a task genuinely on the clock - the thing that was
+    // being destroyed.
+    addMain("Real work");
+    const realId = S().mains[0].id;
+    startTask(realId);
+    const realStartedAt = S().startedAt;
+    baselineRealDay();
+
+    startTour();
+    goToStep(idx("plan"));
+    tourNext(); // a practice task to press things on
+
+    const sb = get(tourSandbox);
+    for (const row of sb.mains) {
+      for (const act of rowActions) {
+        act(row.id);
+        checkInvariants(`after acting on row "${row.id}"`);
+        // The user's own session is untouched, every time.
+        expect(S().activeMainId, `acting on "${row.id}" moved the real clock`).toBe(realId);
+        expect(S().startedAt).toBe(realStartedAt);
+        expect(
+          S().mains.map((m) => m.id),
+          `acting on "${row.id}" changed the real day`,
+        ).toEqual([realId]);
+      }
+    }
+    endTour();
+    // ...and the tour leaves the real session exactly as it found it.
+    expect(S().activeMainId).toBe(realId);
+    expect(S().startedAt).toBe(realStartedAt);
+  });
+
+  it("Start on the PRACTICE row runs the tour clock, not the real one", () => {
+    realDay();
+    startTour();
+    goToStep(idx("plan"));
+    tourNext();
+    const practiceId = get(tourSandbox).practiceId!;
+
+    startTask(practiceId);
+    expect(
+      get(tourSandbox).clockStartedAt,
+      "the practice row did not start the lesson",
+    ).toBeGreaterThan(0);
+    expect(S().activeMainId, "the production session was started").toBeNull();
+    endTour();
+  });
+
+  it("Start on a SAMPLE row starts nothing at all", () => {
+    realDay();
+    startTour();
+    goToStep(idx("plan"));
+    tourNext();
+    const sample = get(tourSandbox).mains.find((m) => isDemoId(m.id))!;
+
+    startTask(sample.id);
+    expect(get(tourSandbox).clockStartedAt, "a sample task went on the clock").toBe(0);
+    expect(S().activeMainId).toBeNull();
+    endTour();
+  });
+
+  it("row actions interleaved with Next and Back keep every invariant", () => {
+    realDay();
+    for (const seq of everySequence(5)) {
+      realDay();
+      startTour();
+      goToStep(idx("plan"));
+      const done: string[] = [];
+      for (const press of seq) {
+        done.push(press);
+        if (press === "next") tourNext();
+        else tourBack();
+        // ...and after every press, mash a row control.
+        const rows = get(tourSandbox).mains;
+        const row = rows[done.length % rows.length];
+        if (row) rowActions[done.length % rowActions.length](row.id);
+        checkInvariants(`via ${done.join(" → ")} with row actions`);
+      }
+      endTour();
+      expect(JSON.stringify(S().mains), "the real day was written to").toBe(realDaySnapshot);
+    }
   });
 });

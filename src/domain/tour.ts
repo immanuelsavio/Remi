@@ -105,19 +105,6 @@ export interface TourBeat {
   fill?: BeatFill;
 }
 
-/**
- * The one task the tour is practising on, by id.
- *
- * `null` until the user (or Next) makes it. Beats read THIS rather than
- * "the first non-demo task": the demo tasks already have steps, tags and
- * titles, so a beat that merely looked past them would also happily latch
- * onto a second task, an import, or something the other window added.
- */
-export function practiceTask(s: State, practiceId: string | null) {
-  if (!practiceId) return null;
-  return s.mains.find((m) => m.id === practiceId) ?? null;
-}
-
 /** The practice task inside the sandbox, or null before it is made. */
 export function sandboxPractice(sb: Sandbox) {
   if (!sb.practiceId) return null;
@@ -480,41 +467,6 @@ export function tourProgress(i: number, s: State): { pos: number; total: number 
  * advance firing on top of a deliberate Back, turning the page out from
  * under someone who had just gone back a beat.
  */
-
-/** Which beat is on screen. `total` means "past the end - all done". */
-export function beatIndexFor(total: number, cursor: number | null, autoIdx: number): number {
-  return Math.max(0, Math.min(total, cursor ?? autoIdx));
-}
-
-/** Keep a manual cursor inside the checklist (its end included). */
-export function clampCursor(total: number, at: number): number {
-  return Math.max(0, Math.min(total, at));
-}
-
-/**
- * Should finishing the list turn the page on its own?
- *
- * Three conditions, and the third is the one that is easy to miss.
- *
- *   - the list is finished
- *   - the tour is still driving (`cursor === null`) - once someone has
- *     taken the wheel, the page waits for them
- *   - the list was UNFINISHED when this step was entered (`armed`)
- *
- * Without the last one, pressing Back onto a step whose checklist is
- * already complete re-arms the advance and throws you forward again a
- * moment later - so Back looks broken when it worked perfectly. Turning
- * the page is a reward for finishing something HERE, not a fact about the
- * state of the world when you arrive.
- */
-export function shouldAutoAdvance(
-  total: number,
-  autoIdx: number,
-  cursor: number | null,
-  armed: boolean,
-): boolean {
-  return armed && total > 0 && autoIdx >= total && cursor === null;
-}
 
 /** Clamp an index to a real step. */
 export function stepAt(i: number): TourStep {

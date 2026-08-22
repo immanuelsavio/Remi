@@ -25,6 +25,7 @@ import { autoBackup, flushSave, showSaveError } from "./persistence";
 import {
   S,
   tourOverlay,
+  tourRunningAnywhere,
   activeThing,
   bankOrphanSession,
   commit,
@@ -150,11 +151,14 @@ function runTick(now: number): void {
   // real task is going, or a wellness nudge about a day they are not
   // looking at, arrives with no context to read it by.
   //
-  // The tour no longer swaps the user's day - the practice world is a
-  // window-local sandbox that never enters the store - so this is a
-  // courtesy rather than a correctness guard. The checkpoint still runs,
-  // so a real session left running is still banked while they take it.
-  if (get(tourOverlay)) {
+  // Read from a CROSS-WINDOW signal, not from this window's own state: the
+  // tour runs in the dashboard and these effects run in the popover, so a
+  // window-local flag would be false in the only window that fires
+  // anything - which is what silently disabled this guard.
+  //
+  // The checkpoint still runs, so a real session left running is still
+  // banked while the user takes the tour.
+  if (get(tourRunningAnywhere) || get(tourOverlay)) {
     checkpoint(now);
     return;
   }

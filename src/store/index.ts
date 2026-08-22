@@ -1,8 +1,20 @@
-import { sandboxAddStep, sandboxAddTag, sandboxAddTask, tourIsActive } from "./tour";
+import {
+  sandboxAddStep,
+  sandboxAddTag,
+  sandboxAddTask,
+  startTourClockFor,
+  tourIsActive,
+} from "./tour";
 import {
   addMain as addMainAction,
   addSub as addSubAction,
   addTag as addTagAction,
+  completeMain as completeMainAction,
+  removeMain as removeMainAction,
+  startSub as startSubAction,
+  startTask as startTaskAction,
+  switchToMain as switchToMainAction,
+  toggleSubDone as toggleSubDoneAction,
 } from "./task-actions";
 
 /**
@@ -15,7 +27,6 @@ import {
 
 import { get } from "svelte/store";
 import { M, showToast, welcomeBack } from "./state";
-import { startSub, startTask } from "./task-actions";
 
 export type { CarryChoice } from "../domain/types";
 export { allTags, normalizeTag, normalizeTags, parseTags } from "../domain/tags";
@@ -30,6 +41,7 @@ export {
   loadMessage,
   nowMs,
   planTaskDraft,
+  tourRunningAnywhere,
   returning,
   showToast,
   toast,
@@ -107,9 +119,7 @@ export {
   startTodayFresh,
 } from "./day";
 export {
-  completeMain,
   promoteSub,
-  removeMain,
   removeSub,
   reviveMain,
   setEstimate,
@@ -120,12 +130,8 @@ export {
   setTags,
   removeTag,
   startNewMain,
-  startSub,
-  startTask,
-  switchToMain,
   switchToSub,
   toggleShowSubs,
-  toggleSubDone,
 } from "./task-actions";
 export { extendBreak, resumeFromBreak, startBreak } from "./break-actions";
 export { addBacklog, backlogToToday, deleteBacklog } from "./backlog-actions";
@@ -232,6 +238,55 @@ export function addMain(title: string): string | null {
     return null; // the sandbox owns its ids; nothing real was created
   }
   return addMainAction(title);
+}
+
+/**
+ * Start a task - the TOUR clock while a tour is running, the real one
+ * otherwise.
+ *
+ * The tour draws the sandbox, so every Start button on screen during it
+ * belongs to a task the real day has never contained. `beginSession`
+ * refuses those outright now, but refusing is not the same as doing the
+ * right thing: pressing Start on the practice row is the clock lesson, and
+ * pressing it on a sample row should do what the sample suggests rather
+ * than nothing at all.
+ */
+export function startTask(mainId: string): void {
+  if (tourIsActive()) return void startTourClockFor(mainId);
+  startTaskAction(mainId);
+}
+
+/**
+ * The rest of the mutating surface, while a tour is running.
+ *
+ * Every one of these is pointed at a sandbox row. They are no-ops rather
+ * than sandbox operations because none of them is anything the tour
+ * teaches - and a no-op is the honest outcome for a button attached to a
+ * task that exists only as an illustration.
+ */
+export function switchToMain(mainId: string, remember: boolean): void {
+  if (tourIsActive()) return void startTourClockFor(mainId);
+  switchToMainAction(mainId, remember);
+}
+
+export function completeMain(mainId: string): void {
+  if (tourIsActive()) return;
+  completeMainAction(mainId);
+}
+
+export function removeMain(mainId: string): void {
+  if (tourIsActive()) return;
+  removeMainAction(mainId);
+}
+
+export function toggleSubDone(mainId: string, subId: string): void {
+  if (tourIsActive()) return;
+  toggleSubDoneAction(mainId, subId);
+}
+
+export function startSub(mainId: string, subId: string): void {
+  if (tourIsActive()) return void startTourClockFor(mainId);
+  startSubAction(mainId, subId);
 }
 
 /** As above: a step typed during the tour is practice, not work. */
