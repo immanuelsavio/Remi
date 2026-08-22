@@ -41,11 +41,8 @@
     tourBack,
     tourNext,
     tourView,
-    tourPaused,
-    setTourPaused,
     maybeAutoAdvance,
     openPopover,
-    remindTarget,
     tourAnchors,
   } from "../../store";
   import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
@@ -92,16 +89,14 @@
 
   // ---- a modal owns the screen -------------------------------------------
   /**
-   * A sheet or overlay is up: stand aside, and go inert.
+   * A sheet or overlay is up, so the tour stands aside and goes inert.
    *
-   * The tour layer sits above a sheet's scrim, so the bubble used to draw
-   * straight over the reminder picker and cover the fields the step had
-   * just asked the user to fill in. Hiding is right - the sheet IS the
-   * instruction being followed - but hiding alone was not enough: the
-   * keyboard handler stayed live, so Escape ended an invisible tour and
-   * the arrows navigated one nobody could see.
+   * The controller works this out for itself (`tourPaused`); the view only
+   * reads it. It used to be set from here, which meant the component wrote
+   * a store it also read through `tourView` - and after one round trip
+   * Svelte stopped updating, so the tour hid behind a sheet and never came
+   * back when the sheet closed.
    */
-  $: setTourPaused(!!$remindTarget || !!s.overlay);
 
   // ---- geometry -----------------------------------------------------------
   const BUBBLE_W = 330;

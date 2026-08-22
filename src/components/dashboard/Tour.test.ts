@@ -24,13 +24,30 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 import Tour from "./Tour.svelte";
-import { endTour, goToStep, startTour, tourAnchor } from "../../store";
+import {
+  closeRemind,
+  endTour,
+  goToStep,
+  openRemind,
+  startTour,
+  tourAnchor,
+  tourStep,
+} from "../../store";
+import { get } from "svelte/store";
 // The facade exposes `app` read-only, deliberately. A test needs to place
 // the world, so it goes through the store's own setter.
 import { setState, state } from "../../store/state";
 import { TOUR_STEPS } from "../../domain/tour";
 import { freshDay } from "../../domain/defaults";
 import { demoMains } from "../../domain/demo";
+
+/** Let reactive statements, the registry and any frames settle. */
+async function settle() {
+  for (let f = 0; f < 6; f++) {
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    await tick();
+  }
+}
 
 /** Give a stub the two things jsdom refuses to compute. */
 function anchor(key: string, top = 100): HTMLElement {
@@ -122,6 +139,47 @@ describe("the tour, on screen", () => {
   it("keeps the blur on a card step too", async () => {
     await showStep("look");
     expect(host.querySelector(".tour-scrim")).toBeTruthy();
+  });
+
+  it("goes inert while a sheet owns the screen", async () => {
+    // The tour layer sits above a sheet's scrim, so it hides while one is
+    // open - the sheet IS the instruction being followed. Hiding alone was
+    // not enough: the keyboard handler stayed live, so Escape ended an
+    // invisible tour and the arrows navigated one nobody could see.
+    anchor("plan-add");
+    await showStep("plan");
+    expect(host.querySelector(".tour-bubble")).toBeTruthy();
+
+    openRemind({ kind: "main", id: "demo-1", title: "Draft the quarterly update" });
+    await settle();
+    expect(
+      host.querySelector(".tour-bubble, .tourcard"),
+      "the tour drew over the sheet",
+    ).toBeNull();
+
+    // ...and the keys belong to the sheet, not to a hidden tour.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await settle();
+    expect(get(tourStep), "a hidden tour was ended or navigated").not.toBeNull();
+
+    closeRemind();
+    await settle();
+    // eslint-disable-next-line no-console
+    expect(host.querySelector(".tour-bubble"), "the tour never came back").toBeTruthy();
+  });
+
+  it("ignores arrow keys pressed on the app behind it", async () => {
+    // They used to navigate the tour from any button in the application.
+    anchor("plan-add");
+    await showStep("plan");
+    const before = get(tourStep);
+    const appButton = document.createElement("button");
+    document.body.appendChild(appButton);
+    appButton.focus();
+    appButton.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await settle();
+    expect(get(tourStep)).toBe(before);
   });
 
   it("rings and blurs the thing a walking step points at", async () => {

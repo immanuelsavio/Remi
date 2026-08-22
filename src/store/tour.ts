@@ -36,7 +36,7 @@ import {
   type TourStep,
 } from "../domain/tour";
 import type { State } from "../domain/types";
-import { S, commit, dashTab, restoreFromDemo, sessionTx, state } from "./state";
+import { S, commit, dashTab, remindTarget, restoreFromDemo, sessionTx, state } from "./state";
 import { cancelNotificationPreview } from "./tour-preview";
 import { addMain, addSub, addTag, setRemind } from "./task-actions";
 
@@ -62,8 +62,17 @@ const practiceId = writable<string | null>(null);
  * or an edit from the other window could all satisfy that.
  */
 let baseline = new Set<string>();
-/** A sheet or overlay owns the screen; the tour stands aside and goes inert. */
-const paused = writable(false);
+/**
+ * A sheet or overlay owns the screen: the tour stands aside and goes inert.
+ *
+ * DERIVED, not set by the view. It was a writable the component wrote from
+ * a reactive statement while also reading a store derived from it - so the
+ * component both fed and consumed the same value, and Svelte stopped
+ * updating it after the first round trip: the tour hid behind a sheet and
+ * never came back when the sheet closed. Reading it from the two stores
+ * that actually decide it removes the loop entirely.
+ */
+const paused = derived([remindTarget, state], ([target, s]) => !!target || !!s.overlay);
 
 /** Position in the script, or null. Kept for the existing public name. */
 export const tourStep: Readable<number | null> = derived(nav, (n) => n.step);
@@ -213,7 +222,6 @@ export function endTour(): void {
   cancelNotificationPreview();
   nav.set(INACTIVE);
   practiceId.set(null);
-  paused.set(false);
   // One transaction when there IS a demo - the day back and the flag
   // together, so a failure between them cannot leave the tour "unseen"
   // over a restored real day. With no demo (a tour that never got one)
@@ -272,12 +280,6 @@ export function tourNext(): void {
 
 export function tourBack(): void {
   dispatch("BACK");
-}
-
-/** A modal owns the screen: hide the tour and make it inert until it closes. */
-export function setTourPaused(on: boolean): void {
-  paused.set(on);
-  if (on) clearAdvance();
 }
 
 /**

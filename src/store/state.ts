@@ -57,6 +57,20 @@ export const toast = writable<Toast | null>(null);
  * thing being shown to a person, not a fact about their day.
  */
 export const wellnessNudge = writable<WellnessKey | null>(null);
+
+/**
+ * Which task, step or backlog item the reminder picker is editing, or null.
+ *
+ * Window-local UI, here for the same reason as the two above: more than one
+ * action module needs it - the picker opens it, and the tour has to know a
+ * sheet owns the screen - and action modules may only depend on this one.
+ */
+export type RemindTarget =
+  | { kind: "main"; id: string; title: string }
+  | { kind: "sub"; mainId: string; id: string; title: string }
+  | { kind: "backlog"; id: string; title: string };
+
+export const remindTarget = writable<RemindTarget | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
