@@ -1412,6 +1412,40 @@ describe("import, export and restore", () => {
     expect(s.overlay).toBeNull();
   });
 
+  it("does not erase an edit made while the load was in flight", async () => {
+    // THE LOST UPDATE. `reloadFromDisk` awaits the backend and then sets
+    // the result wholesale. Anything the user did during that await - a
+    // task typed, a step added - is simply gone, and the debounced save
+    // that follows persists its absence.
+    loadResult = { kind: "loaded", state: { ...freshDay(1), dateISO: todayISO() } };
+    await boot();
+
+    // The other window saves; this window starts reloading...
+    loadResult = { kind: "loaded", state: { ...freshDay(1), dateISO: todayISO(), _rev: 5 } };
+    const inFlight = reloadFromDisk();
+    // ...and the user types a task before it lands.
+    addMain("typed while loading");
+    await inFlight;
+
+    expect(
+      S().mains.some((m) => m.title === "typed while loading"),
+      "the in-flight reload erased a local edit",
+    ).toBe(true);
+  });
+
+  it("never lets an older revision replace a newer one", async () => {
+    // Two reloads in flight, resolving out of order. The stale one must
+    // not win simply by finishing last.
+    loadResult = { kind: "loaded", state: { ...freshDay(1), dateISO: todayISO(), _rev: 9 } };
+    await boot();
+    expect(S()._rev).toBe(9);
+
+    loadResult = { kind: "loaded", state: { ...freshDay(1), dateISO: todayISO(), _rev: 3 } };
+    await reloadFromDisk();
+
+    expect(S()._rev, "an older snapshot overwrote a newer one").toBe(9);
+  });
+
   it("follows the other window when IT starts the day", async () => {
     // The dashboard starts the day; the tray must stop offering to start
     // it. `awaitingStart` flipping is a change of what the day IS, not a

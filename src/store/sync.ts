@@ -8,7 +8,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { applyTheme } from "../domain/theme";
 import { hydrate } from "../domain/hydration";
-import { keepLocalView, S, state } from "./state";
+import { keepLocalView, mutationGeneration, S, state } from "./state";
 import { windowId } from "./persistence";
 
 let unlistenState: UnlistenFn | null = null;
@@ -28,13 +28,34 @@ export async function initSync(): Promise<void> {
   }
 }
 
+/**
+ * Which reload is the current one.
+ *
+ * Two can be in flight at once - a focus event and a save event arriving
+ * together - and they resolve in whatever order the backend answers. Only
+ * the newest may apply, or an older snapshot wins simply by finishing last.
+ */
+let reloadSeq = 0;
+
 /** Pull the authoritative persisted snapshot (sync + focus fallback). */
 export async function reloadFromDisk(): Promise<void> {
+  const seq = ++reloadSeq;
+  const genBefore = mutationGeneration();
   try {
     const res = await invoke<{ kind: string; state?: unknown }>("load_app_state");
     if (!res.state) return;
+    // Superseded while we waited: a newer read of the same file is already
+    // on its way or applied.
+    if (seq !== reloadSeq) return;
+    // The user changed something DURING the load. What came back predates
+    // that edit, so applying it would erase work they just did. Leave it:
+    // their own save follows, and the compare-and-swap is the place where
+    // a genuine conflict gets resolved.
+    if (mutationGeneration() !== genBefore) return;
     const cur = S();
     const next = hydrate(res.state);
+    // Never go backwards. An older revision is a stale read, not news.
+    if (next._rev < cur._rev) return;
     // Keep THIS window's transient view so a background save in the other
     // window can't yank the user off their screen - but ONLY within the
     // same day.

@@ -12,6 +12,7 @@ use tauri::{AppHandle, Manager};
 use crate::migration::take_pending_message;
 use crate::paths::{
     autobackup_dir, backup_path, data_folder, recovery_dir, settings_path, state_path,
+    POPOVER_LABEL,
 };
 use crate::settings::{patch_settings, read_settings};
 use crate::state_io::{load_state, write_state, write_state_cas, CasOutcome, LoadResult};
@@ -308,8 +309,20 @@ pub async fn open_dashboard(app: AppHandle) -> Result<(), String> {
 /// closes it on a second press is a button that does two things.
 #[tauri::command]
 pub async fn open_popover(app: AppHandle) -> Result<(), String> {
+    // `show_popover` is infallible by design - the tray click has nowhere
+    // useful to report to, so it returns quietly when the window is not
+    // there. A BUTTON does have somewhere to report to, and one that says
+    // "open it" while nothing opens is worse than an error. So this checks
+    // what actually happened rather than assuming.
+    let Some(win) = app.get_webview_window(POPOVER_LABEL) else {
+        return Err("The menu-bar window isn't available.".into());
+    };
     crate::windows::show_popover(&app);
-    Ok(())
+    match win.is_visible() {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("macOS didn't bring the menu-bar window on screen.".into()),
+        Err(e) => Err(format!("Couldn't confirm the menu-bar window opened: {e}")),
+    }
 }
 
 #[tauri::command]

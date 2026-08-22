@@ -120,7 +120,26 @@ function scheduleSave(): void {
 }
 
 /** Publish a mutation and schedule a save. The single write path. */
+/**
+ * Counts real edits to the day, so an in-flight reload can tell whether
+ * anything happened underneath it.
+ *
+ * `reloadFromDisk` awaits the backend and then applies what comes back. A
+ * task typed during that await used to be replaced wholesale by a snapshot
+ * that predates it - a silent lost update, and the debounced save
+ * afterwards persisted its absence. Comparing this before and after the
+ * await is what makes that detectable.
+ *
+ * View-only changes (`commitLocal`) deliberately do NOT count: nothing is
+ * lost by a reload landing on top of which screen a window is showing.
+ */
+let mutationGen = 0;
+export function mutationGeneration(): number {
+  return mutationGen;
+}
+
 export function commit(patch?: (s: State) => void): void {
+  mutationGen++;
   state.update((s) => {
     patch?.(s);
     return s;
@@ -147,6 +166,7 @@ export function commitLocal(patch: (s: State) => void): void {
 
 /** Replace the whole state (day boundaries) and schedule a save. */
 export function setState(next: State): void {
+  mutationGen++;
   state.set(next);
   scheduleSave();
 }

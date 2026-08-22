@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { get, writable } from "svelte/store";
 
 import type { DashTab, Overlay, Phase } from "../domain/types";
-import { S, commit, dashTab, restoreFromDemo, sessionTx } from "./state";
+import { S, commit, dashTab, restoreFromDemo, sessionTx, showToast } from "./state";
 import { demoDay } from "../domain/demo";
 import { nextShown, TOUR_STEPS } from "../domain/tour";
 
@@ -189,10 +189,14 @@ export function toggleSubsOpen(): void {
  * Used by the tour, which can ring anything inside its own window but not
  * an icon in the menu bar - the one part of Remi it cannot point at.
  */
-export function openPopover(): void {
-  void invoke("open_popover").catch(() => {
-    /* not in Tauri */
-  });
+export async function openPopover(): Promise<void> {
+  try {
+    await invoke("open_popover");
+  } catch (e) {
+    // A button labelled "open it" that quietly does nothing is worse than
+    // one that says why. Swallowed failures here were flagged in review.
+    showToast(`Couldn't open the menu-bar window: ${String(e)}`);
+  }
 }
 
 /** Open the dashboard on a given tab. */
