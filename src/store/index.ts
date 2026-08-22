@@ -108,6 +108,7 @@ export {
   remindTarget,
   setOverlay,
   markSearched,
+  openPopover,
   setPhase,
   startTour,
   tourStep,

@@ -287,6 +287,23 @@ pub async fn open_dashboard(app: AppHandle) -> Result<(), String> {
 
 /// Called by the dashboard as it is dismissed. Retained for the frontend
 /// contract; the hide itself is handled in Rust (`CloseRequested`).
+/// Drop the menu-bar popover open, for the tour's "here is the other half"
+/// step.
+///
+/// The tour can point at anything inside its own window, but the popover is
+/// a separate window under an icon in the menu bar - the one part of Remi a
+/// ring cannot reach. Describing it and leaving the user to find the icon
+/// is how a feature goes unnoticed; opening it once, on request, is how it
+/// gets met.
+///
+/// Deliberately `show`, not `toggle`: a button labelled "open it" that
+/// closes it on a second press is a button that does two things.
+#[tauri::command]
+pub async fn open_popover(app: AppHandle) -> Result<(), String> {
+    crate::windows::show_popover(&app);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn dashboard_closed() -> Result<(), String> {
     Ok(())

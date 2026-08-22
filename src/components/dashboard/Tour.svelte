@@ -50,6 +50,7 @@
     tourStep,
     remindTarget,
     setRemind,
+    openPopover,
   } from "../../store";
   import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
   import { ACCENTS, clockLabel } from "../../view";
@@ -231,8 +232,6 @@
   let ring: { x: number; y: number; w: number; h: number } | null = null;
   /** Measured once rendered, so the group can be centred on the target. */
   let groupH = REMI_SIZE;
-  /** True while an anchor search is in flight - see `mode` below. */
-  let searching = false;
   /** First placement jumps; every later one walks. */
   let placed = false;
   let walking = false;
@@ -252,14 +251,16 @@
   /** A walking step is one with an anchor that is not asking anything. */
   $: wants = !!step && !!step.anchor && !step.ask;
   /**
-   * Which of the two shapes this step is rendering right now.
+   * Which of the two shapes this step is rendering.
    *
-   * "none" is the gap while the anchor is being looked for - usually a
-   * single frame, after a tab switch has replaced the panel. Showing the
-   * card fallback during it would flash a full-screen scrim on every
-   * walking step and then yank it away, which looks like a bug.
+   * There is deliberately no third "still looking" state any more. There
+   * was, and it rendered NOTHING - which meant any search that ran long, or
+   * got superseded before it finished, left the tour invisible with the app
+   * showing through and no way to tell the tour was still running. A blank
+   * is the worst thing this can do, so the previous anchor is now kept
+   * until a new one is found and the bubble never has a gap to fall into.
    */
-  $: mode = wants && anchorEl ? "walk" : wants && searching ? "none" : "card";
+  $: mode = wants && anchorEl ? "walk" : "card";
 
   function reducedMotion(): boolean {
     try {
@@ -431,16 +432,17 @@
   async function attach(keys: string) {
     const token = ++findToken;
     if (!keys) {
-      searching = false;
       anchorEl = null;
       ring = null;
       return;
     }
-    searching = true;
-    anchorEl = null;
+    // The PREVIOUS anchor is deliberately left in place while this search
+    // runs. Clearing it first blanked the tour for however long the search
+    // took - and forever if the search was superseded before it finished.
+    // Holding the old one means the worst case is a ring in the right
+    // shape but the wrong place, for a few frames.
     const el = await findAnchor(keys.split("|"), token);
     if (token !== findToken) return;
-    searching = false;
     anchorEl = el;
     if (!el) {
       ring = null;
@@ -933,6 +935,14 @@
                     {/if}
                   </div>
                 {/each}
+              </div>
+            {:else if step.ask === "tray"}
+              <div class="tf-ask">
+                <button class="tf-send" on:click={openPopover}>Open it from the menu bar</button>
+                <p class="tf-note">
+                  It drops down under the mouse in your menu bar. Click anywhere else and it goes
+                  away again - your work carries on either way.
+                </p>
               </div>
             {:else if step.ask === "notify"}
               <div class="tf-ask">

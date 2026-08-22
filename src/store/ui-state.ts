@@ -183,6 +183,18 @@ export function toggleSubsOpen(): void {
   commit((s) => void (s.subsOpen = !s.subsOpen));
 }
 
+/**
+ * Drop the menu-bar popover open.
+ *
+ * Used by the tour, which can ring anything inside its own window but not
+ * an icon in the menu bar - the one part of Remi it cannot point at.
+ */
+export function openPopover(): void {
+  void invoke("open_popover").catch(() => {
+    /* not in Tauri */
+  });
+}
+
 /** Open the dashboard on a given tab. */
 export function openDashboard(tab: DashTab = "plan"): void {
   dashTab.set(tab);
