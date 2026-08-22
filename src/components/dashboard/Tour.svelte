@@ -54,7 +54,14 @@
   } from "../../store";
   import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
   import { ACCENTS, clockLabel } from "../../view";
-  import { ownTask, stepAt, tourProgress } from "../../domain/tour";
+  import {
+    beatIndexFor,
+    clampCursor,
+    ownTask,
+    shouldAutoAdvance,
+    stepAt,
+    tourProgress,
+  } from "../../domain/tour";
   import type { TourBeat } from "../../domain/tour";
   import { COSTUMES } from "../../domain/types";
   import Mascot from "../shared/Mascot.svelte";
@@ -96,23 +103,52 @@
    * one, and only turns the page once the list is finished or skipped
    * past. Reset on every step change.
    */
+  /**
+   * ===== CHECKLIST NAVIGATION =====
+   *
+   * Two drivers, and exactly one of them is in charge at a time. Mixing
+   * them is what kept breaking this: an automatic advance would fire on
+   * top of a deliberate Back and yank the page out from under it.
+   *
+   *   AUTO (`cursor === null`) - the default. The bubble follows whatever
+   *   is still outstanding, and finishing the list turns the page.
+   *
+   *   MANUAL (`cursor` set) - the moment Back or Next is pressed. The
+   *   person is driving: the bubble stays where they put it, nothing
+   *   re-syncs it, and the page never turns by itself. Pressing Next past
+   *   the last beat is then the only way onward, which is the point.
+   *
+   * Manual lasts until the step changes. Taking the wheel and having the
+   * tour take it back a second later is the whole complaint.
+   */
   let cursor: number | null = null;
+
+  /** Cancel a pending auto-advance and hand control over. */
+  function takeWheel(at: number) {
+    if (advanceTimer) {
+      clearTimeout(advanceTimer);
+      advanceTimer = null;
+    }
+    cursor = clampCursor(beats.length, at);
+  }
+
+  // A new step is a clean slate: back to AUTO, nothing pending.
   $: if (i !== null) {
     void i;
     cursor = null;
+    advancedFrom = null;
+    if (advanceTimer) {
+      clearTimeout(advanceTimer);
+      advanceTimer = null;
+    }
   }
-  // Doing something re-syncs the checklist to what is actually outstanding,
-  // so completing a beat always shows the next one rather than leaving the
-  // bubble wherever Back last pointed it.
-  let seenAuto = -1;
-  $: if (autoIdx !== seenAuto) {
-    seenAuto = autoIdx;
-    cursor = null;
-  }
-  $: beatIdx = Math.min(beats.length, cursor ?? autoIdx);
+
+  $: beatIdx = beatIndexFor(beats.length, cursor, autoIdx);
   $: beat = beats[beatIdx] ?? null;
   /** Every beat genuinely DONE - not merely skipped past. */
   $: allBeatsDone = beats.length > 0 && autoIdx >= beats.length;
+  /** ...and the tour is still the one driving. */
+  $: canAutoAdvance = shouldAutoAdvance(beats.length, autoIdx, cursor);
   /**
    * The most recently finished beat BEFORE the current one.
    *
@@ -128,26 +164,27 @@
       .find((b) => b.done(s)) ?? null;
 
   /**
-   * Finishing the checklist turns the page by itself.
+   * Finishing the checklist turns the page by itself - in AUTO only.
    *
    * Held briefly so the last acknowledgement is readable rather than
-   * flashing past - doing the final thing and being thrown to a new screen
-   * in the same instant reads as a misclick. Guarded on the step index so
-   * a re-render cannot fire it twice, and cancelled if the user moves on
-   * first.
+   * flashing past. `advancedFrom` stops a re-render arming it twice, and
+   * it re-checks the step on firing so a page turned in the meantime is
+   * never turned again.
    */
   let advanceTimer: ReturnType<typeof setTimeout> | null = null;
   let advancedFrom: number | null = null;
   $: {
-    if (allBeatsDone && i !== null && advancedFrom !== i) {
+    if (canAutoAdvance && i !== null && advancedFrom !== i) {
       advancedFrom = i;
-      if (advanceTimer) clearTimeout(advanceTimer);
       const at = i;
+      if (advanceTimer) clearTimeout(advanceTimer);
       advanceTimer = setTimeout(() => {
-        if (get(tourStep) === at) tourNext();
+        advanceTimer = null;
+        if (get(tourStep) === at && cursor === null) tourNext();
       }, 1400);
     }
   }
+
   /** A beat can point somewhere other than the step it belongs to. */
   /**
    * Where to point, best first, as a stable "a|b" key.
@@ -609,7 +646,7 @@
     // Stepped back onto something already done: just move along. Committing
     // again would duplicate it.
     if (beat.done(s)) {
-      cursor = beatIdx + 1;
+      takeWheel(beatIdx + 1);
       return;
     }
     // Same rule as seeding: only ever act on the beat's OWN control. On a
@@ -621,27 +658,32 @@
       el.blur();
       return; // the commit advances `autoIdx`, which moves the checklist on
     }
-    // The beat's control is a button, not a field - "＋ add steps" is the
-    // way in before a task has any. Press it, and the input it reveals
-    // answers to the same anchor, so the next attach seeds that instead.
-    if (onOwn && anchorEl instanceof HTMLButtonElement) {
-      anchorEl.click();
-      return;
-    }
+    // BEFORE the generic button case below. The deadline's control is a
+    // button too, and letting that branch have it would open the picker
+    // sheet instead of setting the default - so Next would ask a question
+    // rather than answer one, on the one beat that promised an answer.
     if (beat.id === "remind") {
       const own = ownTask(s);
-      // The one beat whose control is a sheet rather than a field. Half an
-      // hour is a plausible default and it is trivially changeable.
+      // Half an hour is plausible, and trivially changed from the ⏲ after.
       if (own) setRemind({ kind: "main", id: own.id }, "in", 30);
       return;
     }
-    cursor = beatIdx + 1;
+    // The beat's control is a button, not a field - "＋ add steps" is the
+    // way in before a task has any. Press it, then re-latch immediately:
+    // the box it reveals answers to the same anchor, and waiting for the
+    // 400ms tick to notice would leave the caret nowhere for a beat.
+    if (onOwn && anchorEl instanceof HTMLButtonElement) {
+      anchorEl.click();
+      void attach(anchorKey);
+      return;
+    }
+    takeWheel(beatIdx + 1);
   }
 
   /** Back walks the checklist before it leaves the page. */
   function onBack() {
     if (beatIdx > 0) {
-      cursor = beatIdx - 1;
+      takeWheel(beatIdx - 1);
       return;
     }
     tourBack();

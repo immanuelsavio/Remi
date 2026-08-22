@@ -377,6 +377,44 @@ export function tourProgress(i: number, s: State): { pos: number; total: number 
   return { pos: Math.max(1, pos), total: Math.max(1, total) };
 }
 
+/**
+ * ===== CHECKLIST NAVIGATION =====
+ *
+ * Pure, because it is what kept breaking. Two drivers, and exactly one of
+ * them is in charge at a time:
+ *
+ *   AUTO (`cursor === null`) - the bubble follows whatever is still
+ *   outstanding, and finishing the list turns the page by itself.
+ *
+ *   MANUAL (`cursor` set) - from the moment Back or Next is pressed. The
+ *   person is driving: nothing re-syncs the bubble and the page never turns
+ *   on its own. Pressing Next past the last beat is the only way onward.
+ *
+ * Mixing the two is the bug this exists to make impossible: an automatic
+ * advance firing on top of a deliberate Back, turning the page out from
+ * under someone who had just gone back a beat.
+ */
+
+/** Which beat is on screen. `total` means "past the end - all done". */
+export function beatIndexFor(total: number, cursor: number | null, autoIdx: number): number {
+  return Math.max(0, Math.min(total, cursor ?? autoIdx));
+}
+
+/** Keep a manual cursor inside the checklist (its end included). */
+export function clampCursor(total: number, at: number): number {
+  return Math.max(0, Math.min(total, at));
+}
+
+/**
+ * Should finishing the list turn the page on its own?
+ *
+ * Only while the tour is still driving. Once someone has taken the wheel,
+ * the page waits for them.
+ */
+export function shouldAutoAdvance(total: number, autoIdx: number, cursor: number | null): boolean {
+  return total > 0 && autoIdx >= total && cursor === null;
+}
+
 /** Clamp an index to a real step. */
 export function stepAt(i: number): TourStep {
   const clamped = Math.max(0, Math.min(TOUR_STEPS.length - 1, Math.floor(i) || 0));
