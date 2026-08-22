@@ -3,7 +3,7 @@
 ```
 ┌──────────────────────── ONE Tauri process ────────────────────────┐
 │                                                                    │
-│  popover webview (380×560)        dashboard webview (maximized)    │
+│  popover webview (380×560)        dashboard webview (1360x900)    │
 │  views/Popover.svelte             views/Dashboard.svelte           │
 │  startClock({owner: true})        startClock({owner: false})       │
 │  ── fires notifications           ── display only                  │

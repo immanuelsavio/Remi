@@ -272,9 +272,24 @@ pub fn write_state_reporting(
         }
         // First-ever write: seed `.bak` with the same content, so corruption
         // before the second save is still recoverable.
+        //
+        // Reported on failure for the same reason as the refresh above: the
+        // guarantee is "a `.bak` exists from the first write onwards", and a
+        // silently skipped seed makes that quietly untrue for exactly the
+        // window - between the first and second save - it was added to
+        // cover. It still does not abort the write.
         Ok(None) => {
-            if !backup_path(folder).exists() {
-                let _ = fs::write(backup_path(folder), &body);
+            // `is_file`, not `exists`: something that is not a file sitting
+            // at that path (a directory, a broken link) is not a backup, and
+            // treating it as one skipped the seed AND the report, leaving
+            // the guarantee quietly unmet with nothing said.
+            if !backup_path(folder).is_file() {
+                if let Err(e) = fs::write(backup_path(folder), &body) {
+                    warning = Some(format!(
+                        "Saved, but couldn't create the backup copy: {e}. \
+                         Your data is written; there is no safety copy yet."
+                    ));
+                }
             }
         }
         // Live file is corrupt: leave any existing good `.bak` alone.
@@ -432,6 +447,30 @@ mod tests {
         assert!(backup_path(d.path()).exists());
         fs::write(state_path(d.path()), "corrupt").unwrap();
         assert_eq!(load_state(d.path()).state.unwrap()["dayNum"], 1);
+    }
+
+    #[test]
+    fn a_backup_that_cannot_be_seeded_is_reported_not_ignored() {
+        // The first-ever write seeds `.bak` so corruption before the second
+        // save is still recoverable. Ignoring a failure here made that
+        // promise quietly untrue for exactly the window it exists to cover.
+        let d = tempdir().unwrap();
+        // A DIRECTORY where the backup file belongs: the write cannot
+        // succeed, and nothing about the live file is wrong.
+        fs::create_dir_all(backup_path(d.path())).unwrap();
+
+        let out = write_state_reporting(d.path(), &v(r#"{"dayNum":1}"#)).unwrap();
+        assert!(
+            out.as_ref().is_some_and(|w| w.contains("backup")),
+            "a failed backup seed was swallowed: {out:?}"
+        );
+        // ...and the live file still landed: a missing safety copy must not
+        // become lost work.
+        assert_eq!(
+            load_state(d.path()).state.unwrap()["dayNum"],
+            1,
+            "the write was abandoned over a backup failure"
+        );
     }
 
     #[test]

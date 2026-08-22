@@ -192,7 +192,7 @@ record** builds a printable page for any date range or tag.
 
 ### The two windows
 
-|                | Popover (380×560)                                        | Dashboard (opens maximized)                               |
+|                | Popover (380×560)                                        | Dashboard (1360x900, centred)                             |
 | -------------- | -------------------------------------------------------- | --------------------------------------------------------- |
 | **Opens from** | The menu-bar mark                                        | Dock, Spotlight, or the popover's ⊞ button                |
 | **For**        | Working the day, one thing at a time                     | Planning it, and looking at the evidence                  |

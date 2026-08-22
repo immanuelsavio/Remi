@@ -47,6 +47,27 @@ pub fn toggle_popover(app: &AppHandle) {
     }
 }
 
+/// One monitor, as physical-pixel geometry: `(x, y, w, h, scale)`.
+pub type MonitorRect = (f64, f64, f64, f64, f64);
+
+/// Which monitor contains a point (the centre of the tray icon).
+///
+/// The popover used to take its bounds from `win.current_monitor()` - the
+/// monitor the popover WAS on, which after a display switch is the one it
+/// was last shown on, not the one whose menu bar was just clicked. The
+/// clamp then pulled the window back onto the old screen, so clicking the
+/// tray on a second display (in particular a fullscreen Space there) opened
+/// the popover on the first.
+///
+/// The tray anchor is the only input that says where the click happened, so
+/// it is what chooses the monitor.
+pub fn monitor_for_point(monitors: &[MonitorRect], point: (f64, f64)) -> Option<usize> {
+    let (px, py) = point;
+    monitors
+        .iter()
+        .position(|&(x, y, w, h, _)| px >= x && px < x + w && py >= y && py < y + h)
+}
+
 /// Where the popover should sit, in physical px, given the tray anchor.
 ///
 /// Split out from `show_popover` so the geometry is a pure function of its
@@ -92,27 +113,48 @@ pub fn show_popover(app: &AppHandle) {
         .outer_size()
         .map(|s| s.width as f64)
         .unwrap_or(FALLBACK_WIDTH);
-    let monitor = win.current_monitor().ok().flatten();
-    let (mon_x, mon_y, mon_w, scale) = monitor
-        .as_ref()
-        .map(|m| {
-            (
-                m.position().x as f64,
-                m.position().y as f64,
-                m.size().width as f64,
-                m.scale_factor(),
-            )
+    let anchor = app.state::<TrayAnchor>().get();
+
+    // The monitor whose menu bar was CLICKED, not the one the popover was
+    // last shown on - see `monitor_for_point`.
+    let rects: Vec<MonitorRect> = win
+        .available_monitors()
+        .map(|ms| {
+            ms.iter()
+                .map(|m| {
+                    (
+                        m.position().x as f64,
+                        m.position().y as f64,
+                        m.size().width as f64,
+                        m.size().height as f64,
+                        m.scale_factor(),
+                    )
+                })
+                .collect()
         })
+        .unwrap_or_default();
+    let by_anchor = anchor
+        .and_then(|(tx, ty, tw, th)| monitor_for_point(&rects, (tx + tw / 2.0, ty + th / 2.0)))
+        .map(|i| rects[i]);
+    let (mon_x, mon_y, mon_w, scale) = by_anchor
+        .or_else(|| {
+            // No anchor, or an anchor on no known monitor (a display
+            // unplugged between the click and this call): the popover's own
+            // monitor is the next best answer, then the fallback.
+            win.current_monitor().ok().flatten().map(|m| {
+                (
+                    m.position().x as f64,
+                    m.position().y as f64,
+                    m.size().width as f64,
+                    m.size().height as f64,
+                    m.scale_factor(),
+                )
+            })
+        })
+        .map(|(x, y, w, _h, scale)| (x, y, w, scale))
         .unwrap_or((0.0, 0.0, FALLBACK_MONITOR_WIDTH, 2.0));
 
-    let (x, y) = popover_position(
-        app.state::<TrayAnchor>().get(),
-        win_w,
-        mon_x,
-        mon_y,
-        mon_w,
-        scale,
-    );
+    let (x, y) = popover_position(anchor, win_w, mon_x, mon_y, mon_w, scale);
     let _ = win.set_position(PhysicalPosition::new(x, y));
 
     // Deliberately NOT `set_always_on_top(true)`. tao implements that as
@@ -151,7 +193,46 @@ pub fn register_autohide(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::popover_position;
+    use super::{monitor_for_point, popover_position, MonitorRect};
+
+    /// A primary 1440-wide screen at the origin, and a second one to its
+    /// right - the ordinary two-display layout.
+    const TWO: [MonitorRect; 2] = [
+        (0.0, 0.0, 1440.0, 900.0, 2.0),
+        (1440.0, 0.0, 1920.0, 1080.0, 1.0),
+    ];
+
+    #[test]
+    fn picks_the_monitor_the_tray_icon_was_clicked_on() {
+        // A tray icon near the right of the SECOND display.
+        assert_eq!(monitor_for_point(&TWO, (3000.0, 12.0)), Some(1));
+        assert_eq!(monitor_for_point(&TWO, (700.0, 12.0)), Some(0));
+    }
+
+    #[test]
+    fn a_point_on_no_monitor_picks_nothing() {
+        // A display unplugged between the click and the show.
+        assert_eq!(monitor_for_point(&TWO, (9999.0, 12.0)), None);
+        assert_eq!(monitor_for_point(&[], (0.0, 0.0)), None);
+    }
+
+    #[test]
+    fn monitor_edges_belong_to_exactly_one_screen() {
+        // The seam between two displays must not match both, or the clamp
+        // depends on iteration order.
+        assert_eq!(monitor_for_point(&TWO, (1440.0, 5.0)), Some(1));
+        assert_eq!(monitor_for_point(&TWO, (1439.0, 5.0)), Some(0));
+    }
+
+    #[test]
+    fn a_secondary_monitor_clamps_within_its_own_bounds() {
+        // The bug: bounds came from the popover's old monitor, so a click
+        // on the second display was clamped back onto the first.
+        let (x, y) = popover_position(Some((3400.0, 0.0, 24.0, 24.0)), W, 1440.0, 0.0, 1920.0, 1.0);
+        assert!(x >= 1440.0, "the popover was pulled onto the other screen");
+        assert_eq!(x, 1440.0 + 1920.0 - W - 4.0);
+        assert_eq!(y, 26.0);
+    }
 
     /// A 1440-wide monitor at the origin, 2x scale, 380-wide popover.
     const W: f64 = 380.0;

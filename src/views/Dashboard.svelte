@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
-   * The dashboard window (opens maximized): plan a day at desk scale, work it, and see
-   * the evidence.
+   * The dashboard window (1360x900, centred): plan a day at desk scale, work
+   * it, and see the evidence.
    *
    * Seven tab components live under `components/dashboard/tabs/`; this file
    * is the thin router: tab strip, lifecycle, derived state, and the shared

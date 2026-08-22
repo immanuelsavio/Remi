@@ -34,8 +34,8 @@ two of the three can be switched off or avoided entirely:
 | What                                               | Where                                                                |
 | -------------------------------------------------- | -------------------------------------------------------------------- |
 | Tasks, steps, notes, backlog, history, streaks     | `~/Remi/state.json`                                                  |
-| Last-known-good copy                               | `~/Remi/state.json.bak`                                              |
-| Files Remi could not parse, preserved for recovery | `~/Remi/recovery-<timestamp>/`                                       |
+| Last-known-good copy                               | `~/Remi/state.bak`                                                   |
+| Files Remi could not parse, preserved for recovery | `~/Remi/Remi Recovery/recovery-<timestamp>/`                         |
 | Backups and exports you create                     | `~/Remi/`                                                            |
 | Settings                                           | `~/Library/Application Support/com.immanuelsavio.remi/settings.json` |
 
