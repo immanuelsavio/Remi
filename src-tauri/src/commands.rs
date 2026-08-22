@@ -14,7 +14,7 @@ use crate::paths::{
     autobackup_dir, backup_path, data_folder, recovery_dir, settings_path, state_path,
 };
 use crate::settings::{patch_settings, read_settings};
-use crate::state_io::{load_state, write_state_cas, CasOutcome, LoadResult};
+use crate::state_io::{load_state, write_state, write_state_cas, CasOutcome, LoadResult};
 use crate::tray::{apply_tray_title, QuitReadiness};
 use crate::windows::show_dashboard;
 
@@ -435,22 +435,50 @@ fn uninstall_data(
 /// Failures are still reported in full. A wipe that quietly leaves files
 /// behind is the one thing this must never do.
 #[tauri::command]
-pub async fn factory_reset_app() -> Result<(), String> {
+pub async fn factory_reset_app(fresh: serde_json::Value) -> Result<(), String> {
+    let _guard = SAVE_LOCK.lock().map_err(|e| e.to_string())?;
+    factory_reset_paths(&data_folder(), &settings_path(), &fresh)
+}
+
+/// The testable half: everything but resolving where the files live.
+///
+/// Deleting and re-seeding are ONE latched operation, and that is the whole
+/// design. Releasing the latch between them leaves a window in which the
+/// other webview's debounced save - still holding the pre-reset day in
+/// memory - recreates `state.json` from stale data at revision 1. The
+/// caller's own fresh write then loses the compare-and-swap against it,
+/// reloads the resurrected data, and the reset silently un-does itself.
+///
+/// So Rust writes the seed itself, while still latched. By the time saves
+/// are allowed again the file on disk IS the fresh state, and the other
+/// window's stale write loses the CAS and reloads it - which is exactly
+/// what should happen.
+fn factory_reset_paths(
+    folder: &std::path::Path,
+    settings: &std::path::Path,
+    fresh: &serde_json::Value,
+) -> Result<(), String> {
     // Latch FIRST so a save already queued in either webview cannot
     // recreate what is about to be deleted.
     UNINSTALLING.store(true, Ordering::SeqCst);
-    let errors = uninstall_data(&data_folder(), &settings_path(), false);
-    // ALWAYS un-latch: this process is staying, and it needs to be able to
-    // write the fresh state that follows.
-    UNINSTALLING.store(false, Ordering::SeqCst);
-    if errors.is_empty() {
-        Ok(())
+    let errors = uninstall_data(folder, settings, false);
+    let seeded = if errors.is_empty() {
+        write_state(folder, fresh)
     } else {
-        Err(format!(
+        Ok(())
+    };
+    // ALWAYS un-latch: this process is staying, and it needs to be able to
+    // save from here on. A latch left set would silently reject every
+    // write afterwards - the app would look fine and persist nothing.
+    UNINSTALLING.store(false, Ordering::SeqCst);
+
+    if !errors.is_empty() {
+        return Err(format!(
             "Some files couldn't be removed: {}",
             errors.join("; ")
-        ))
+        ));
     }
+    seeded.map_err(|e| format!("Reset the data, but couldn't write a fresh state: {e}"))
 }
 
 #[tauri::command]
@@ -479,6 +507,41 @@ mod tests {
     use super::*;
     use std::path::Path;
     use tempfile::tempdir;
+
+    #[test]
+    fn factory_reset_wipes_everything_and_leaves_saves_working() {
+        let d = tempdir().unwrap();
+        let folder = d.path().join("Remi");
+        fs::create_dir_all(folder.join("backups")).unwrap();
+        fs::write(state_path(&folder), "{}").unwrap();
+        fs::write(backup_path(&folder), "{}").unwrap();
+        fs::write(folder.join("backups/remi-auto-2026-01-01.json"), "{}").unwrap();
+        let settings = d.path().join("settings.json");
+        fs::write(&settings, "{}").unwrap();
+
+        let fresh = serde_json::json!({ "dayNum": 1, "_rev": 0, "tourSeen": false });
+        factory_reset_paths(&folder, &settings, &fresh).expect("a clean wipe reports no errors");
+
+        assert!(!settings.exists(), "settings.json must be gone");
+        assert!(
+            !folder.join("backups/remi-auto-2026-01-01.json").exists(),
+            "the automatic snapshots must be gone"
+        );
+        // The seed is written while STILL LATCHED, so there is never a
+        // moment where the file is absent and the other window's stale
+        // save could recreate the pre-reset day.
+        let on_disk = load_state(&folder).state.expect("a fresh state was seeded");
+        assert_eq!(on_disk["dayNum"], 1);
+        assert_eq!(on_disk["tourSeen"], false);
+        // THE LOAD-BEARING ASSERTION. Uninstalling latches saves off and
+        // exits; a factory reset stays open, so leaving the latch set would
+        // silently reject every save from here on - the app would look
+        // fine and persist nothing.
+        assert!(
+            !UNINSTALLING.load(Ordering::SeqCst),
+            "the save latch must be released - this process is staying"
+        );
+    }
 
     #[test]
     fn autobackups_are_pruned_to_the_cap_oldest_first() {

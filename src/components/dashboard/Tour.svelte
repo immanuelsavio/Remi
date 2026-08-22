@@ -297,7 +297,11 @@
     // enough to just re-check, and far more reliable than trying to observe
     // every cause.
     poll = setInterval(() => {
-      if (anchorEl) measure();
+      // Only while a step is actually anchored. This component is mounted
+      // for the life of the window, and the tour runs for two minutes of
+      // it, so the check is what keeps this from being a timer that ticks
+      // forever for nothing.
+      if (i !== null && anchorEl) measure();
     }, 400);
   });
 

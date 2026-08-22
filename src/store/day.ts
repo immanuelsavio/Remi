@@ -262,7 +262,16 @@ export function resumeDay(): void {
   );
 }
 
-/** Restart the day: clear today's work, keep backlog, history and preferences. */
+/**
+ * Restart the day: clear today's work, keep backlog, history and preferences.
+ *
+ * ONLY offer this on a day that has already begun. It forces
+ * `awaitingStart` false and rebuilds from an EMPTY carry list, so calling
+ * it behind the Start-day gate both starts the day on the user's behalf and
+ * silently discards everything waiting in `carrySeed`. The popover has
+ * never been able to reach it pre-start (its footer only exists on the
+ * working screens); Settings hides the row for the same reason.
+ */
 export function restartDay(): void {
   const s1 = S();
   const next = freshDay(s1.dayNum, []);

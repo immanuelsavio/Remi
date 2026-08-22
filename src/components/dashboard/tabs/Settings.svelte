@@ -438,28 +438,35 @@
 
       <div class="settgrp">
         <h4>Data</h4>
+        <!-- One signpost, not two. These were two rows with the same button
+             going to the same place, which reads as two destinations. -->
         <div class="settrow">
           <div>
-            <div class="st">Version &amp; updates</div>
-            <div class="sd">See what you're running, and take a new release when there is one.</div>
+            <div class="st">Version, backup &amp; restore</div>
+            <div class="sd">
+              See what you're running and take a new release; export or restore your JSON. All of it
+              lives on the Data tab.
+            </div>
           </div>
           <button class="set-btn" on:click={() => dashTab.set("data")}>Open Data</button>
         </div>
-        <div class="settrow">
-          <div>
-            <div class="st">Backup &amp; restore</div>
-            <div class="sd">Export or restore your JSON on the Data tab.</div>
+        <!-- Hidden until the day has begun. `restartDay` forces
+             `awaitingStart` false and rebuilds from an EMPTY carry list, so
+             offering it behind the Start-day gate would both start the day
+             from Settings and silently discard everything waiting in
+             `carrySeed`. There is also nothing to reset yet, which is the
+             simpler reason. -->
+        {#if !s.awaitingStart}
+          <div class="settrow">
+            <div>
+              <div class="st">Reset the day</div>
+              <div class="sd">Clear today and start fresh (keeps backlog &amp; history).</div>
+            </div>
+            <button class="set-btn danger" on:click={() => setOverlay("restart")}>
+              Restart day…
+            </button>
           </div>
-          <button class="set-btn" on:click={() => dashTab.set("data")}>Open Data</button>
-        </div>
-        <div class="settrow">
-          <div>
-            <div class="st">Reset the day</div>
-            <div class="sd">Clear today and start fresh (keeps backlog &amp; history).</div>
-          </div>
-          <button class="set-btn danger" on:click={() => setOverlay("restart")}>Restart day…</button
-          >
-        </div>
+        {/if}
       </div>
     {:else if section === "help"}
       <div class="settgrp">
