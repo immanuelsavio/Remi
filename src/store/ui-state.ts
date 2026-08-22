@@ -6,6 +6,7 @@ import { get, writable } from "svelte/store";
 import type { DashTab, Overlay, Phase } from "../domain/types";
 import { S, commit, dashTab, restoreFromDemo, sessionTx, showToast } from "./state";
 import { demoDay } from "../domain/demo";
+import { cancelNotificationPreview } from "./clock";
 import { nextShown, TOUR_STEPS } from "../domain/tour";
 
 /**
@@ -70,6 +71,8 @@ function enterDemo(): void {
         startedAt: s.startedAt,
         phase: s.phase,
         awaitingStart: s.awaitingStart,
+        dateISO: s.dateISO,
+        dayNum: s.dayNum,
       }),
     );
     s.mains = mains;
@@ -136,8 +139,12 @@ export function tourBack(): void {
  */
 export function endTour(): void {
   tourStep.set(null);
-  restoreFromDemo();
-  commit((s) => void (s.tourSeen = true));
+  cancelNotificationPreview();
+  // ONE transaction: the day back and the flag set together. As two
+  // separate mutations a failure between them left a half-exited tour -
+  // the demo gone but the tour still "unseen", so the next launch started
+  // it again over the real day.
+  restoreFromDemo(true);
 }
 
 /**

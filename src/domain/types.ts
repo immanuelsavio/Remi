@@ -335,6 +335,18 @@ export interface DemoSnapshot {
    * and the user is still asked to start their own day.
    */
   awaitingStart: boolean;
+  /**
+   * The real day's date and number.
+   *
+   * Rollover only re-dates while a demo is up, because archiving the
+   * SAMPLE day would put tasks nobody worked into history. That leaves the
+   * real day parked here still believing it is yesterday - so without
+   * these it comes back onto the new date already, is never archived, and
+   * the day number never advances. Restoring them is what lets an ordinary
+   * rollover run afterwards and do the right thing.
+   */
+  dateISO: string;
+  dayNum: number;
 }
 
 export interface ResumableDay {

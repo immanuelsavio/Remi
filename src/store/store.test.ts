@@ -16,6 +16,7 @@ const trayTitles: (string | null)[] = [];
 /** Every filename `write_text_file` was called with, so export naming
  * (collision resistance) is actually testable. */
 const writtenFileNames: string[] = [];
+let lastBackupContents: unknown = null;
 /** What `load_app_state` should hand back on the next boot. */
 let loadResult: { kind: string; state?: unknown; message?: string } = { kind: "fresh" };
 /** When set, the NEXT `save_app_state` call rejects with this message
@@ -96,6 +97,7 @@ vi.mock("@tauri-apps/api/core", () => ({
           throw new Error(msg);
         }
         writtenFileNames.push(String(args?.name));
+        lastBackupContents = args?.contents;
         return `/tmp/backups/${String(args?.name)}`;
       case "write_text_file":
         writtenFileNames.push(String(args?.name));
@@ -119,11 +121,11 @@ import { daySnapshot } from "../domain/tasks";
 import { computeStreaks } from "../domain/streaks";
 import { freshDay, mkMain } from "../domain/defaults";
 import { mainTotal } from "../domain/tasks";
-import { todayISO } from "../domain/dates";
+import { addDays, todayISO } from "../domain/dates";
 import { isDemoId } from "../domain/demo";
 import { TOUR_STEPS } from "../domain/tour";
 import { forPersist } from "../domain/persistence-shape";
-import { keepLocalView, rolloverIfNewDay, toast } from "./state";
+import { keepLocalView, rolloverIfNewDay, setState, toast } from "./state";
 import type { State } from "../domain/types";
 import {
   S,
@@ -218,6 +220,7 @@ async function reset(): Promise<void> {
   mockCurrentRev = 0;
   forceStaleOnce = false;
   writtenFileNames.length = 0;
+  lastBackupContents = null;
   dismissWelcomeBack();
   loadResult = { kind: "loaded", state: freshDay() };
   await boot();
@@ -2184,6 +2187,90 @@ describe("the tour's demo day", () => {
     expect(rolled.demoRestore?.mains.some((m) => m.id === a)).toBe(true);
   });
 
+  it("keeps the demo out of the automatic backup", async () => {
+    // The daily safety backup serialises the WHOLE live state. During the
+    // tour that is the sample day, with the user's real one nested inside
+    // `demoRestore` - so the one backup meant to save them from a bad day
+    // would contain a day they never worked. It also stamps
+    // `lastAutoBackup`, which would block a correct backup later.
+    const [a] = ids();
+    startTour();
+    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
+
+    await autoBackup();
+    expect(writtenFileNames, "a backup was written during the tour").toEqual([]);
+    expect(S().lastAutoBackup, "the day's backup slot was consumed").toBe("");
+
+    // ...and it works again the moment the tour is over.
+    endTour();
+    await autoBackup();
+    expect(writtenFileNames.length).toBe(1);
+    const written = JSON.parse(String(lastBackupContents));
+    expect(written.mains.some((m: { id: string }) => isDemoId(m.id))).toBe(false);
+    expect(written.demoRestore ?? null).toBeNull();
+    expect(written.mains.some((m: { id: string }) => m.id === a)).toBe(true);
+  });
+
+  it("archives the REAL day when the tour spans midnight", async () => {
+    // Rollover only re-dates while a demo is up, because archiving the
+    // sample day would put tasks nobody worked into history. But the real
+    // day parked in `demoRestore` still has to be archived when it comes
+    // back - otherwise yesterday's work silently becomes today's and the
+    // day number never advances.
+    const [a] = ids();
+    completeMain(a);
+    const startedOn = S().dateISO;
+    const dayBefore = S().dayNum;
+
+    startTour();
+    // Midnight, mid-tour: rollover only re-dates while the demo is up, so
+    // the sample day survives and the REAL day sits in the snapshot still
+    // stamped with the date it was parked from.
+    setState(rolloverIfNewDay(S(), todayISO()));
+    expect(
+      S().mains.some((m) => isDemoId(m.id)),
+      "the demo was rolled away",
+    ).toBe(true);
+    // Age the parked day by a day, which is what spanning midnight means.
+    S().demoRestore!.dateISO = addDays(startedOn, -1);
+    S().history.forEach((h) => void h);
+
+    endTour();
+    const s = S();
+    expect(s.dateISO).toBe(todayISO());
+    expect(s.dayNum, "the day never advanced").toBe(dayBefore + 1);
+    const archived = s.history.find((h) => h.dateISO !== todayISO());
+    expect(archived, "the real day was never archived").toBeTruthy();
+    expect(archived!.completed.length).toBeGreaterThan(0);
+    // ...and nothing from the sample day got into the record.
+    expect(s.history.some((h) => h.completed.some((c) => c.title.includes("quarterly")))).toBe(
+      false,
+    );
+  });
+
+  it("does not leave the demo authoritative when the window closes", async () => {
+    // Closing the dashboard mid-tour used to hide the window while this
+    // side flushed whatever was in memory - the SAMPLE day. The popover is
+    // still running and syncs from disk, so it picked the demo up as the
+    // user's real day. Exiting the tour is now part of closing.
+    const [a] = ids();
+    startTour();
+    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
+
+    // What the close handler does, in order.
+    endTour();
+    await flushSave();
+
+    const s = S();
+    expect(s.demoRestore).toBeNull();
+    expect(s.mains.some((m) => m.id === a)).toBe(true);
+    expect(s.tourSeen, "a half-exited tour would run again next launch").toBe(true);
+    // ...and that is what reached disk, not the demo.
+    const onDisk = saved[saved.length - 1];
+    expect(onDisk.demoRestore ?? null).toBeNull();
+    expect((onDisk.mains as { id: string }[]).some((m) => isDemoId(m.id))).toBe(false);
+  });
+
   it("recovers a day stranded by quitting mid-tour", async () => {
     // The demo lives in real state, so a crash or a quit while it is up
     // would otherwise leave the user booting into someone else's tasks
@@ -2443,6 +2530,7 @@ describe("feedback and the usage log", () => {
     expect(S().feedback).toBe("  the timer jumped back an hour  ");
 
     writtenFileNames.length = 0;
+    lastBackupContents = null;
     await exportLogs();
 
     const written = saved.length ? saved : [];
@@ -2470,6 +2558,7 @@ describe("feedback and the usage log", () => {
     setFlag("loggingOptIn", false);
     setFeedback("still broken");
     writtenFileNames.length = 0;
+    lastBackupContents = null;
     await exportLogs();
     expect(writtenFileNames.some((n) => n.startsWith("remi-usage-"))).toBe(true);
   });
@@ -2478,6 +2567,7 @@ describe("feedback and the usage log", () => {
     setFlag("loggingOptIn", false);
     setFeedback("");
     writtenFileNames.length = 0;
+    lastBackupContents = null;
     await exportLogs();
     expect(writtenFileNames).toHaveLength(0);
   });

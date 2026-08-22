@@ -316,6 +316,11 @@ export function hydrate(raw: unknown): State {
       // user their tasks rather than hiding them behind a gate they cannot
       // now dismiss.
       awaitingStart: d.awaitingStart === true,
+      // Absent on a snapshot written before the tour could span midnight.
+      // Empty means "no identity recorded", which the restore treats as
+      // "leave the dates alone" - the old behaviour, and safe.
+      dateISO: typeof d.dateISO === "string" ? d.dateISO : "",
+      dayNum: Math.max(0, num(d.dayNum, 0)),
     };
   } else {
     s.demoRestore = null;
