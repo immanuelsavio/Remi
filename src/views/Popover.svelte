@@ -14,6 +14,7 @@
    * Every design token lives in `styles/global.css`, so both windows theme
    * identically.
    */
+  import { invoke } from "@tauri-apps/api/core";
   import { onDestroy, onMount } from "svelte";
   import {
     app,
@@ -94,6 +95,11 @@
     // it to explicitly call quit_app, rather than assuming any save here
     // landed.
     window.addEventListener("beforeunload", () => {
+      // The listener is about to stop existing (a reload above all). Say so
+      // BEFORE the flush attempt: a webview that reloads while Rust still
+      // believes it is listening is the case that used to leave Remi
+      // emitting Quit into nothing, permanently unquittable.
+      void invoke("quit_listener_unready").catch(() => {});
       void flushSave().catch(() => {
         /* best-effort; the quit handshake is the real barrier */
       });

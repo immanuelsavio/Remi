@@ -336,10 +336,47 @@ pub async fn dashboard_closed() -> Result<(), String> {
     Ok(())
 }
 
-/// The dashboard has finished tidying up and its state is on disk.
+/// "I heard close request `id`."
+///
+/// Receipt only - NOT "the save worked". It is the one question a native
+/// fallback can honestly answer: is anyone there? A webview that crashed,
+/// reloaded or hung answers nothing; one writing a large day to a slow disk
+/// answers instantly and then takes as long as it takes.
 #[tauri::command]
-pub async fn hide_dashboard_window(app: AppHandle) -> Result<(), String> {
+pub async fn dashboard_close_ack(app: AppHandle, id: u64) -> Result<(), String> {
+    if let Some(r) = app.try_state::<crate::windows::CloseRequests>() {
+        r.ack(id);
+    }
+    Ok(())
+}
+
+/// The dashboard has finished tidying up and its state is on disk.
+///
+/// Hiding is refused for an id that is no longer the current request: the
+/// window was reopened, or this conversation already ended. That is what
+/// stops a slow answer from hiding a dashboard the user has just asked to
+/// see again.
+#[tauri::command]
+pub async fn hide_dashboard_window(app: AppHandle, id: Option<u64>) -> Result<(), String> {
+    if let (Some(reqs), Some(id)) = (app.try_state::<crate::windows::CloseRequests>(), id) {
+        if !reqs.is_current(id) {
+            return Ok(());
+        }
+        reqs.finish(id);
+    }
     crate::windows::hide_dashboard(&app);
+    Ok(())
+}
+
+/// The save failed: this close is over and the window STAYS visible.
+///
+/// Ending the request here is what stops the fallback from hiding a window
+/// the frontend deliberately kept open while telling the user why.
+#[tauri::command]
+pub async fn dashboard_close_failed(app: AppHandle, id: u64) -> Result<(), String> {
+    if let Some(r) = app.try_state::<crate::windows::CloseRequests>() {
+        r.finish(id);
+    }
     Ok(())
 }
 
@@ -349,6 +386,17 @@ pub async fn hide_dashboard_window(app: AppHandle) -> Result<(), String> {
 pub async fn dashboard_close_listener_ready(app: AppHandle) -> Result<(), String> {
     if let Some(r) = app.try_state::<crate::windows::DashboardCloseReadiness>() {
         r.mark_ready();
+    }
+    Ok(())
+}
+
+/// ...and its counterpart: the listener is going away (a reload, a
+/// teardown). Readiness that latched forever meant a webview which died
+/// after marking itself ready left every later close emitting into nothing.
+#[tauri::command]
+pub async fn dashboard_close_listener_unready(app: AppHandle) -> Result<(), String> {
+    if let Some(r) = app.try_state::<crate::windows::DashboardCloseReadiness>() {
+        r.mark_unready();
     }
     Ok(())
 }
@@ -377,6 +425,35 @@ pub async fn quit_app(app: AppHandle) -> Result<(), String> {
 pub async fn quit_listener_ready(app: AppHandle) -> Result<(), String> {
     if let Some(r) = app.try_state::<QuitReadiness>() {
         r.mark_ready();
+    }
+    Ok(())
+}
+
+/// The listener is going away (a reload, a teardown). See
+/// `QuitReadiness::mark_unready`.
+#[tauri::command]
+pub async fn quit_listener_unready(app: AppHandle) -> Result<(), String> {
+    if let Some(r) = app.try_state::<QuitReadiness>() {
+        r.mark_unready();
+    }
+    Ok(())
+}
+
+/// "I heard quit request `id`." Receipt only - not "the save worked".
+#[tauri::command]
+pub async fn quit_ack(app: AppHandle, id: u64) -> Result<(), String> {
+    if let Some(r) = app.try_state::<crate::tray::QuitRequests>() {
+        r.ack(id);
+    }
+    Ok(())
+}
+
+/// The save failed (or was refused): this shutdown is over and the app is
+/// staying open. Ending the request here is what lets the user try again.
+#[tauri::command]
+pub async fn quit_failed(app: AppHandle, id: u64) -> Result<(), String> {
+    if let Some(r) = app.try_state::<crate::tray::QuitRequests>() {
+        r.finish(id);
     }
     Ok(())
 }

@@ -130,6 +130,36 @@ explicitly NOT this barrier - a webview cannot reliably await async work
 before tearing down, so it is best-effort only, documented as such at the
 call site.
 
+### Request ids, not latches
+
+Both shutdown conversations - the tray's Quit and the dashboard's close -
+are now REQUESTS with ids, acknowledged in two stages:
+
+1. Rust emits the event carrying an id, and starts a bounded fallback.
+2. The frontend acknowledges RECEIPT immediately, before it saves anything.
+3. It then flushes, and either asks to hide/quit for that id, or reports
+   the failure for that id.
+
+The receipt is the whole point. It answers the only question a native
+fallback can honestly answer - is anybody there? - and separates it from
+the two questions it cannot: is the save slow, and did the save fail. The
+old unconditional three-second hide could not tell those apart, so it hid a
+window whose save had failed while the UI on screen said it had stayed open,
+and it hid a window the user had REOPENED inside the fallback window.
+
+The id also makes the other cases fall out:
+
+- a second Quit or close while one is in flight joins it rather than
+  starting a rival conversation with its own fallback;
+- `show_dashboard` invalidates anything pending, so a stale answer cannot
+  hide the window someone just asked for;
+- a failure ENDS the request (`quit_failed` / `dashboard_close_failed`), so
+  the next deliberate attempt is a fresh conversation - a latch left set
+  after one disk error is what made the app unquittable;
+- readiness is WITHDRAWN on teardown, on `beforeunload`, and by the
+  fallback when nobody answers, so a webview that reloads or dies after
+  marking itself ready does not leave Rust emitting into nothing.
+
 ### The tray-quit handshake
 
 `tray.rs`'s `MENU_QUIT` handler does not sleep-then-exit (a fixed delay is

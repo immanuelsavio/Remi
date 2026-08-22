@@ -30,6 +30,7 @@ mod panel {
 
 pub use anchor::{PopoverGuard, TrayAnchor};
 pub use dashboard::{
-    hide_dashboard, register_dashboard_hide_on_close, show_dashboard, DashboardCloseReadiness,
+    hide_dashboard, register_dashboard_hide_on_close, show_dashboard, CloseRequests,
+    DashboardCloseReadiness,
 };
 pub use popover::{prepare_popover_overlay, register_autohide, show_popover, toggle_popover};

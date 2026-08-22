@@ -195,17 +195,27 @@
       // in memory, and mid-tour that is the SAMPLE day: the demo became
       // the authoritative state on disk and the popover, still running,
       // synced it as the user's real day.
-      unlistenClose = await listen("dashboard-close-requested", async () => {
+      unlistenClose = await listen<number>("dashboard-close-requested", async (ev) => {
+        const id = ev.payload;
+        // Receipt FIRST, before any work. It answers the only question the
+        // native fallback asks - is anyone there? - so a slow save is never
+        // mistaken for a dead webview, and a dead webview is still bounded.
+        void invoke("dashboard_close_ack", { id }).catch(() => {});
         try {
           // The real day back, and the tour marked as run, in one
           // transaction - before anything is persisted or hidden.
           if ($app.demoRestore) endTour();
           await flushSave();
-          await invoke("hide_dashboard_window");
+          // Hiding is refused if this is no longer the current request -
+          // the user reopened the window while we were saving.
+          await invoke("hide_dashboard_window", { id });
           void invoke("dashboard_closed").catch(() => {});
         } catch (e) {
           // Hiding a window whose state could not be written is how work
-          // disappears. Stay open and say so.
+          // disappears. Stay open, say so - and END the request, so the
+          // fallback cannot hide the window a moment after the message
+          // explaining why it stayed open.
+          void invoke("dashboard_close_failed", { id }).catch(() => {});
           showToast(`Couldn't save before closing: ${String(e)}. The window stayed open.`);
         }
       });
@@ -222,6 +232,9 @@
   onDestroy(() => {
     stopClock();
     teardownSync();
+    // The listener is going away: say so, rather than leaving Rust
+    // believing someone is still there to answer a close request.
+    void invoke("dashboard_close_listener_unready").catch(() => {});
     unlistenFocus?.();
     unlistenClose?.();
     unlistenOpened?.();

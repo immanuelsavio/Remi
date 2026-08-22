@@ -479,8 +479,18 @@ export async function requestQuit(): Promise<void> {
  */
 export async function registerQuitListener(): Promise<void> {
   try {
-    unlistenQuitRequest = await listen("quit-requested", () => {
+    unlistenQuitRequest = await listen<number>("quit-requested", (ev) => {
+      const id = ev.payload;
+      // Receipt FIRST, before the flush. It answers the only question the
+      // native fallback asks - is anybody there? - so a slow save is never
+      // mistaken for a dead webview, and a webview that really has died is
+      // still bounded rather than leaving Remi unquittable.
+      void invoke("quit_ack", { id }).catch(() => {});
       void requestQuit().catch((e) => {
+        // This shutdown is over and the app is staying open. Say so, or the
+        // request stays "in flight" and the next Quit is swallowed as a
+        // duplicate of a shutdown that is never going to happen.
+        void invoke("quit_failed", { id }).catch(() => {});
         if (e instanceof StaleWriteError) {
           // Do NOT auto-retry the quit: the reload replaced this window's
           // pending state with the other window's, so a silent retry
@@ -502,4 +512,8 @@ export async function registerQuitListener(): Promise<void> {
 export function teardownQuitListener(): void {
   unlistenQuitRequest?.();
   unlistenQuitRequest = null;
+  // Tell Rust the handshake partner is gone. Readiness that latched forever
+  // meant a popover which reloaded or crashed after marking itself ready
+  // left every later Quit emitting into nothing.
+  void invoke("quit_listener_unready").catch(() => {});
 }

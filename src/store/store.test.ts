@@ -45,6 +45,11 @@ let mockCurrentRev = 0;
  * regardless of the revision it actually sent - simulates "the other
  * window saved first" without needing real concurrent callers. */
 let forceStaleOnce = false;
+/** Handlers registered through the mocked `listen`, by event name - so a
+ * test can deliver the event Rust would have emitted. */
+let listeners: Record<string, ((ev: { payload: unknown }) => void)[]> = {};
+/** Every command invoked, with its args, so a handshake can be asserted. */
+let invoked: { cmd: string; args?: Record<string, unknown> }[] = [];
 /** When set, `load_app_state` awaits this before answering - so a test can
  * make an edit WHILE a reload is in flight. */
 let loadGate: Promise<void> | null = null;
@@ -56,6 +61,7 @@ let loadShouldFail: string | null = null;
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
+    invoked.push({ cmd, args });
     switch (cmd) {
       case "load_app_state":
         onLoadEntered?.();
@@ -140,7 +146,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(async () => {}),
-  listen: vi.fn(async () => () => {}),
+  listen: vi.fn(async (name: string, handler: (ev: { payload: unknown }) => void) => {
+    (listeners[name] ??= []).push(handler);
+    return () => {
+      listeners[name] = (listeners[name] ?? []).filter((h) => h !== handler);
+    };
+  }),
 }));
 
 import { buildLogs } from "../domain/usage-logs";
@@ -178,6 +189,8 @@ import {
   promoteSub,
   pruneEmpty,
   quitApp,
+  registerQuitListener,
+  teardownQuitListener,
   previewNotifications,
   factoryReset,
   removeMain,
@@ -255,6 +268,8 @@ async function reset(): Promise<void> {
   factoryResetShouldFail = null;
   mockCurrentRev = 0;
   forceStaleOnce = false;
+  listeners = {};
+  invoked = [];
   loadGate = null;
   loadShouldFail = null;
   onLoadEntered = null;
@@ -1939,6 +1954,93 @@ describe('"Start today fresh" is a real persistence barrier', () => {
     await flushSave();
     const onDisk = saved[saved.length - 1] as { mains: { title: string }[] };
     expect(onDisk.mains.some((m) => m.title === "Typed after the refusal")).toBe(true);
+  });
+});
+
+// ===========================================================================
+describe("the quit handshake", () => {
+  /** Deliver the `quit-requested` event Rust emits, with its request id. */
+  async function trayQuit(id = 1) {
+    (listeners["quit-requested"] ?? []).forEach((h) => h({ payload: id }));
+    // Let the listener's own async work settle.
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  const called = (cmd: string) => invoked.filter((c) => c.cmd === cmd);
+
+  beforeEach(async () => {
+    await registerQuitListener();
+    invoked.length = 0;
+  });
+
+  afterEach(() => teardownQuitListener());
+
+  it("acknowledges receipt BEFORE it starts saving", async () => {
+    // The receipt answers the only question the native fallback can ask -
+    // is anybody there? Sending it after the flush would make a slow save
+    // indistinguishable from a dead webview, and the fallback would kill an
+    // app that was busy writing the user's day.
+    // Hold `quit_app` open so the receipt can be observed while the
+    // shutdown is still in flight - then release it, or the in-flight lock
+    // outlives the test.
+    let release!: () => void;
+    quitAppGate = new Promise<void>((r) => (release = r));
+    const quitting = trayQuit(7);
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    const ack = called("quit_ack");
+    expect(ack).toHaveLength(1);
+    expect(ack[0].args?.id).toBe(7);
+    release();
+    await quitting;
+    quitAppGate = null;
+  });
+
+  it("quits normally once the flush lands", async () => {
+    await trayQuit();
+    expect(quitAppCalls).toBe(1);
+  });
+
+  it("a failed save ENDS the request, so the app can still be quit", async () => {
+    // Without this the request stayed "in flight" forever and the next
+    // Quit was swallowed as a duplicate of a shutdown that was never going
+    // to happen - an app that could not be quit after one disk error.
+    saveShouldFail = "disk full";
+    await trayQuit(3);
+    expect(quitAppCalls).toBe(0);
+    const failed = called("quit_failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0].args?.id).toBe(3);
+
+    // ...and a second, deliberate Quit works.
+    await trayQuit(4);
+    expect(quitAppCalls).toBe(1);
+  });
+
+  it("a stale-write conflict also ends the request, and does not quit", async () => {
+    forceStaleOnce = true;
+    await trayQuit(5);
+    expect(quitAppCalls).toBe(0);
+    expect(called("quit_failed")).toHaveLength(1);
+    expect(get(toast)?.msg).toMatch(/another window/i);
+  });
+
+  it("tearing the listener down tells Rust nobody is listening any more", async () => {
+    // Readiness that latched forever meant a popover which reloaded after
+    // marking itself ready left every later Quit emitting into nothing.
+    teardownQuitListener();
+    expect(called("quit_listener_unready")).toHaveLength(1);
+  });
+
+  it("two quick Quits share one shutdown", async () => {
+    let release!: () => void;
+    quitAppGate = new Promise<void>((r) => (release = r));
+    await Promise.all([trayQuit(1), trayQuit(2)]);
+    expect(quitAppCalls, "a second shutdown ran over the top of the first").toBe(1);
+    // Let the held shutdown finish before the next test, or its in-flight
+    // lock outlives this one and swallows the next Quit.
+    release();
+    quitAppGate = null;
+    await new Promise((r) => setTimeout(r, 0));
   });
 });
 
