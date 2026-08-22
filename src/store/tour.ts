@@ -17,7 +17,7 @@
  */
 import { derived, get, writable, type Readable } from "svelte/store";
 
-import { demoDay } from "../domain/demo";
+import { demoDay, demoHistory } from "../domain/demo";
 import {
   beatIndex,
   canAutoAdvance,
@@ -36,7 +36,7 @@ import {
   type TourFacts,
   type TourStep,
 } from "../domain/tour";
-import type { State } from "../domain/types";
+import type { DayRecord, State } from "../domain/types";
 import {
   S,
   commit,
@@ -156,6 +156,22 @@ function factsOf(t: TourSession): TourFacts {
 }
 
 const nav = writable<NavState>(INACTIVE);
+
+/**
+ * The finished days the tour SHOWS, without ever recording them.
+ *
+ * Calendar, Search and Stats all describe days that are over, and on a
+ * fresh install there are none - so those steps pointed at an empty grid
+ * and a search that could not find anything. Projected here and merged by
+ * the views while the tour runs; `demoHistory` never touches `s.history`,
+ * so nothing reaches an export, a backup, a streak or a report.
+ *
+ * Empty when no tour is running, which is what makes the merge a no-op the
+ * rest of the time.
+ */
+export const tourHistory: Readable<DayRecord[]> = derived([nav, state], ([n, s]) =>
+  n.step === null ? [] : demoHistory(Date.now(), s.dayNum),
+);
 /** The task this run is practising on - a view onto the session. */
 const practiceId: Readable<string | null> = derived(session, (t) => t.practiceId);
 

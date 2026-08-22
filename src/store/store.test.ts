@@ -246,6 +246,7 @@ import {
   tourBack,
   tourPracticeId,
   tourSession,
+  tourHistory,
   tourView,
   startTourClock,
   completeTourEndDay,
@@ -3067,6 +3068,46 @@ describe("the tour's demo day", () => {
     expect(mine.accrued).toBeLessThan(workedBefore + 95_000);
     expect(s.demoRestore).toBeNull();
     expect(s.mains.some((m) => isDemoId(m.id))).toBe(false);
+  });
+
+  it("shows finished days during the tour without ever recording them", async () => {
+    // Calendar, Search and Stats all describe days that are over, and on a
+    // fresh install there are none - the tour pointed at an empty grid and
+    // a search that could not find anything.
+    expect(get(tourHistory), "projected days leaked outside a tour").toHaveLength(0);
+
+    startTour();
+    const shown = get(tourHistory);
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.some((d) => d.completed.length > 0)).toBe(true);
+    // ...and none of it is in the state, before or after.
+    expect(S().history).toHaveLength(0);
+    endTour();
+    expect(S().history, "the tour wrote its sample days into history").toHaveLength(0);
+    expect(get(tourHistory)).toHaveLength(0);
+  });
+
+  it("a projected day never reaches anything persisted", async () => {
+    startTour();
+    goToStep(stepIdx("calendar"));
+    const persisted = JSON.stringify(forPersist(S(), 1_000));
+    expect(persisted).not.toContain("Reply to the client thread");
+    expect(persisted).not.toContain("Review the pricing page");
+    endTour();
+  });
+
+  it("Back onto Search asks the search UI to empty itself", () => {
+    // The query and chosen tags are local to Calendar, and moving between
+    // two adjacent Calendar steps does not destroy it - so walking back to
+    // "find it again" found the search already run and the beat ticked.
+    startTour();
+    goToStep(stepIdx("search"));
+    markSearched();
+    const token = get(tourSession).searchToken;
+    tourNext(); // -> evidence
+    tourBack(); // back onto search
+    expect(get(tourSession).searched).toBe(false);
+    expect(get(tourSession).searchToken, "the search UI was never told to reset").toBe(token + 1);
   });
 
   it("does not make a SECOND task when you go back onto a finished checklist", async () => {

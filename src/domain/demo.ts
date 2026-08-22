@@ -22,7 +22,7 @@
  */
 
 import { mkMain } from "./defaults";
-import type { InterruptionEvent, Main, Sub } from "./types";
+import type { CompletedRecord, DayRecord, InterruptionEvent, Main, Sub } from "./types";
 
 const MIN = 60_000;
 
@@ -105,6 +105,55 @@ export function demoInterruptions(now: number, dateISO: string): InterruptionEve
     ),
     ev("demo-i2", "Unplanned standup", "demo-2", "Fix the login redirect bug", 75, 25, "interrupt"),
     ev("demo-i3", "Someone at the door", "demo-1", "Draft the quarterly update", 40, 6, "checkin"),
+  ];
+}
+
+/**
+ * A few finished days, for the pages that describe history.
+ *
+ * The Calendar, Search and Stats steps all describe days that are already
+ * over - and on a fresh install there are none, so the tour pointed at an
+ * empty grid and a search that could never find anything. These records are
+ * PROJECTED: the tour hands them to the view alongside the real history and
+ * they are never written to it, so nothing here can end up in an export, a
+ * backup, a streak or a report.
+ *
+ * The tags match the demo tasks, so the search step's chips find something.
+ */
+export function demoHistory(now: number, dayNum: number): DayRecord[] {
+  const day = 86_400_000;
+  const iso = (back: number) => {
+    const d = new Date(now - back * day);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+  const done = (title: string, ms: number, tags: string[], interruptedMs = 0): CompletedRecord => ({
+    title,
+    kind: "task",
+    ms,
+    elapsedMs: ms + interruptedMs,
+    interruptedCount: interruptedMs ? 1 : 0,
+    interruptedMs,
+    tags,
+  });
+  return [
+    {
+      day: Math.max(1, dayNum - 2),
+      dateISO: iso(2),
+      completed: [
+        done("Draft the quarterly update", 95 * MIN, ["report"], 22 * MIN),
+        done("Fix the login redirect bug", 48 * MIN, ["bugs"]),
+      ],
+      unfinished: [{ title: "Review the pricing page", subs: [], tags: ["report"] }],
+      totalMs: 143 * MIN,
+    },
+    {
+      day: Math.max(1, dayNum - 1),
+      dateISO: iso(1),
+      completed: [done("Reply to the client thread", 36 * MIN, ["report"], 9 * MIN)],
+      unfinished: [],
+      totalMs: 36 * MIN,
+    },
   ];
 }
 

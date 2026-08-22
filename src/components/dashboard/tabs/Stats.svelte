@@ -8,7 +8,7 @@
    *   3. Estimate vs reality, and what interruptions did to the difference -
    *      the case that an estimate can be accurate while the DAY runs long.
    */
-  import { app, tourAnchor, useRevive } from "../../../store";
+  import { app, tourAnchor, tourHistory, useRevive } from "../../../store";
   import {
     computeStreaks,
     dateFromISO,
@@ -28,11 +28,14 @@
   $: target = Math.max(1, s.dayTargetMins) * 60000;
   $: given = Math.max(0, target - tracked);
   $: pct = Math.min(100, Math.round((tracked / target) * 100));
-  $: allDone = s.history.reduce((a, h) => a + h.completed.length, 0) + doneToday;
-  $: allTracked = s.history.reduce((a, h) => a + h.totalMs, 0) + tracked;
+  // The tour's projected days, so the evidence page has evidence to show
+  // on a fresh install. Never recorded - see `tourHistory`.
+  $: history = [...$tourHistory, ...s.history];
+  $: allDone = history.reduce((a, h) => a + h.completed.length, 0) + doneToday;
+  $: allTracked = history.reduce((a, h) => a + h.totalMs, 0) + tracked;
   $: streaks = computeStreaks(s);
   $: ts = timeSense(s.estimateLog);
-  $: intr = interruptionStats([...s.history, todayAsRecord(s, $nowMs)]);
+  $: intr = interruptionStats([...history, todayAsRecord(s, $nowMs)]);
   /** What the heart would actually buy, or null if it would buy nothing. */
   $: offer = streaks.offer;
   $: canRevive = !!offer && streaks.life >= 1;
@@ -128,7 +131,7 @@
     <div class="l">Tracked all-time</div>
   </div>
   <div class="stat soft">
-    <div class="v">{s.history.length}</div>
+    <div class="v">{history.length}</div>
     <div class="l">Days logged</div>
   </div>
 </div>

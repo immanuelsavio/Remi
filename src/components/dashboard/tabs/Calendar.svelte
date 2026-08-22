@@ -10,7 +10,7 @@
    * would silently un-break a broken streak - which is exactly the lie the
    * revive heart exists to make you pay for deliberately.
    */
-  import { app, markSearched, tourAnchor } from "../../../store";
+  import { app, markSearched, tourAnchor, tourHistory, tourSession } from "../../../store";
   import PtoSheet from "../PtoSheet.svelte";
   import TagPicker from "../../shared/TagPicker.svelte";
   import {
@@ -45,8 +45,17 @@
    * one day you most want to see. Today is folded in from live state
    * instead, using the same snapshot End Day will eventually store.
    */
+  /**
+   * The days the tour is describing, if one is running.
+   *
+   * PROJECTED, never recorded: the Calendar, Search and Stats steps all
+   * talk about days that are over, and on a fresh install there are none -
+   * so the tour pointed at an empty grid and a search that could not find
+   * anything. Real history wins on any date they share.
+   */
+  $: history = [...$tourHistory, ...s.history];
   $: byDate = new Map([
-    ...s.history.filter((h) => h.dateISO).map((h) => [h.dateISO, h] as const),
+    ...history.filter((h) => h.dateISO).map((h) => [h.dateISO, h] as const),
     ...(s.awaitingStart ? [] : [[s.dateISO, daySnapshot(s, $nowMs)] as const]),
   ]);
   $: today = todayISO();
@@ -57,10 +66,30 @@
   let query = "";
   let searchTags: string[] = [];
   let includeUnfinished = false;
-  $: knownTags = allTags([...s.mains, ...s.history.flatMap((h) => h.completed)]);
+
+  /**
+   * Empty the search when the tour asks for a fresh Search step.
+   *
+   * The query and the chosen tags are local to this component, and moving
+   * between two adjacent Calendar tour steps does not destroy it - so
+   * walking back to "find it again" found the search already run, with its
+   * results still on screen and the beat already ticked. The token changes
+   * when the tour rewinds that step; nothing else touches it, and this
+   * deliberately does NOT depend on the component happening to be
+   * recreated.
+   */
+  let seenSearchToken = $tourSession.searchToken;
+  $: if ($tourSession.searchToken !== seenSearchToken) {
+    seenSearchToken = $tourSession.searchToken;
+    query = "";
+    searchTags = [];
+    includeUnfinished = false;
+  }
+  $: knownTags = allTags([...s.mains, ...history.flatMap((h) => h.completed)]);
   $: searching = query.trim().length > 0 || searchTags.length > 0;
-  // One commit, the first time a search is actually run. The tour's "find
-  // it again" beat reads this; nothing else does, and it never reaches disk.
+  // Recorded on the tour's RUN the first time a search is actually run. It
+  // used to be written to persisted state, so a retake - or the next launch
+  // - opened the search step already finished.
   $: if (searching) markSearched();
   $: hits = searching
     ? searchDays([...byDate.values()], {

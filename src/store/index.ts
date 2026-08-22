@@ -69,6 +69,7 @@ export {
   tourPracticeId,
   tourSession,
   tourActive,
+  tourHistory,
   startTourClock,
   completeTourEndDay,
   markTrayOpened,
