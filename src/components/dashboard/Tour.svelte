@@ -436,17 +436,17 @@
     const r = anchorEl.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    // Scrolled out of the panel entirely: stop ringing empty space, but
-    // leave the bubble where it is rather than snapping it about.
-    if (r.bottom < 0 || r.top > vh) {
-      ring = null;
-      return;
-    }
+    // Scrolled out of the panel entirely: there is nothing on screen to
+    // ring, so no spotlight - but carry on and place the bubble, because
+    // returning here also froze it wherever it happened to be.
+    const offScreen = r.bottom < 0 || r.top > vh;
     // Clamped to the window, so the spotlight's four panels never take a
     // negative size when the target is only partly on screen.
     const top = clamp(r.top, 0, vh);
     const bottom = clamp(r.bottom, 0, vh);
-    ring = { x: Math.max(0, r.left), y: top, w: Math.max(0, r.width), h: bottom - top };
+    ring = offScreen
+      ? null
+      : { x: Math.max(0, r.left), y: top, w: Math.max(0, r.width), h: bottom - top };
 
     const groupW = BUBBLE_W + REMI_SIZE + 8;
     const h = Math.max(groupH, REMI_SIZE);
@@ -498,7 +498,17 @@
     moveTo(at.x, at.y);
   }
 
-  /** Bring the target into view before measuring, if it is off screen. */
+  /**
+   * Bring the target into view, then keep measuring until it settles.
+   *
+   * `scrollIntoView` with smooth behaviour returns immediately and animates
+   * afterwards, so a single `measure()` on the next line reads the rect
+   * from BEFORE the scroll. For a target below the fold that rect is off
+   * screen, which nulls the ring - and with it the blur - until something
+   * else happened to re-measure. Following the scroll for a few frames is
+   * what makes the spotlight appear with the step rather than a scroll
+   * later.
+   */
   function reveal(el: HTMLElement) {
     const r = el.getBoundingClientRect();
     const vh = window.innerHeight;
@@ -508,6 +518,13 @@
     } catch {
       el.scrollIntoView();
     }
+    let frames = 0;
+    const follow = () => {
+      if (anchorEl !== el || frames++ > 45) return;
+      measure();
+      requestAnimationFrame(follow);
+    };
+    requestAnimationFrame(follow);
   }
 
   /** Latch onto the step's element (or give up and fall back to a card). */
@@ -1299,6 +1316,10 @@
   /* ================= CARD ================= */
   /* Soft, not opaque: the demo day the tour is describing stays readable
      behind the questions. */
+  /* The same treatment the walking steps get. A card step has nothing to
+     point at, so everything behind it is "does not have to be seen" - and
+     a plain dim here next to a blur there made the tour look like two
+     different things depending on which page you were on. */
   .tour-scrim {
     position: fixed;
     inset: 0;
@@ -1308,6 +1329,7 @@
     justify-content: center;
     padding: 24px;
     background: rgba(20, 16, 12, 0.34);
+    backdrop-filter: blur(2.5px);
   }
   .tourcard {
     width: min(520px, 100%);
