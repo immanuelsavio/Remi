@@ -1,29 +1,23 @@
 /** UI STATE: phase/overlay navigation and opening the dashboard. */
 
 import { invoke } from "@tauri-apps/api/core";
-import { writable } from "svelte/store";
 
 import type { DashTab, Overlay, Phase } from "../domain/types";
-import { commit, dashTab, showToast } from "./state";
+import { commit, dashTab, remindTarget, showToast } from "./state";
+import type { RemindTarget } from "./state";
+
+export { remindTarget };
+export type { RemindTarget };
 
 /**
- * Which task/step/backlog item the reminder sheet is currently editing, or
- * `null` when it is closed.
+ * Open the reminder picker for a task, step or backlog item.
  *
- * Purely transient window-local UI - it never reaches `state.json`, and each
- * window has its own, so opening the picker in the dashboard does not pop a
- * sheet in the popover. It lives here rather than in a component because the
- * sheet is opened from six different places (Today cards, step rows, the map,
- * the planner, the backlog) and rendered once at the window root.
+ * The picker is opened from six different places (Today cards, step rows,
+ * the map, the planner, the backlog) and rendered once at the window root,
+ * which is why it is a store rather than component state. The store itself
+ * lives in `state.ts` - the tour needs to know when a sheet owns the
+ * screen, and action modules may only depend on that one.
  */
-export type RemindTarget =
-  | { kind: "main"; id: string; title: string }
-  | { kind: "sub"; mainId: string; id: string; title: string }
-  | { kind: "backlog"; id: string; title: string };
-
-export const remindTarget = writable<RemindTarget | null>(null);
-
-/** Open the reminder picker for a task, step or backlog item. */
 export function openRemind(target: RemindTarget): void {
   remindTarget.set(target);
 }

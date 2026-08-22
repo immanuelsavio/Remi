@@ -63,7 +63,6 @@ export {
   tourView,
   tourPaused,
   tourPracticeId,
-  setTourPaused,
   maybeAutoAdvance,
   adoptPracticeTask,
   markSearched,

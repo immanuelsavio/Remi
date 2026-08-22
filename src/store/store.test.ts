@@ -128,7 +128,7 @@ import { addDays, todayISO } from "../domain/dates";
 import { isDemoId } from "../domain/demo";
 import { TOUR_STEPS } from "../domain/tour";
 import { forPersist } from "../domain/persistence-shape";
-import { keepLocalView, rolloverIfNewDay, setState, toast } from "./state";
+import { keepLocalView, rolloverIfNewDay, setState, toast, wellnessNudge } from "./state";
 import type { State } from "../domain/types";
 import {
   S,
@@ -153,6 +153,7 @@ import {
   promoteSub,
   pruneEmpty,
   quitApp,
+  previewNotifications,
   factoryReset,
   removeMain,
   removeSub,
@@ -2049,6 +2050,41 @@ describe("merging a reload with what this window is looking at", () => {
     const fromDisk = view({ phase: "active", activeMainId: "m1", startedAt: 1000 });
     keepLocalView(fromDisk, view({ phase: "recovery" }));
     expect(fromDisk.phase).toBe("recovery");
+  });
+});
+
+describe("the tour's notification preview", () => {
+  it("runs ONE sequence however many times it is pressed", async () => {
+    vi.useFakeTimers();
+    try {
+      previewNotifications();
+      previewNotifications();
+      previewNotifications();
+      await vi.advanceTimersByTimeAsync(4000);
+      // Three immediate deadline banners is the user's own doing; what must
+      // not happen is three DELAYED ones queued on top of each other.
+      const water = notified.filter((n) => n.title === "Water break");
+      expect(water, "a second delayed pair was queued").toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not fire after the tour has closed", async () => {
+    vi.useFakeTimers();
+    try {
+      startTour();
+      previewNotifications();
+      endTour();
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(
+        notified.some((n) => n.title === "Water break"),
+        "a nudge arrived over an app that had stopped explaining anything",
+      ).toBe(false);
+      expect(get(wellnessNudge)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
