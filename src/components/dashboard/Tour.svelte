@@ -132,14 +132,38 @@
     cursor = clampCursor(beats.length, at);
   }
 
-  // A new step is a clean slate: back to AUTO, nothing pending.
-  $: if (i !== null) {
-    void i;
-    cursor = null;
-    advancedFrom = null;
-    if (advanceTimer) {
-      clearTimeout(advanceTimer);
-      advanceTimer = null;
+  /**
+   * Was there anything left to do when this step was entered?
+   *
+   * Only then may finishing turn the page. Arriving at a checklist that is
+   * already complete - which is exactly what pressing Back onto it is -
+   * must not bounce you straight forward again.
+   */
+  let armed = false;
+
+  /**
+   * A new step is a clean slate: back to AUTO, nothing pending, and armed
+   * only if there is work outstanding.
+   *
+   * Guarded on the step index rather than left to fire on its own
+   * dependencies. It READS `autoIdx` to decide whether to arm, so without
+   * the guard it would re-run the instant a beat completed - and set
+   * `armed` to false exactly when the list was finished, which is the one
+   * moment it needs to be true.
+   */
+  let armedFor: number | null = null;
+  $: {
+    if (i === null) {
+      armedFor = null;
+    } else if (armedFor !== i) {
+      armedFor = i;
+      cursor = null;
+      advancedFrom = null;
+      armed = autoIdx < beats.length;
+      if (advanceTimer) {
+        clearTimeout(advanceTimer);
+        advanceTimer = null;
+      }
     }
   }
 
@@ -148,7 +172,7 @@
   /** Every beat genuinely DONE - not merely skipped past. */
   $: allBeatsDone = beats.length > 0 && autoIdx >= beats.length;
   /** ...and the tour is still the one driving. */
-  $: canAutoAdvance = shouldAutoAdvance(beats.length, autoIdx, cursor);
+  $: canAutoAdvance = shouldAutoAdvance(beats.length, autoIdx, cursor, armed);
   /**
    * The most recently finished beat BEFORE the current one.
    *
@@ -200,7 +224,17 @@
    * every recompute, and the reactive statement below would re-run the
    * search on every store tick.
    */
-  $: anchorKey = step?.ask ? "" : [beat?.anchor, step?.anchor].filter(Boolean).join("|");
+  /**
+   * With the list finished there is no current beat, and falling through to
+   * the step's own anchor sent the ring - and the caret - from the deadline
+   * button all the way down to the empty add-a-task row, for the second and
+   * a half before the page turned. Hold the LAST beat's target instead: the
+   * acknowledgement is about what was just done, so that is what to look at.
+   */
+  $: heldAnchor = beats.length && !beat ? beats[beats.length - 1]?.anchor : undefined;
+  $: anchorKey = step?.ask
+    ? ""
+    : [beat?.anchor ?? heldAnchor, step?.anchor].filter(Boolean).join("|");
   /** The preferred anchor, for the upgrade check in the poll. */
   $: wantKey = anchorKey.split("|")[0] ?? "";
   /**
@@ -516,7 +550,9 @@
    * business taking the caret.
    */
   function handOverFocus(el: HTMLElement) {
-    if (!beats.length) return;
+    // No beats, or none outstanding: nothing is being asked for, so the
+    // caret belongs wherever the user left it.
+    if (!beats.length || !beat) return;
     // Only ever the beat's OWN control. `el` may be the step's fallback -
     // on the Plan step that is the add-a-TASK box - and seeding there put
     // the step's example into it, so pressing Next made a top-level task

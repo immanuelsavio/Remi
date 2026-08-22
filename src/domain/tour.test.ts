@@ -275,20 +275,27 @@ describe("the guided tour script", () => {
     });
 
     it("turns the page by itself ONLY while the tour is driving", () => {
-      // THE REGRESSION. All four done arms the auto-advance; pressing Back
-      // during the hold set a cursor, and the timer fired anyway and threw
-      // the user off the beat they had just gone back to.
-      expect(shouldAutoAdvance(4, 4, null)).toBe(true);
-      expect(shouldAutoAdvance(4, 4, 3)).toBe(false);
-      expect(shouldAutoAdvance(4, 4, 0)).toBe(false);
+      // All four done arms the auto-advance; pressing Back during the hold
+      // set a cursor, and the timer fired anyway and threw the user off the
+      // beat they had just gone back to.
+      expect(shouldAutoAdvance(4, 4, null, true)).toBe(true);
+      expect(shouldAutoAdvance(4, 4, 3, true)).toBe(false);
+      expect(shouldAutoAdvance(4, 4, 0, true)).toBe(false);
     });
 
     it("does not turn the page on a list that is not finished", () => {
-      expect(shouldAutoAdvance(4, 3, null)).toBe(false);
+      expect(shouldAutoAdvance(4, 3, null, true)).toBe(false);
+    });
+
+    it("does not bounce you forward off a list that was ALREADY done", () => {
+      // Pressing Back onto a finished checklist is arriving at it, not
+      // finishing it. Re-arming there threw the user forward a moment
+      // later, which made Back look broken when it had worked perfectly.
+      expect(shouldAutoAdvance(4, 4, null, false)).toBe(false);
     });
 
     it("leaves a step with no beats alone entirely", () => {
-      expect(shouldAutoAdvance(0, 0, null)).toBe(false);
+      expect(shouldAutoAdvance(0, 0, null, true)).toBe(false);
       expect(beatIndexFor(0, null, 0)).toBe(0);
     });
   });
