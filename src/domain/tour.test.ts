@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { nextShown, stepAt, stepShown, TOUR_LENGTH, TOUR_STEPS, tourProgress } from "./tour";
+import {
+  beatIndexFor,
+  clampCursor,
+  nextShown,
+  shouldAutoAdvance,
+  stepAt,
+  stepShown,
+  TOUR_LENGTH,
+  TOUR_STEPS,
+  tourProgress,
+} from "./tour";
 import { freshDay } from "./defaults";
 import { demoMains } from "./demo";
 
@@ -239,6 +249,48 @@ describe("the guided tour script", () => {
         if (b.fill && !b.anchor) expect(at).toBe(0);
       });
     }
+  });
+
+  describe("the checklist's two drivers", () => {
+    // Exactly one is in charge at a time. Mixing them is what turned the
+    // page out from under someone who had just pressed Back.
+    it("follows what is outstanding while the tour is driving", () => {
+      expect(beatIndexFor(4, null, 0)).toBe(0);
+      expect(beatIndexFor(4, null, 2)).toBe(2);
+      // Past the end is the "all done" position, not a beat.
+      expect(beatIndexFor(4, null, 4)).toBe(4);
+    });
+
+    it("stays where it was put once someone takes the wheel", () => {
+      // Three beats done, but Back was pressed twice: the bubble stays on
+      // the beat they asked for, not the one still outstanding.
+      expect(beatIndexFor(4, 1, 3)).toBe(1);
+      expect(beatIndexFor(4, 0, 4)).toBe(0);
+    });
+
+    it("never lets a cursor leave the checklist", () => {
+      expect(clampCursor(4, -3)).toBe(0);
+      expect(clampCursor(4, 99)).toBe(4);
+      expect(beatIndexFor(4, 99, 0)).toBe(4);
+    });
+
+    it("turns the page by itself ONLY while the tour is driving", () => {
+      // THE REGRESSION. All four done arms the auto-advance; pressing Back
+      // during the hold set a cursor, and the timer fired anyway and threw
+      // the user off the beat they had just gone back to.
+      expect(shouldAutoAdvance(4, 4, null)).toBe(true);
+      expect(shouldAutoAdvance(4, 4, 3)).toBe(false);
+      expect(shouldAutoAdvance(4, 4, 0)).toBe(false);
+    });
+
+    it("does not turn the page on a list that is not finished", () => {
+      expect(shouldAutoAdvance(4, 3, null)).toBe(false);
+    });
+
+    it("leaves a step with no beats alone entirely", () => {
+      expect(shouldAutoAdvance(0, 0, null)).toBe(false);
+      expect(beatIndexFor(0, null, 0)).toBe(0);
+    });
   });
 
   it("clamps an out-of-range index instead of returning undefined", () => {
