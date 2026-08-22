@@ -9,6 +9,7 @@ import { applyTheme } from "../domain/theme";
 import { forPersist } from "../domain/persistence-shape";
 import { hydrate } from "../domain/hydration";
 import { todayISO } from "../domain/dates";
+import { reloadFromDisk, type ReloadOutcome } from "./reload";
 import {
   S,
   bankOrphanSession,
@@ -27,7 +28,6 @@ import {
   showToast,
   state,
   welcomeBack,
-  keepLocalView,
 } from "./state";
 
 /**
@@ -45,13 +45,25 @@ import {
  */
 export class StaleWriteError extends Error {
   readonly currentRev: number;
-  constructor(currentRev: number) {
+  /**
+   * What the follow-up reload actually did. A message promising the latest
+   * version "was reloaded here" is a lie when the load failed or a guard
+   * declined it, and sends the user looking for a change that is not on
+   * screen.
+   */
+  readonly reload: ReloadOutcome;
+  constructor(currentRev: number, reload: ReloadOutcome = "applied") {
     super(
-      "Remi changed in another window. The latest version was reloaded here - " +
-        "please repeat your last action if it didn't take effect.",
+      reload === "applied"
+        ? "Remi changed in another window. The latest version was reloaded here - " +
+            "please repeat your last action if it didn't take effect."
+        : "Remi changed in another window, so this change wasn't saved. " +
+            "Your screen may not show the latest version yet - reopen or refocus " +
+            "the window, then repeat your last action.",
     );
     this.name = "StaleWriteError";
     this.currentRev = currentRev;
+    this.reload = reload;
   }
 }
 
@@ -187,32 +199,18 @@ export async function flushSave(): Promise<void> {
         // The OTHER window saved a newer revision first. Rust rejected
         // this write rather than silently overwriting it - reload from
         // disk to pick up their change instead of losing it, and surface
-        // that this attempt did not go through as asked. (Inlined rather
-        // than importing `sync.ts`'s `reloadFromDisk` - that module
-        // already imports FROM this one for `windowId()`, and importing
-        // back would create a cycle.)
-        try {
-          const fresh = await invoke<{ kind: string; state?: unknown }>("load_app_state");
-          if (fresh.state) {
-            const cur = S();
-            const next = hydrate(fresh.state);
-            // Same-day guard as `reloadFromDisk` - see the long note there.
-            // Re-imposing this window's view on top of a NEWER DAY is what
-            // turned a lost CAS at midnight into an endless write war.
-            if (
-              next.dateISO === cur.dateISO &&
-              next.dayNum === cur.dayNum &&
-              next.awaitingStart === cur.awaitingStart
-            ) {
-              keepLocalView(next, cur);
-            }
-            state.set(next);
-            applyTheme(next.mode, next.accent);
-          }
-        } catch {
-          /* leave the current snapshot in place */
-        }
-        throw new StaleWriteError(res.currentRev ?? 0);
+        // that this attempt did not go through as asked.
+        //
+        // Through the SHARED guarded reload (`reload.ts`), never an inline
+        // load + `state.set`. This one is as exposed to a concurrent edit
+        // as any other: the user can type a task while the nested load is
+        // in flight, and an unguarded apply erased it - with the debounced
+        // save afterwards persisting its absence.
+        const outcome = await reloadFromDisk();
+        // Tell the truth about what happened. Claiming "the latest version
+        // was reloaded here" when the load failed, or when a guard declined
+        // it, sends the user looking for a change that is not on screen.
+        throw new StaleWriteError(res.currentRev ?? 0, outcome);
       }
       // Mirror the stamp AND the new revision we just persisted, so
       // `bankOrphanSession`/the checkpoint measure against the real

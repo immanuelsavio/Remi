@@ -40,11 +40,26 @@ let mockCurrentRev = 0;
  * regardless of the revision it actually sent - simulates "the other
  * window saved first" without needing real concurrent callers. */
 let forceStaleOnce = false;
+/** When set, `load_app_state` awaits this before answering - so a test can
+ * make an edit WHILE a reload is in flight. */
+let loadGate: Promise<void> | null = null;
+/** Called as soon as `load_app_state` is entered, BEFORE it awaits the gate
+ * - so a test knows the reload is genuinely in flight. */
+let onLoadEntered: (() => void) | null = null;
+/** When set, the NEXT `load_app_state` call rejects with this message. */
+let loadShouldFail: string | null = null;
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
     switch (cmd) {
       case "load_app_state":
+        onLoadEntered?.();
+        if (loadGate) await loadGate;
+        if (loadShouldFail) {
+          const msg = loadShouldFail;
+          loadShouldFail = null; // one-shot
+          throw new Error(msg);
+        }
         return loadResult;
       case "save_app_state":
         if (saveShouldFail) {
@@ -231,6 +246,9 @@ async function reset(): Promise<void> {
   factoryResetShouldFail = null;
   mockCurrentRev = 0;
   forceStaleOnce = false;
+  loadGate = null;
+  loadShouldFail = null;
+  onLoadEntered = null;
   writtenFileNames.length = 0;
   lastBackupContents = null;
   dismissWelcomeBack();
@@ -1783,6 +1801,69 @@ describe("cross-window compare-and-swap", () => {
     // rather than leaving startedAt ticking against the new accrued value.
     expect(S().activeMainId).toBeNull();
     expect(S().startedAt).toBe(0);
+  });
+
+  it("an edit made DURING the stale handler's reload is not erased by it", async () => {
+    // The hole this closes: the stale-write branch used to run its own
+    // unguarded `load_app_state` + `state.set(...)`, carrying none of
+    // `reloadFromDisk`'s guards. A task typed while that nested load was
+    // in flight was replaced wholesale by a snapshot that predates it -
+    // and the debounced save afterwards persisted its absence.
+    const mainsBefore = S().mains.length;
+    // What "the other window" genuinely has on disk: a NEWER revision (as
+    // Rust would report after their winning write), and no knowledge of
+    // the task this user is about to type.
+    mockCurrentRev = S()._rev + 1;
+    loadResult = {
+      kind: "loaded",
+      state: { ...S(), dayNum: S().dayNum + 5, _rev: mockCurrentRev },
+    };
+
+    let openGate!: () => void;
+    loadGate = new Promise<void>((res) => (openGate = res));
+    // The user types a task exactly while the reload is in flight - after
+    // it has read the mutation generation, before it comes back.
+    onLoadEntered = () => {
+      startNewMain("typed during the reload", false);
+      openGate();
+    };
+
+    forceStaleOnce = true;
+    let caught: unknown;
+    await flushSave().catch((e) => (caught = e));
+
+    // Their task is still here: the guard declined a snapshot that
+    // predates it.
+    expect(S().mains.length).toBe(mainsBefore + 1);
+    expect(S().mains.some((m) => m.title === "typed during the reload")).toBe(true);
+    // And the stale snapshot was NOT applied on top of it: the reload
+    // declined rather than replacing state wholesale.
+    expect((caught as StaleWriteError).reload).toBe("declined");
+  });
+
+  it("does not claim the latest version was reloaded when the reload FAILED", async () => {
+    // A stale rejection whose follow-up load throws used to still tell the
+    // user "the latest version was reloaded here" - sending them looking
+    // for a change that is not on screen.
+    const dayBefore = S().dayNum;
+    loadShouldFail = "backend gone";
+    forceStaleOnce = true;
+    let caught: unknown;
+    await flushSave().catch((e) => (caught = e));
+    expect(caught).toBeInstanceOf(StaleWriteError);
+    expect((caught as StaleWriteError).reload).toBe("failed");
+    expect((caught as StaleWriteError).message).not.toMatch(/was reloaded here/);
+    // The current snapshot stands, untouched.
+    expect(S().dayNum).toBe(dayBefore);
+  });
+
+  it("reports an APPLIED reload as such, and still says the action may need repeating", async () => {
+    loadResult = { kind: "loaded", state: { ...S(), dayNum: S().dayNum + 5 } };
+    forceStaleOnce = true;
+    let caught: unknown;
+    await flushSave().catch((e) => (caught = e));
+    expect((caught as StaleWriteError).reload).toBe("applied");
+    expect((caught as StaleWriteError).message).toMatch(/repeat your last action/);
   });
 });
 

@@ -179,8 +179,27 @@ lost work.
 
 ## Cross-window reloads
 
-`reloadFromDisk` awaited the backend and then applied the result wholesale.
-Three guards now stand between that result and the store:
+There is exactly ONE reload implementation, `reloadFromDisk` in
+`src/store/reload.ts`. Both callers use it: the cross-window sync listener
+(`sync.ts`) and the stale-write handler inside `flushSave()`
+(`persistence.ts`). It lives in its own module because `sync.ts` imports
+`windowId()` from `persistence.ts`, so `persistence.ts` importing back from
+`sync.ts` would close a cycle - and the previous answer to that cycle,
+inlining a second copy of the reload into the stale branch, is exactly the
+bug below.
+
+That inline copy carried NONE of the guards: an edit made while its nested
+`load_app_state` was in flight was replaced wholesale by a snapshot that
+predates it, and the debounced save afterwards persisted its absence.
+Guarded in one place, that cannot recur - regression test: `an edit made
+DURING the stale handler's reload is not erased by it`.
+
+A reload also REPORTS what it did (`ReloadOutcome`: `applied` / `declined`
+/ `failed`), and `StaleWriteError` carries that outcome. The message used to
+promise "the latest version was reloaded here" even when the follow-up load
+had thrown - sending the user to look for a change that is not on screen.
+
+Three guards stand between a load result and the store:
 
 - a **mutation generation**, captured before the await. If the user edited
   anything while the load was in flight, the reload declines — the snapshot
@@ -225,6 +244,16 @@ whatever it was) after seeing the "changed in another window" message. No
 data is ever silently lost or duplicated; a user action occasionally needs
 repeating. A true single-writer or field-level-merge architecture would
 close even that gap; it is out of scope for this release.
+
+**Whole-state CAS cannot merge concurrent edits, and nothing here pretends
+otherwise.** The losing window's action is neither auto-retried nor
+silently discarded: it is REPORTED, through `StaleWriteError`, with the
+reload outcome attached so the message matches what actually happened. If
+this ever needs to be closed properly, the shape is a single native writer
+(Rust owns the state; both webviews send operations) or an operation queue
+
+- not a smarter merge in the frontend, which cannot know which of two
+  concurrent intents the user meant.
 
 ### `StaleWriteError` - a distinct type, not a generic I/O error
 
