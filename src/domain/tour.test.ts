@@ -227,6 +227,20 @@ describe("the guided tour script", () => {
     for (const b of typing) expect(b.fill?.trim()).toBeTruthy();
   });
 
+  it("only lets a beat without its own anchor be the first one", () => {
+    // A beat with `fill` gets that example TYPED into whatever it is
+    // pointing at. A beat with no anchor of its own points at the step's,
+    // which is only the right control for the beat that opens the step -
+    // for any later one it is a different box entirely, and seeding there
+    // wrote the step's example into the add-a-TASK field, making a
+    // top-level task called "First step".
+    for (const s of TOUR_STEPS) {
+      (s.beats ?? []).forEach((b, at) => {
+        if (b.fill && !b.anchor) expect(at).toBe(0);
+      });
+    }
+  });
+
   it("clamps an out-of-range index instead of returning undefined", () => {
     expect(stepAt(-5)).toBe(TOUR_STEPS[0]);
     expect(stepAt(9999)).toBe(TOUR_STEPS[TOUR_LENGTH - 1]);
