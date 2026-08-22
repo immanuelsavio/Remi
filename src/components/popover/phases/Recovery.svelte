@@ -3,13 +3,7 @@
    * Honest recovery screen. Rust preserved the damaged files and changed
    * nothing; showing a blank day here would read as "all my work vanished".
    */
-  import {
-    allowOverwritingMalformedOnce,
-    damagedPaths,
-    loadMessage,
-    openDashboard,
-    setPhase,
-  } from "../../../store";
+  import { damagedPaths, loadMessage, openDashboard, startTodayFresh } from "../../../store";
 
   /**
    * Deliberately start over on top of the unreadable file.
@@ -19,10 +13,22 @@
    * The damaged file has ALREADY been copied into the recovery folder by
    * the loader, so the promise to preserve it is kept by that copy; this
    * only overwrites the broken original, once, because the user asked.
+   *
+   * AWAITED. This used to arm the overwrite and change screen in the same
+   * breath: if the write then failed, the user had already left recovery,
+   * the one-shot permission was spent, and everything they did afterwards
+   * lived in memory only. Leaving the screen is now something the confirmed
+   * write earns.
    */
-  function startFresh() {
-    allowOverwritingMalformedOnce();
-    setPhase("today");
+  let working = false;
+  let error = "";
+  async function startFresh() {
+    if (working) return; // one attempt at a time - it spends a one-shot permission
+    working = true;
+    error = "";
+    const res = await startTodayFresh();
+    working = false;
+    if (!res.ok) error = res.error;
   }
   import RemiMark from "../../shared/RemiMark.svelte";
 </script>
@@ -41,7 +47,14 @@
       {#each $damagedPaths as p (p)}
         <div class="path">{p}</div>
       {/each}
-      <button class="btn accent big" on:click={startFresh}>Start today fresh</button>
+      <button class="btn accent big" on:click={startFresh} disabled={working}>
+        {working ? "Starting…" : "Start today fresh"}
+      </button>
+      {#if error}
+        <div class="err" role="alert">
+          {error} Nothing was changed - your files are still in the recovery folder.
+        </div>
+      {/if}
       <button
         class="btn"
         style="margin-top:9px; max-width:220px; width:100%;"
@@ -65,6 +78,13 @@
     margin-top: 6px;
     max-width: 100%;
     overflow-wrap: anywhere;
+  }
+  .err {
+    margin-top: 9px;
+    font-size: 12px;
+    color: var(--bad, #c0392b);
+    max-width: 320px;
+    text-align: center;
   }
   .startday :global(.remi-logo) {
     margin: 0 auto 12px;

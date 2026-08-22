@@ -6,6 +6,7 @@ import { computeStreaks, firstBrokenDayISO, reviveOffer } from "../domain/streak
 import { todayISO } from "../domain/dates";
 import { nid } from "../domain/ids";
 import type { BacklogItem, CarryChoice, CarrySnapshot, ResumableDay } from "../domain/types";
+import { allowOverwritingMalformedOnce, flushSave } from "./persistence";
 import {
   S,
   bankActive,
@@ -327,4 +328,40 @@ export function togglePto(iso: string): void {
   commit((s) => {
     s.pto = s.pto.includes(iso) ? s.pto.filter((x) => x !== iso) : [...s.pto, iso];
   });
+}
+
+/**
+ * "Start today fresh" on the recovery screen - a real persistence barrier.
+ *
+ * The button used to arm the one-shot malformed overwrite and change phase
+ * in the same breath, without awaiting anything. If the write then failed,
+ * the user had already left the recovery screen, the one-shot permission
+ * had been consumed, every ordinary save afterwards was refused, and they
+ * could work for an hour against state that could not be written anywhere.
+ *
+ * So: build the fresh day explicitly, arm the overwrite, and WAIT. The
+ * screen is left only once the write is confirmed - and a refusal counts as
+ * a failure here, because a refusal means the damaged file is still there
+ * and nothing was written.
+ *
+ * The damaged file is not at risk either way: the loader already copied it
+ * into the recovery folder, which is what keeps the preservation promise.
+ */
+export async function startTodayFresh(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const before = S();
+  setState({ ...freshDay(), _rev: before._rev, phase: "today", awaitingStart: false });
+  allowOverwritingMalformedOnce();
+  try {
+    const outcome = await flushSave();
+    if (outcome === "refused") {
+      // Nothing was written. Put the user back where they were, with the
+      // truth, rather than on a day that exists only in memory.
+      setState(before);
+      return { ok: false, error: "Your data file still can't be written to." };
+    }
+    return { ok: true };
+  } catch (e) {
+    setState(before);
+    return { ok: false, error: String(e) };
+  }
 }

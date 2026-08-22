@@ -18,7 +18,9 @@ const trayTitles: (string | null)[] = [];
 const writtenFileNames: string[] = [];
 let lastBackupContents: unknown = null;
 /** What `load_app_state` should hand back on the next boot. */
-let loadResult: { kind: string; state?: unknown; message?: string } = { kind: "fresh" };
+let loadResult: { kind: string; state?: unknown; message?: string; paths?: string[] } = {
+  kind: "fresh",
+};
 /** When set, the NEXT `save_app_state` call rejects with this message
  * instead of succeeding - simulates disk-full/permission failures. */
 let saveShouldFail: string | null = null;
@@ -29,6 +31,9 @@ let quitAppCalls = 0;
 let quitAppGate: Promise<void> | null = null;
 /** When true, the backend REFUSES saves the way it does over a damaged file. */
 let saveRefused = false;
+/** When true, saves are refused even for a caller authorised to overwrite a
+ * malformed file - the "the file is still unwritable" case. */
+let refuseEvenOverMalformed = false;
 let factoryResetCalls = 0;
 /** When set, `factory_reset_app` rejects with this message, once. */
 let factoryResetShouldFail: string | null = null;
@@ -68,7 +73,7 @@ vi.mock("@tauri-apps/api/core", () => ({
           throw new Error(msg);
         }
         {
-          if (saveRefused && args?.overMalformed !== true) {
+          if (refuseEvenOverMalformed || (saveRefused && args?.overMalformed !== true)) {
             return { refused: true, reason: "Your data file can't be read" };
           }
           const payload = args?.state as Record<string, unknown>;
@@ -211,6 +216,7 @@ import {
   TOUR_LENGTH,
   startDay,
   startNewMain,
+  startTodayFresh,
   startSub,
   startTask,
   stopClock,
@@ -244,6 +250,7 @@ async function reset(): Promise<void> {
   quitAppCalls = 0;
   quitAppGate = null;
   saveRefused = false;
+  refuseEvenOverMalformed = false;
   factoryResetCalls = 0;
   factoryResetShouldFail = null;
   mockCurrentRev = 0;
@@ -1866,6 +1873,72 @@ describe("cross-window compare-and-swap", () => {
     await flushSave().catch((e) => (caught = e));
     expect((caught as StaleWriteError).reload).toBe("applied");
     expect((caught as StaleWriteError).message).toMatch(/repeat your last action/);
+  });
+});
+
+// ===========================================================================
+describe('"Start today fresh" is a real persistence barrier', () => {
+  /** Put the app where the recovery screen lives: an unreadable file. */
+  async function inRecovery() {
+    loadResult = { kind: "damaged", message: "state.json is not valid JSON", paths: ["/x"] };
+    await boot();
+    saveRefused = true; // ordinary saves are refused over a damaged file
+    expect(S().phase).toBe("recovery");
+  }
+
+  it("leaves recovery only after the write actually lands", async () => {
+    await inRecovery();
+    const res = await startTodayFresh();
+    expect(res.ok).toBe(true);
+    expect(S().phase).toBe("today");
+    // ...and something really was written, using the one authorised
+    // overwrite of an unreadable file.
+    expect(saved.length).toBeGreaterThan(0);
+  });
+
+  it("STAYS in recovery when the write fails, rather than working in memory", async () => {
+    // The button used to arm the overwrite and change screen in the same
+    // breath. A failed write then left the user off the recovery screen,
+    // with the one-shot permission spent, every later save refused, and an
+    // hour of work living nowhere.
+    await inRecovery();
+    saveShouldFail = "disk full";
+    const res = await startTodayFresh();
+    expect(res.ok).toBe(false);
+    expect(S().phase, "the user was let out of recovery by a failed write").toBe("recovery");
+  });
+
+  it("STAYS in recovery when the backend refuses the write", async () => {
+    // A refusal is not an error - but it is not success either: nothing was
+    // written and the damaged file is still there.
+    await inRecovery();
+    refuseEvenOverMalformed = true;
+    const res = await startTodayFresh();
+    expect(res.ok).toBe(false);
+    expect(S().phase).toBe("recovery");
+  });
+
+  it("a failed attempt can be retried, and the retry works", async () => {
+    await inRecovery();
+    saveShouldFail = "disk full"; // one-shot in the mock
+    expect((await startTodayFresh()).ok).toBe(false);
+    expect((await startTodayFresh()).ok).toBe(true);
+    expect(S().phase).toBe("today");
+  });
+
+  it("does not strand a mutation that arrived during a REFUSED save", async () => {
+    // The refused branch used to return early, skipping the queued rewrite
+    // - so an edit made while a refused save was in flight sat unwritten
+    // until something else happened to save.
+    await inRecovery();
+    refuseEvenOverMalformed = true;
+    await startTodayFresh().catch(() => {});
+    refuseEvenOverMalformed = false;
+    saveRefused = false;
+    addMain("Typed after the refusal");
+    await flushSave();
+    const onDisk = saved[saved.length - 1] as { mains: { title: string }[] };
+    expect(onDisk.mains.some((m) => m.title === "Typed after the refusal")).toBe(true);
   });
 });
 

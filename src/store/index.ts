@@ -81,6 +81,7 @@ export {
   togglePto,
   useRevive,
   type SeedChoice,
+  startTodayFresh,
 } from "./day";
 export {
   addSub,

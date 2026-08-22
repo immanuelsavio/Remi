@@ -164,6 +164,20 @@ unquittable and the window unclosable, at exactly the moment a user most
 wants to close it and go and look at their files. `flushSave` resolves on a
 refusal, having said once what happened.
 
+`flushSave()` now REPORTS which of the two happened (`SaveOutcome`:
+`saved` / `refused`), because a caller about to tell the user their day is
+safe needs to tell them apart. The refused branch also falls through to the
+queued-rewrite logic instead of returning early - an edit made while a
+refused save was in flight used to sit unwritten until something else
+happened to save.
+
+"Start today fresh" is a real barrier because of that: it builds the fresh
+day, arms the overwrite, and AWAITS the write, treating a refusal as a
+failure. On failure it puts the user back exactly where they were, on the
+recovery screen, with the error - rather than leaving them working against
+a day that exists only in memory with the one-shot permission already
+spent.
+
 It has **two deliberate exits**, both user-initiated: restoring a backup, and
 "Start today fresh" on the recovery screen. Both arm
 `allowOverwritingMalformedOnce()`, which is read and cleared _before_ the

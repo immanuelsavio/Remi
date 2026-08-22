@@ -97,7 +97,7 @@ let revision = 0;
  * a later caller can await "everything currently queued has landed",
  * including any dirty re-write the in-flight save schedules on its way out.
  */
-let inFlight: Promise<void> | null = null;
+let inFlight: Promise<SaveOutcome> | null = null;
 
 /** Debounced so a burst of edits collapses into one write. */
 function scheduleSave(): void {
@@ -151,7 +151,22 @@ export function allowOverwritingMalformedOnce(): void {
   overMalformedOnce = true;
 }
 
-export async function flushSave(): Promise<void> {
+/**
+ * What a flush actually did.
+ *
+ * `saved` - the write landed. `refused` - the backend deliberately did not
+ * write, because the live file is unreadable and only an explicitly
+ * authorised caller may overwrite one. A failure throws instead.
+ *
+ * Refusal is not an error (the quit barrier and the dashboard's close
+ * handler must both proceed on it, or a damaged file makes the app
+ * unquittable and unclosable) - but it is not success either, and a caller
+ * that is ABOUT to tell the user their day was saved needs to know the
+ * difference.
+ */
+export type SaveOutcome = "saved" | "refused";
+
+export async function flushSave(): Promise<SaveOutcome> {
   const existing = getSaveTimerHandle();
   if (existing) {
     clearTimeout(existing);
@@ -160,11 +175,12 @@ export async function flushSave(): Promise<void> {
   if (saving) {
     dirtyAgain = true;
     // `inFlight` is guaranteed set whenever `saving` is true.
-    return inFlight ?? undefined;
+    return inFlight ?? "saved";
   }
   saving = true;
-  const run = (async () => {
+  const run = (async (): Promise<SaveOutcome> => {
     let writeError: unknown;
+    let outcome: SaveOutcome = "saved";
     try {
       const now = Date.now();
       const payload = forPersist(S(), now);
@@ -193,9 +209,13 @@ export async function flushSave(): Promise<void> {
           lastRefusal = res.reason;
           showToast(res.reason);
         }
-        return;
+        // Falls through rather than returning: a mutation that arrived
+        // while this refused attempt was in flight set `dirtyAgain`, and
+        // returning from here skipped the queued rewrite entirely - the
+        // edit sat unwritten until something else happened to save.
+        outcome = "refused";
       }
-      if (res?.stale) {
+      if (!res?.refused && res?.stale) {
         // The OTHER window saved a newer revision first. Rust rejected
         // this write rather than silently overwriting it - reload from
         // disk to pick up their change instead of losing it, and surface
@@ -220,17 +240,19 @@ export async function flushSave(): Promise<void> {
       // A save that landed but could not refresh the safety copy. Said
       // once, not every tick - a warning repeated every 250ms is noise
       // that teaches people to ignore warnings.
-      if (res?.warning && res.warning !== lastBackupWarning) {
-        lastBackupWarning = res.warning;
-        showToast(res.warning);
-      }
-      const newRev = res?.rev ?? 0;
-      state.update((s) => ({ ...s, savedAt: now, _rev: newRev }));
-      revision++;
-      try {
-        await emit("app-state-changed", { revision, from: WINDOW_ID });
-      } catch {
-        /* no event bus - the other window still refreshes on focus */
+      if (!res?.refused) {
+        if (res?.warning && res.warning !== lastBackupWarning) {
+          lastBackupWarning = res.warning;
+          showToast(res.warning);
+        }
+        const newRev = res?.rev ?? 0;
+        state.update((s) => ({ ...s, savedAt: now, _rev: newRev }));
+        revision++;
+        try {
+          await emit("app-state-changed", { revision, from: WINDOW_ID });
+        } catch {
+          /* no event bus - the other window still refreshes on focus */
+        }
       }
     } catch (e) {
       writeError = e;
@@ -250,11 +272,11 @@ export async function flushSave(): Promise<void> {
       // itself fails, that rejection propagates naturally.
       const rewrite = flushSave();
       inFlight = rewrite;
-      await rewrite;
-      return;
+      return await rewrite;
     }
 
     if (writeError) throw writeError;
+    return outcome;
   })();
   inFlight = run;
   return run;
