@@ -27,6 +27,8 @@ let saveShouldFail: string | null = null;
 let quitAppCalls = 0;
 /** Held open by a test that needs `quit_app` to still be in flight. */
 let quitAppGate: Promise<void> | null = null;
+/** When true, the backend REFUSES saves the way it does over a damaged file. */
+let saveRefused = false;
 let factoryResetCalls = 0;
 /** When set, `factory_reset_app` rejects with this message, once. */
 let factoryResetShouldFail: string | null = null;
@@ -51,6 +53,9 @@ vi.mock("@tauri-apps/api/core", () => ({
           throw new Error(msg);
         }
         {
+          if (saveRefused && args?.overMalformed !== true) {
+            return { refused: true, reason: "Your data file can't be read" };
+          }
           const payload = args?.state as Record<string, unknown>;
           const sentRev = typeof payload._rev === "number" ? payload._rev : 0;
           if (forceStaleOnce || sentRev !== mockCurrentRev) {
@@ -182,6 +187,7 @@ import {
   dashTab,
   startClock,
   startTour,
+  goToStep,
   tourStep,
   tourNext,
   tourBack,
@@ -220,6 +226,7 @@ async function reset(): Promise<void> {
   saveShouldFail = null;
   quitAppCalls = 0;
   quitAppGate = null;
+  saveRefused = false;
   factoryResetCalls = 0;
   factoryResetShouldFail = null;
   mockCurrentRev = 0;
@@ -1228,6 +1235,20 @@ describe("recovery", () => {
     expect(S().phase).toBe("recovery");
     // Critically: it must NOT have written anything over the user's files.
     expect(saved).toEqual([]);
+  });
+
+  it("can still be QUIT when the state file is unreadable", async () => {
+    // The trap the refusal created: a damaged file is never rewritten, so
+    // every ordinary save is refused - and the quit barrier only calls
+    // `quit_app` after a successful flush. The app became unquittable at
+    // exactly the moment the user most wants to close it and look at their
+    // files. Force-quit was the only way out.
+    loadResult = { kind: "damaged", message: "both files unreadable" };
+    await boot();
+    saveRefused = true;
+
+    await quitApp();
+    expect(quitAppCalls, "the app could not be quit").toBe(1);
   });
 
   it("STILL writes nothing once the save debounce has elapsed", async () => {
@@ -2239,6 +2260,55 @@ describe("the tour's demo day", () => {
     expect(rolled.dayNum).toBe(S().dayNum); // re-dated, not rolled
     expect(rolled.history).toEqual(S().history); // nothing archived
     expect(rolled.demoRestore?.mains.some((m) => m.id === a)).toBe(true);
+  });
+
+  it("does not make a SECOND task when you go back onto a finished checklist", async () => {
+    // The practice task's identity came from a baseline captured when the
+    // step began. Turning the page re-baselined, so the task the user made
+    // fell INSIDE the new baseline - and stepping back made the tour treat
+    // it as never made: "0 of 4, type a task", with their task right there,
+    // and Next duly built a second one.
+    startTour();
+    const plan = TOUR_STEPS.findIndex((s) => s.id === "plan");
+    goToStep(plan);
+
+    // Do the whole checklist the way Next does.
+    for (let i = 0; i < 4; i++) tourNext();
+    const mine = S().mains.filter((m) => !isDemoId(m.id));
+    expect(mine, "the checklist did not build one task").toHaveLength(1);
+
+    // Off the step and back again.
+    goToStep(plan + 1);
+    goToStep(plan);
+    tourNext();
+
+    expect(
+      S().mains.filter((m) => !isDemoId(m.id)),
+      "going back and pressing Next built a duplicate task",
+    ).toHaveLength(1);
+  });
+
+  it("remembers a task you TYPED yourself across a page turn", async () => {
+    // The identity of a self-typed task comes from a baseline captured when
+    // the step began - and turning the page re-baselines, which put their
+    // task INSIDE the new baseline. Coming back, the tour treated it as
+    // never made: "0 of 4, type a task", with the task sitting right there,
+    // and Next built a second one.
+    startTour();
+    const plan = TOUR_STEPS.findIndex((s) => s.id === "plan");
+    goToStep(plan);
+
+    // Typed, not filled by Next - so nothing records the id explicitly.
+    addMain("my own task");
+    expect(S().mains.filter((m) => !isDemoId(m.id))).toHaveLength(1);
+
+    goToStep(plan + 1);
+    goToStep(plan);
+    tourNext();
+
+    const mineNow = S().mains.filter((m) => !isDemoId(m.id));
+    expect(mineNow, "the tour forgot the task and made another").toHaveLength(1);
+    expect(mineNow[0].title).toBe("my own task");
   });
 
   it("keeps the demo out of the automatic backup", async () => {

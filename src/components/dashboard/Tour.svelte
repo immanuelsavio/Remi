@@ -42,6 +42,7 @@
     tourNext,
     tourView,
     maybeAutoAdvance,
+    cancelAutoAdvance,
     openPopover,
     tourAnchors,
   } from "../../store";
@@ -88,16 +89,6 @@
   const WELLNESS = ["water", "stand", "walk", "lunch", "breakr"] as const;
 
   // ---- a modal owns the screen -------------------------------------------
-  /**
-   * A sheet or overlay is up, so the tour stands aside and goes inert.
-   *
-   * The controller works this out for itself (`tourPaused`); the view only
-   * reads it. It used to be set from here, which meant the component wrote
-   * a store it also read through `tourView` - and after one round trip
-   * Svelte stopped updating, so the tour hid behind a sheet and never came
-   * back when the sheet closed.
-   */
-
   // ---- geometry -----------------------------------------------------------
   const BUBBLE_W = 330;
   const REMI_SIZE = 62;
@@ -294,6 +285,7 @@
     window.removeEventListener("resize", measure);
     if (walkTimer) clearTimeout(walkTimer);
     if (follow) cancelAnimationFrame(follow);
+    cancelAutoAdvance();
   });
 
   // ---- keyboard -----------------------------------------------------------
@@ -331,6 +323,26 @@
     if (el && el !== document.body && !mine) return;
     if (e.key === "ArrowRight") tourNext();
     if (e.key === "ArrowLeft") tourBack();
+  }
+
+  /**
+   * Put focus INTO the card when one opens.
+   *
+   * The trap below only engages once focus is already inside. The name
+   * pages autofocus a field, but the rest - theme, mascot, wellness,
+   * preferences - never moved focus in at all, so Tab from the app behind
+   * walked straight through a dialog declaring `aria-modal="true"`. A
+   * dialog that lies about what it contains is worse than no dialog.
+   */
+  let focusedFor: number | null = null;
+  $: if (mode === "card" && !v.paused && surface && v.index !== focusedFor) {
+    focusedFor = v.index;
+    void focusCard(surface);
+  }
+  async function focusCard(el: HTMLElement) {
+    await tick();
+    // A field that asked for focus keeps it; otherwise the card takes it.
+    if (!el.contains(document.activeElement)) el.focus();
   }
 
   /**

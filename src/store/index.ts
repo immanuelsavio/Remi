@@ -1,3 +1,6 @@
+import { provideBeatCommands } from "./tour";
+import { addMain, addSub, addTag, setRemind } from "./task-actions";
+
 /**
  * The store's public facade - the ONLY module Svelte components import
  * from. Internal modules (state, persistence, sync, clock, day,
@@ -38,6 +41,7 @@ export {
   autoBackup,
   boot,
   dismissWelcomeBack,
+  allowOverwritingMalformedOnce,
   flushSave,
   registerQuitListener,
   teardownQuitListener,
@@ -52,7 +56,7 @@ export {
   wellnessCopy,
   wellnessNudge,
 } from "./clock";
-export { previewNotifications, cancelNotificationPreview } from "./tour-preview";
+export { previewNotifications, cancelNotificationPreview } from "./tour";
 export {
   startTour,
   endTour,
@@ -64,7 +68,7 @@ export {
   tourPaused,
   tourPracticeId,
   maybeAutoAdvance,
-  adoptPracticeTask,
+  cancelAutoAdvance,
   markSearched,
 } from "./tour";
 export { tourAnchor, tourAnchors } from "./tour-anchors";
@@ -178,3 +182,13 @@ export function resumeWelcomeBack(): void {
   if (offer.subId) startSub(offer.mainId, offer.subId);
   else startTask(offer.mainId);
 }
+
+// ---------------------------------------------------------------------------
+// COMPOSITION
+//
+// The tour performs a beat through the same task mutations a person's typing
+// goes through, but `store/tour.ts` may not import `store/task-actions.ts` -
+// action modules depend only on `state.ts`, and this facade is where two of
+// them are meant to meet. Wiring it here keeps the module graph a star and
+// keeps the tour off a second, divergent copy of those mutations.
+provideBeatCommands({ addMain, addSub, addTag, setRemind });

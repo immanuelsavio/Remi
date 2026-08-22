@@ -3,7 +3,27 @@
    * Honest recovery screen. Rust preserved the damaged files and changed
    * nothing; showing a blank day here would read as "all my work vanished".
    */
-  import { damagedPaths, loadMessage, openDashboard, setPhase } from "../../../store";
+  import {
+    allowOverwritingMalformedOnce,
+    damagedPaths,
+    loadMessage,
+    openDashboard,
+    setPhase,
+  } from "../../../store";
+
+  /**
+   * Deliberately start over on top of the unreadable file.
+   *
+   * Ordinary saves are refused while `state.json` cannot be read, which is
+   * right - but it left this button unable to do the one thing it offers.
+   * The damaged file has ALREADY been copied into the recovery folder by
+   * the loader, so the promise to preserve it is kept by that copy; this
+   * only overwrites the broken original, once, because the user asked.
+   */
+  function startFresh() {
+    allowOverwritingMalformedOnce();
+    setPhase("today");
+  }
   import RemiMark from "../../shared/RemiMark.svelte";
 </script>
 
@@ -21,7 +41,7 @@
       {#each $damagedPaths as p (p)}
         <div class="path">{p}</div>
       {/each}
-      <button class="btn accent big" on:click={() => setPhase("today")}>Start today fresh</button>
+      <button class="btn accent big" on:click={startFresh}>Start today fresh</button>
       <button
         class="btn"
         style="margin-top:9px; max-width:220px; width:100%;"

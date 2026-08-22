@@ -27,9 +27,9 @@
     startDay,
     toggleShowSubs,
     tourAnchor,
+    tourPracticeId,
   } from "../../../store";
   import { allTags, fmt, fmtEst, mainTotal, nowMs } from "../../../view";
-  import { isDemoId } from "../../../domain/demo";
   import RemindControl from "../../shared/RemindControl.svelte";
   import TagEditor from "../../shared/TagEditor.svelte";
   import ImportSheet from "../ImportSheet.svelte";
@@ -53,15 +53,16 @@
   // so a project gets labelled the same way each time.
   $: knownTags = allTags([...s.mains, ...s.history.flatMap((h) => h.completed)]);
   /**
-   * The ONE task the tour is walking someone through, if they have made it.
+   * The ONE task the tour is walking someone through.
    *
-   * Must match `ownTask` in `domain/tour.ts` exactly - the beats read that
-   * task's state while these attributes decide what gets ringed, and if the
-   * two picked different rows the tour would point at one task and wait on
-   * another. Marking every non-demo row lit up a second task the moment
-   * anyone added one.
+   * Read from the controller rather than guessed here. This used to be
+   * "the first task that is not a demo one" - a second, independent
+   * identity rule that had to agree with the tour's own, and did not have
+   * to: a second task, an import or an edit from the other window could
+   * all make the ring point at one task while the checklist waited on
+   * another.
    */
-  $: tourTaskId = s.mains.find((m) => !isDemoId(m.id))?.id ?? null;
+  $: tourTaskId = $tourPracticeId;
 
   function commitTask() {
     if (!taskDraft.trim()) return;

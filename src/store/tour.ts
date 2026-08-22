@@ -36,9 +36,42 @@ import {
   type TourStep,
 } from "../domain/tour";
 import type { State } from "../domain/types";
-import { S, commit, dashTab, remindTarget, restoreFromDemo, sessionTx, state } from "./state";
-import { cancelNotificationPreview } from "./tour-preview";
-import { addMain, addSub, addTag, setRemind } from "./task-actions";
+import {
+  S,
+  commit,
+  dashTab,
+  remindTarget,
+  restoreFromDemo,
+  sessionTx,
+  state,
+  wellnessNudge,
+} from "./state";
+import { wellnessCopy } from "../domain/wellness";
+import { invoke } from "@tauri-apps/api/core";
+
+/**
+ * The task mutations a beat performs, injected by the facade.
+ *
+ * CLAUDE.md: action modules import only `state.ts`, and where two need to
+ * meet, "the facade (`store/index.ts`) is the right place to compose
+ * them". Importing `task-actions` directly here would be a new edge in a
+ * graph the project deliberately keeps a star - and duplicating the
+ * mutations instead would be worse still, since they route through
+ * `sessionTx` and the tag/reminder normalisers for reasons of their own.
+ */
+export interface BeatCommands {
+  addMain: (title: string) => void;
+  addSub: (mainId: string, title: string) => void;
+  addTag: (mainId: string, tag: string) => void;
+  setRemind: (target: { kind: "main"; id: string }, kind: "in", raw: number) => void;
+}
+
+let commands: BeatCommands | null = null;
+
+/** Wire the beat commands. Called once, by the facade. */
+export function provideBeatCommands(next: BeatCommands): void {
+  commands = next;
+}
 
 /** How long the last acknowledgement stays up before the page turns. */
 const ADVANCE_HOLD_MS = 1400;
@@ -250,9 +283,18 @@ function rebaseline(): void {
 }
 
 function goTo(step: number): void {
+  // PROMOTE before re-baselining. A task the user typed themselves is
+  // identified by "not in the baseline this step started with" - so the
+  // moment a page turn takes a new baseline, their task falls inside it and
+  // the tour forgets which one it was. Coming back then showed "type a
+  // task" with their task already on screen, and Next built a second one.
+  const derivedId = effectivePracticeId(S(), get(practiceId));
+  if (derivedId) practiceId.set(derivedId);
   rebaseline();
   const s = S();
-  nav.set(enterStep(step, contextFor({ ...INACTIVE, step }, s, get(practiceId))));
+  nav.set(
+    enterStep(step, contextFor({ ...INACTIVE, step }, s, effectivePracticeId(s, get(practiceId)))),
+  );
   const tab = stepAt(step).tab;
   if (tab) dashTab.set(tab);
 }
@@ -290,6 +332,17 @@ export function tourBack(): void {
  * new screen in the same instant reads as a misclick - and re-checked on
  * firing, so anything that happened in between wins.
  */
+/**
+ * Drop a pending page turn.
+ *
+ * The view calls this on destruction: a timer left running would dispatch
+ * NEXT - possibly `endTour`, which touches persisted state - with no UI
+ * mounted to have asked for it.
+ */
+export function cancelAutoAdvance(): void {
+  clearAdvance();
+}
+
 export function maybeAutoAdvance(): void {
   const n = get(nav);
   if (n.step === null || get(paused)) return;
@@ -319,6 +372,8 @@ export function maybeAutoAdvance(): void {
  * into the add-a-TASK box the one time it guessed wrong.
  */
 function fill(f: BeatFill): void {
+  if (!commands) return;
+  const { addMain, addSub, addTag, setRemind } = commands;
   const id = effectivePracticeId(S(), get(practiceId));
   switch (f.kind) {
     case "task": {
@@ -340,18 +395,65 @@ function fill(f: BeatFill): void {
   }
 }
 
-/**
- * Adopt a task the user made themselves as the practice task.
- *
- * Called by the view when the first beat completes without `fill` having
- * run - they typed it rather than pressing Next.
- */
-export function adoptPracticeTask(id: string): void {
-  if (!get(practiceId)) practiceId.set(id);
-}
-
 /** Record that the Calendar search was used, for the search beat. */
 export function markSearched(): void {
   if (S().tourSearched) return;
   commit((s) => void (s.tourSearched = true));
+}
+
+// --- the notification preview ----------------------------------------------
+
+/**
+ * The tour's notification preview.
+ *
+ * Lives with the tour rather than the clock because it is a tour feature
+ * and, more practically, because the tour has to be able to CANCEL it -
+ * and an action module may only depend on `state.ts`, never on another
+ * action module.
+ *
+ * The notifications are real, not drawings. Two reasons: the first native
+ * notification is what triggers macOS's permission prompt, and onboarding
+ * is the honest moment for that rather than it arriving unexplained hours
+ * later attached to something that mattered; and a mock cannot tell anyone
+ * whether notifications actually work on THIS machine, which is the only
+ * thing worth knowing.
+ */
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function nativeNotify(title: string, body: string): Promise<void> {
+  try {
+    await invoke("notify", { title, body });
+  } catch {
+    /* refused or unavailable - the in-app card still does its job */
+  }
+}
+
+/** Send one of each, on request. */
+export function previewNotifications(): void {
+  // One sequence at a time. Pressing the button twice queued a second
+  // delayed pair on top of the first.
+  cancelNotificationPreview();
+  void nativeNotify("Draft the quarterly update", "This is what a deadline looks like.");
+  // Staggered so they do not stack into one indistinguishable pile.
+  previewTimer = setTimeout(() => {
+    previewTimer = null;
+    const c = wellnessCopy("water");
+    void nativeNotify(c.title, c.msg);
+    wellnessNudge.set("water");
+  }, 1400);
+}
+
+/**
+ * Drop a preview that has not fired, and any card it already raised.
+ *
+ * Leaving the tour is the case that matters: a wellness card appearing a
+ * second later, over an app that has stopped explaining anything, is a
+ * nudge the user never turned on.
+ */
+export function cancelNotificationPreview(): void {
+  if (previewTimer) {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+  }
+  if (get(wellnessNudge) === "water") wellnessNudge.set(null);
 }

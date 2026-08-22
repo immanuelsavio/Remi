@@ -146,6 +146,50 @@ falls back to `app.exit(0)` directly - deliberately, because there is
 genuinely nobody who could ever respond, not as a race against one who
 might.
 
+## Saving over a file we could not read
+
+An unreadable live file used to read as **revision 0** in the
+compare-and-swap — and a frontend that has just shown the recovery screen
+also sits at revision 0, so the check MATCHED and an ordinary background
+save wrote a blank day over the file the screen was promising had been
+preserved.
+
+An ordinary save is now refused: `CasOutcome::RefusedMalformed`. Two things
+about that refusal matter.
+
+It is an **outcome, not an error**. The quit barrier only calls `quit_app`
+after a successful flush, and the dashboard's close handler only hides the
+window after one — so returning `Err` here made a damaged file leave the app
+unquittable and the window unclosable, at exactly the moment a user most
+wants to close it and go and look at their files. `flushSave` resolves on a
+refusal, having said once what happened.
+
+It has **two deliberate exits**, both user-initiated: restoring a backup, and
+"Start today fresh" on the recovery screen. Both arm
+`allowOverwritingMalformedOnce()`, which is read and cleared _before_ the
+await so a rejected save cannot leave it armed for the next one. The
+damaged file has already been copied into the recovery folder by the load
+path, so the preservation promise is kept by that copy.
+
+A `.bak` that cannot be refreshed is now reported through the save's
+`warning` field rather than ignored, and shown once rather than on every
+tick. It does not abort the write: the live file is the user's current work,
+and refusing to save because a backup failed turns a thin safety net into
+lost work.
+
+## Cross-window reloads
+
+`reloadFromDisk` awaited the backend and then applied the result wholesale.
+Three guards now stand between that result and the store:
+
+- a **mutation generation**, captured before the await. If the user edited
+  anything while the load was in flight, the reload declines — the snapshot
+  predates their edit, and their own save follows, where the
+  compare-and-swap resolves a genuine conflict.
+- a **sequence number**, so of two reloads in flight only the newest
+  applies. An older snapshot cannot win by finishing last.
+- a **revision floor**: an older `_rev` is a stale read, not news.
+
 ## Cross-window compare-and-swap (partial mitigation, not a full redesign)
 
 Each webview holds an independent in-memory store (see

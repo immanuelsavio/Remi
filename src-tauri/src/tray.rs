@@ -23,6 +23,27 @@ use crate::windows::{show_dashboard, show_popover, toggle_popover};
 #[derive(Default)]
 pub struct QuitReadiness(AtomicBool);
 
+/// Set the instant a DELIBERATE exit begins.
+///
+/// A menu-bar app does not stop existing because no window happens to be on
+/// screen - the tray icon IS the app, and both windows spend most of their
+/// life hidden rather than closed. Tauri's default is to exit once it
+/// believes the last window is gone, which for this app meant silent
+/// death: exit code 0, no panic, no save, and the user's only clue was that
+/// the icon vanished. `ExitRequested` is refused unless this says the exit
+/// was asked for.
+#[derive(Default)]
+pub struct Quitting(AtomicBool);
+
+impl Quitting {
+    pub fn begin(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+    pub fn is_quitting(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
 impl QuitReadiness {
     pub fn mark_ready(&self) {
         self.0.store(true, Ordering::SeqCst);
@@ -125,6 +146,9 @@ fn request_quit(app: &AppHandle) {
     if ready {
         let _ = app.emit("quit-requested", ());
     } else {
+        if let Some(q) = app.try_state::<Quitting>() {
+            q.begin();
+        }
         app.exit(0);
     }
 }

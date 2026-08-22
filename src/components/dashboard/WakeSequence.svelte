@@ -27,13 +27,31 @@
 
   import { app } from "../../store";
   import Mascot from "../shared/Mascot.svelte";
-  import { withName } from "../../domain/name";
 
   const dispatch = createEventDispatcher<{ done: void }>();
 
   /** How long each beat holds, ms. Tuned against the CSS durations. */
   const WAKE_MS = 1700;
   const DESK_MS = 1150;
+
+  /**
+   * What the mouse says while it wakes up.
+   *
+   * It used to say "Morning" whatever the hour, which contradicted the
+   * screen it had just been clicked from - that one greets by the clock,
+   * so starting a day at 7pm was greeted with "Good evening" and answered
+   * with "Morning". It is being woken up, not telling the time, so it
+   * grumbles instead. Picked once per sequence rather than per render, so
+   * it cannot change mid-animation.
+   */
+  const WAKING = [
+    "Give me a sec…",
+    "Mmf. One moment…",
+    "Right, right, I'm up…",
+    "Just five more— no, I'm up…",
+    "Coming, coming…",
+  ];
+  const waking = WAKING[Math.floor(Math.random() * WAKING.length)];
 
   let step: "wake" | "desk" = "wake";
   let timers: ReturnType<typeof setTimeout>[] = [];
@@ -84,7 +102,7 @@
 >
   <Mascot mood={step} size={230} />
   <p class="wk-cap" aria-live="polite">
-    {step === "wake" ? `${withName("Morning", s.userName)}…` : "Getting to work."}
+    {step === "wake" ? waking : "Right. Getting to work."}
   </p>
   <p class="wk-skip">click anywhere to skip</p>
 </div>

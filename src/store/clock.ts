@@ -72,8 +72,11 @@ export function startClock(opts: { owner: boolean } = { owner: true }): void {
     // would name a task nobody has, a check-in would ask about work nobody
     // is doing, the tray would count time nobody spent - and the daily
     // backup would preserve the demo instead of the day it exists to
-    // protect. The clock still TICKS: rollover above, and the checkpoint
-    // below, are what make a demo interrupted by a quit recoverable.
+    // protect. The clock still TICKS - rollover above still runs, which is
+    // what keeps the date honest across midnight. (Recovering a demo
+    // interrupted by a quit comes from `enterDemo`'s own save, not from
+    // the checkpoint: that returns immediately with no active session, and
+    // entering the demo clears one.)
     if (S().demoRestore) {
       checkpoint(now);
       return;

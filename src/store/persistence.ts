@@ -156,15 +156,33 @@ export async function flushSave(): Promise<void> {
     try {
       const now = Date.now();
       const payload = forPersist(S(), now);
+      // Read AND clear before the await. Clearing after only ran on the
+      // success path, so a rejected save left the flag armed and the next
+      // ordinary debounced write was permitted to overwrite an unreadable
+      // file - reopening the exact hole this exists to close.
+      const over = overMalformedOnce;
+      overMalformedOnce = false;
       const res = await invoke<{
         rev?: number;
         stale?: boolean;
         currentRev?: number;
         warning?: string | null;
-      }>("save_app_state", { state: payload, overMalformed: overMalformedOnce });
-      // One-shot: only the restore path may overwrite an unreadable file,
-      // and only for the write it asked for.
-      overMalformedOnce = false;
+        refused?: boolean;
+        reason?: string;
+      }>("save_app_state", { state: payload, overMalformed: over });
+      if (res?.refused) {
+        // Nothing was written, and that is CORRECT: the file is unreadable
+        // and a copy of it is already in the recovery folder. This resolves
+        // rather than throwing, because the quit barrier and the dashboard
+        // close handler both only proceed after a successful flush - and
+        // treating "we deliberately did not write" as a failure left the
+        // user unable to quit or even close the window.
+        if (res.reason && res.reason !== lastRefusal) {
+          lastRefusal = res.reason;
+          showToast(res.reason);
+        }
+        return;
+      }
       if (res?.stale) {
         // The OTHER window saved a newer revision first. Rust rejected
         // this write rather than silently overwriting it - reload from
@@ -387,6 +405,8 @@ let quitInFlight: Promise<void> | null = null;
 
 /** The last backup warning shown, so it is not repeated on every save. */
 let lastBackupWarning: string | null = null;
+/** ...and the last refusal, for the same reason. */
+let lastRefusal: string | null = null;
 
 /**
  * THE quit barrier: flush, and only invoke `quit_app` if that flush

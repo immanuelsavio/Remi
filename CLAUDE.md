@@ -52,8 +52,20 @@ In `src-tauri/src/state_io.rs`:
 2. Writes are atomic (unique temp file → flush → fsync → rename → fsync
    parent dir).
 3. A `.bak` of the last-known-good file is kept and read back on a bad
-   load; a corrupt live file never becomes the backup.
+   load; a corrupt live file never becomes the backup. A `.bak` that
+   cannot be refreshed is REPORTED (via the save's `warning`), never
+   silently ignored — but it does not abort the write, because the live
+   file is the user's current work.
 4. An empty file is malformed, not `{}`.
+5. An ordinary save over a malformed live file is REFUSED
+   (`CasOutcome::RefusedMalformed`) rather than treated as revision 0.
+   Only a caller that passes `over_malformed` may overwrite one — the
+   restore path, and "Start today fresh" on the recovery screen. The
+   refusal is an outcome, not an error: the quit barrier and the dashboard
+   close handler both proceed on it, or a damaged file would leave the app
+   unquittable.
+6. The frontend never schedules a save from the recovery screen
+   (`commitLocal`, not `commit`).
 
 `hydrate()` in `src/domain/hydration.ts` is the frontend half: every
 value off disk is coerced, clamped, or dropped. Never trust a value you
@@ -86,11 +98,15 @@ wrong?
   import `src/store/state.ts` or another internal store module directly
   from a component.
 - Store action modules (`task-actions.ts`, `day.ts`, `break-actions.ts`,
-  etc.) never import each other — only `src/store/state.ts`. This keeps
-  the module graph a star, not a cycle. If two action modules need to
-  call each other's logic, either the shared logic belongs in
+  `tour.ts`, etc.) never import each other — only `src/store/state.ts`.
+  This keeps the module graph a star, not a cycle. If two action modules
+  need to call each other's logic, either the shared logic belongs in
   `state.ts`, or the facade (`store/index.ts`) is the right place to
-  compose them.
+  compose them — see `provideBeatCommands`, which is how the tour performs
+  a task mutation without importing `task-actions.ts`.
+  `persistence.ts` and `clock.ts` are the documented exceptions: they are
+  infrastructure, and several action modules depend on them. Nothing may
+  depend on an action module.
 - `src/domain/*` is pure: no Svelte store, no Tauri, no DOM (except
   `theme.ts`'s `applyTheme`). Every time-dependent function takes `now`
   as an explicit parameter — this is what makes the domain tests
