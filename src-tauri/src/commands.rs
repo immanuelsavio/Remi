@@ -62,6 +62,44 @@ pub async fn release_effect_owner(app: AppHandle, window: String) -> Result<(), 
 /// recreate the files we just deleted.
 static UNINSTALLING: AtomicBool = AtomicBool::new(false);
 
+/// Ask the OS to confirm an irreversible action, and hand back a one-time
+/// ticket for it.
+///
+/// The webview's own confirmation is still where the user reads what will
+/// happen - this is the part that cannot be forged by page content. See
+/// `destructive.rs`.
+#[tauri::command]
+pub async fn authorize_destructive(app: AppHandle, kind: String) -> Result<String, String> {
+    let (title, body) = match kind.as_str() {
+        "wipe" => (
+            "Wipe Remi and start over?",
+            "Remi will delete this device's settings and start from an empty day.              Your exports and backups are left alone. This cannot be undone.",
+        ),
+        "uninstall" => (
+            "Remove everything Remi stores?",
+            "Remi will delete its data folder, including your history, exports and              automatic backups, and then quit. This cannot be undone.",
+        ),
+        _ => return Err("Unknown action.".into()),
+    };
+    if !crate::destructive::confirm_natively(title, body) {
+        return Err("Cancelled.".into());
+    }
+    let token = crate::destructive::new_token();
+    let now = crate::scheduler::now_ms();
+    Ok(app
+        .try_state::<crate::destructive::Destructive>()
+        .map(|d| d.issue(&kind, token.clone(), now))
+        .unwrap_or(token))
+}
+
+/// Spend the ticket, or refuse the deletion.
+fn redeem_destructive(app: &AppHandle, kind: &str, token: &str) -> Result<(), String> {
+    let now = crate::scheduler::now_ms();
+    app.try_state::<crate::destructive::Destructive>()
+        .ok_or_else(|| "That needs to be confirmed again.".to_string())?
+        .redeem(kind, token, now)
+}
+
 #[tauri::command]
 pub async fn load_app_state() -> Result<LoadResult, String> {
     let mut result = load_state(&data_folder());
@@ -613,7 +651,12 @@ fn uninstall_data(
 /// Failures are still reported in full. A wipe that quietly leaves files
 /// behind is the one thing this must never do.
 #[tauri::command]
-pub async fn factory_reset_app(fresh: serde_json::Value) -> Result<(), String> {
+pub async fn factory_reset_app(
+    app: AppHandle,
+    fresh: serde_json::Value,
+    token: String,
+) -> Result<(), String> {
+    redeem_destructive(&app, "wipe", &token)?;
     let _guard = SAVE_LOCK.lock().map_err(|e| e.to_string())?;
     factory_reset_paths(&data_folder(), &settings_path(), &fresh)
 }
@@ -660,7 +703,16 @@ fn factory_reset_paths(
 }
 
 #[tauri::command]
-pub async fn reset_and_uninstall_app(app: AppHandle, keep_history: bool) -> Result<(), String> {
+pub async fn reset_and_uninstall_app(
+    app: AppHandle,
+    keep_history: bool,
+    token: String,
+) -> Result<(), String> {
+    redeem_destructive(
+        &app,
+        if keep_history { "wipe" } else { "uninstall" },
+        &token,
+    )?;
     // Latch FIRST so any save already queued in either webview is rejected
     // instead of recreating what we are about to delete.
     UNINSTALLING.store(true, Ordering::SeqCst);

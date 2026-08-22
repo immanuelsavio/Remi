@@ -102,6 +102,17 @@ handled at the time:
 Turning logging off stops the collection of the message text immediately;
 it does not retroactively rewrite errors recorded while it was on.
 
+## The app makes no network requests of its own
+
+Fonts are bundled into the app, not fetched. They used to come from Google
+Fonts at runtime, which meant a local-first app announced every launch to a
+third party - IP address, User-Agent, referrer - and fell back to system
+faces for anyone offline. The content security policy now permits no remote
+styles, fonts or connections at all.
+
+The two deliberate exceptions are both things you ask for: the update check
+(and the update itself) talks to GitHub, and nothing else does.
+
 ## Notifications
 
 Remi can post native notifications for reminders and for the end of a break.

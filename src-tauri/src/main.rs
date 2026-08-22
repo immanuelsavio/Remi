@@ -19,6 +19,7 @@
 //! schema can evolve in TypeScript without a Rust change.
 
 mod commands;
+mod destructive;
 mod migration;
 mod paths;
 mod scheduler;
@@ -58,6 +59,7 @@ fn main() {
         .manage(CloseRequests::default())
         .manage(tray::QuitRequests::default())
         .manage(scheduler::EffectLease::default())
+        .manage(destructive::Destructive::default())
         .invoke_handler(tauri::generate_handler![
             commands::load_app_state,
             commands::save_app_state,
@@ -82,6 +84,7 @@ fn main() {
             commands::quit_listener_unready,
             commands::quit_ack,
             commands::claim_effect_owner,
+            commands::authorize_destructive,
             commands::release_effect_owner,
             commands::quit_failed,
             commands::dashboard_close_listener_ready,

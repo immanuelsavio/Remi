@@ -37,6 +37,8 @@ let refuseEvenOverMalformed = false;
 /** Which window Rust's effect lease is granting to; null means "whoever
  * asks". */
 let leaseGrantedTo: string | null = null;
+/** Whether the native confirmation dialog is answered or cancelled. */
+let authorizeDestructive: "allow" | "cancel" = "allow";
 let factoryResetCalls = 0;
 /** When set, `factory_reset_app` rejects with this message, once. */
 let factoryResetShouldFail: string | null = null;
@@ -104,6 +106,9 @@ vi.mock("@tauri-apps/api/core", () => ({
         quitAppCalls++;
         if (quitAppGate) await quitAppGate;
         return null;
+      case "authorize_destructive":
+        if (authorizeDestructive === "cancel") throw new Error("Cancelled.");
+        return "tok-123";
       case "factory_reset_app":
         factoryResetCalls++;
         if (factoryResetShouldFail) {
@@ -273,6 +278,7 @@ async function reset(): Promise<void> {
   saveRefused = false;
   refuseEvenOverMalformed = false;
   leaseGrantedTo = null;
+  authorizeDestructive = "allow";
   factoryResetCalls = 0;
   factoryResetShouldFail = null;
   mockCurrentRev = 0;
@@ -2418,6 +2424,30 @@ describe("the tour's notification preview", () => {
 });
 
 describe("factory reset", () => {
+  it("does nothing at all when the native confirmation is cancelled", async () => {
+    // The in-app confirmation is where the user reads what will be
+    // deleted; the system dialog is the part page content cannot forge or
+    // click. Cancelling it must leave every file and the day on screen
+    // exactly as they were.
+    const before = S().mains.length;
+    authorizeDestructive = "cancel";
+    await factoryReset();
+    expect(factoryResetCalls, "a cancelled confirmation still wiped the data").toBe(0);
+    expect(S().mains).toHaveLength(before);
+  });
+
+  it("carries the one-time ticket into the command that deletes", async () => {
+    await factoryReset();
+    const call = invoked.find((c) => c.cmd === "factory_reset_app");
+    expect(call?.args?.token, "the deletion was requested without a ticket").toBe("tok-123");
+  });
+
+  it("an uninstall cancelled at the system dialog removes nothing", async () => {
+    authorizeDestructive = "cancel";
+    await resetAndUninstall(false);
+    expect(invoked.some((c) => c.cmd === "reset_and_uninstall_app")).toBe(false);
+  });
+
   it("puts back a first-launch state without quitting", async () => {
     const [a] = ids();
     startTask(a);

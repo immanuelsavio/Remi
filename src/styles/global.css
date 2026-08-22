@@ -7,7 +7,29 @@
    Accent tints are derived from --accent via color-mix, which is why adding a
    seventh accent means adding one hex value and nothing else. */
 
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+/* Fonts are BUNDLED, not fetched.
+   These used to come from fonts.googleapis.com at runtime: a local-first
+   app that stores nothing on a server still announced every launch to a
+   third party (IP, User-Agent, referrer), and rendered in fallback faces
+   for anyone offline - which for a desktop app is an ordinary Tuesday on a
+   train. Vite inlines these @font-face rules and emits the woff2 files into
+   the bundle, so the app draws itself with no network at all.
+
+   LATIN subsets only: shipping Cyrillic, Greek and Vietnamese faces nobody
+   asked for would quadruple the bundle, and text outside the subset falls
+   back to the system font, which is what it did before these were bundled
+   anyway. */
+@import "@fontsource/fraunces/latin-400.css";
+@import "@fontsource/fraunces/latin-500.css";
+@import "@fontsource/fraunces/latin-600.css";
+@import "@fontsource/fraunces/latin-700.css";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-sans/latin-700.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
 
 :root {
   --accent: #ec6a4a; /* replaced by the [data-accent] blocks below */

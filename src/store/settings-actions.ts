@@ -178,10 +178,30 @@ export async function quitApp(): Promise<void> {
  * next dashboard boot runs the first-launch path again - the tour, on the
  * demo day, exactly as a new user meets it.
  */
+/**
+ * Confirm an irreversible action with the OS, and get the ticket that lets
+ * it happen.
+ *
+ * The in-app confirmation is still where the user reads what will be
+ * deleted; this is the part page content cannot forge, suppress or click.
+ * The ticket is single-use and short-lived - see `destructive.rs`.
+ */
+async function authorize(kind: "wipe" | "uninstall"): Promise<string> {
+  return invoke<string>("authorize_destructive", { kind });
+}
+
 export async function factoryReset(): Promise<void> {
   // A genuinely default State - not the current one with fields cleared,
   // which is how a reset quietly keeps whatever nobody remembered to list.
   const fresh = freshDay(1, []);
+  let token: string;
+  try {
+    token = await authorize("wipe");
+  } catch (e) {
+    // Cancelled at the system dialog, or refused. Nothing has happened.
+    showToast(String(e) === "Cancelled." ? "Nothing was changed" : `Couldn't reset: ${String(e)}`);
+    return;
+  }
   try {
     // Rust deletes AND seeds in one latched step. Writing the seed from
     // here instead would leave a window where `state.json` is absent and
@@ -189,7 +209,7 @@ export async function factoryReset(): Promise<void> {
     // - recreates it from stale data; this window's write would then lose
     // the compare-and-swap against it and reload the resurrected day, so
     // the reset would silently un-do itself.
-    await invoke("factory_reset_app", { fresh: forPersist(fresh, Date.now()) });
+    await invoke("factory_reset_app", { fresh: forPersist(fresh, Date.now()), token });
   } catch (e) {
     // Nothing was published locally, so the day on screen is untouched and
     // the user can retry or fix permissions. Saying so is the whole value.
@@ -203,6 +223,15 @@ export async function factoryReset(): Promise<void> {
 }
 
 export async function resetAndUninstall(keepHistory: boolean): Promise<void> {
+  // Before anything is stamped or flushed: a cancelled confirmation must
+  // leave the day exactly as it was.
+  let token: string;
+  try {
+    token = await authorize(keepHistory ? "wipe" : "uninstall");
+  } catch (e) {
+    showToast(String(e) === "Cancelled." ? "Nothing was removed" : String(e));
+    return;
+  }
   if (keepHistory) {
     // Stamped and FLUSHED before the wipe, not after: `keep_history` leaves
     // state.json in place, so this is the one thing that can survive into
@@ -213,5 +242,7 @@ export async function resetAndUninstall(keepHistory: boolean): Promise<void> {
       /* a failed stamp costs a greeting, never the data */
     });
   }
-  await invoke("reset_and_uninstall_app", { keepHistory }).catch((e) => showToast(String(e)));
+  await invoke("reset_and_uninstall_app", { keepHistory, token }).catch((e) =>
+    showToast(String(e)),
+  );
 }

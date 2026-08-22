@@ -53,6 +53,19 @@ Out of scope:
 - Anything requiring an attacker to already have write access to the user's
   home directory or the installed app bundle.
 
+## Deleting data needs a confirmation the page cannot forge
+
+"Wipe and start over" and "Remove everything" are confirmed in the app,
+which is the right place to ASK - but the confirmation and the deletion
+used to be separate facts, and only the second was enforced: anything
+running in the webview could call the command directly and every file Remi
+owns would be gone.
+
+Those commands now require a TICKET, and a ticket comes only from a native
+confirmation dialog drawn by the OS, outside the webview. It is bound to
+the action it was granted for, single-use, and expires after two minutes.
+See `src-tauri/src/destructive.rs`.
+
 ## What the in-app updater does, and what it proves
 
 The updater resolves the release tag to its **commit SHA** and fetches
