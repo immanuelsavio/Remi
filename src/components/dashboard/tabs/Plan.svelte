@@ -124,7 +124,8 @@
          adding a step, a tag and a deadline. Only theirs: the demo tasks
          already have all three, so ringing one would point at an answer
          instead of the work. -->
-    <div class="main-input-row" data-tour={isDemoId(m.id) ? undefined : "plan-mine"}>
+    {@const mine = !isDemoId(m.id)}
+    <div class="main-input-row" data-tour={mine ? "plan-mine" : undefined}>
       <div class="idx">{i + 1}</div>
       <div class="col">
         <div style="display:flex; align-items:center; gap:7px;">
@@ -144,6 +145,7 @@
           <RemindControl
             remind={m.remind}
             now={$nowMs}
+            tourId={mine ? "plan-remind" : undefined}
             target={{ kind: "main", id: m.id, title: m.title }}
           />
           {#if m.id === s.activeMainId}<span class="est-badge">▸ on now</span>{/if}
@@ -186,7 +188,12 @@
           </div>
         {/if}
 
-        <TagEditor mainId={m.id} tags={m.tags} suggestions={knownTags} />
+        <TagEditor
+          mainId={m.id}
+          tags={m.tags}
+          suggestions={knownTags}
+          tourId={mine ? "plan-tag" : undefined}
+        />
 
         {#if m._showSubs || m.subs.length}
           <div class="sub-inputs">
@@ -214,6 +221,7 @@
             {/each}
             <input
               class="subinput"
+              data-tour={mine ? "plan-substep" : undefined}
               placeholder="＋ add a step…"
               autocomplete="off"
               bind:value={stepDrafts[m.id]}
@@ -222,7 +230,11 @@
             />
           </div>
         {:else}
-          <button class="addsub-link" on:click={() => toggleShowSubs(m.id)}>
+          <button
+            class="addsub-link"
+            data-tour={mine ? "plan-substep" : undefined}
+            on:click={() => toggleShowSubs(m.id)}
+          >
             ＋ add steps (optional)
           </button>
         {/if}

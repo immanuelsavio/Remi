@@ -51,8 +51,14 @@ install).
         to start your own day afterwards.
         16b.[ ] Each walking step rings a real element and Remi stands beside it:
         the Plan add-task box, a Start button, "Wrap up the day", the
-        calendar grid, and the Stats headline. Scroll the panel — the ring
-        and the bubble follow.
+        calendar grid, and the Stats headline. Everything OUTSIDE the ring
+        is blurred, the ringed element is not, and the blurred area is
+        still clickable — dimming must never become disabling. Scroll the
+        panel; the ring, the blur and the bubble all follow.
+        16g.[ ] The bubble never lands on top of the thing it is pointing at, and
+        takes the side with the most room rather than always the right.
+        Opening the reminder sheet from a tour step hides the bubble until
+        the sheet closes, instead of covering the date fields.
         16c.[ ] On the Plan step, type a task and press Enter: the tour STAYS on
         that step and the instruction changes to "now add a step". Work
         through step → tag → deadline and confirm each one is ticked off as

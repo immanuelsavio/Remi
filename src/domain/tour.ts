@@ -208,22 +208,26 @@ export const TOUR_STEPS: TourStep[] = [
       },
       {
         id: "step",
-        anchor: "plan-mine",
-        text: "Now a step under it - open it with ⋔ and add one.",
+        // The "add steps" link and the step box it opens answer to the
+        // same name, so this points at the real way in either way. The ⋔
+        // toggle this used to name is the TODAY tab's control, not this
+        // one - following it here led nowhere.
+        anchor: "plan-substep",
+        text: "Add a step under it - the ＋ add steps link.",
         cheer: "Steps go one level deep, on purpose.",
         done: (s) => (ownTask(s)?.subs.length ?? 0) > 0,
       },
       {
         id: "tag",
-        anchor: "plan-mine",
-        text: "Give it a tag - a project or a kind of work.",
+        anchor: "plan-tag",
+        text: "Give it a tag - a project, or a kind of work.",
         cheer: "Tags are what let you pull a report for one client later.",
         done: (s) => (ownTask(s)?.tags.length ?? 0) > 0,
       },
       {
         id: "remind",
-        anchor: "plan-mine",
-        text: "Last one: set a deadline with the ⏰ beside the task.",
+        anchor: "plan-remind",
+        text: "Last one: set a deadline with the ⏲ beside the task's name.",
         cheer: "Remi will tell you when that comes due.",
         done: (s) => !!ownTask(s)?.remind,
       },

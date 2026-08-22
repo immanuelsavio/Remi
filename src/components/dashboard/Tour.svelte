@@ -47,6 +47,7 @@
     tourBack,
     tourNext,
     tourStep,
+    remindTarget,
   } from "../../store";
   import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
   import { ACCENTS, clockLabel } from "../../view";
@@ -84,6 +85,18 @@
   $: lastDone = doneCount > 0 ? beats[doneCount - 1] : null;
   /** A beat can point somewhere other than the step it belongs to. */
   $: liveAnchor = step?.ask ? undefined : (beat?.anchor ?? step?.anchor);
+
+  /**
+   * A modal is open over the app - stand aside until it closes.
+   *
+   * The tour layer is z-index 300 and a sheet's scrim is 20, so the bubble
+   * drew straight over the reminder picker and covered the date fields the
+   * step had just told the user to fill in. Hiding is right rather than
+   * restacking: the sheet IS the instruction being followed, the beat
+   * notices on its own when it is done, and the bubble comes back as soon
+   * as the sheet closes.
+   */
+  $: modalUp = !!$remindTarget || !!s.overlay;
   $: first = !s.tourSeen;
 
   /** A Svelte template cannot parse a TS `as` cast, so narrow here. */
@@ -134,7 +147,9 @@
   /** Group position (viewport px) and which side of the target it sits on. */
   let gx = 0;
   let gy = 0;
-  let side: "right" | "left" | "below" | "above" = "right";
+  type Side = "right" | "left" | "below" | "above";
+  const SIDES: Side[] = ["right", "left", "below", "above"];
+  let side: Side = "right";
   /** The target's rectangle, for the ring. Null = nothing to ring. */
   let ring: { x: number; y: number; w: number; h: number } | null = null;
   /** Measured once rendered, so the group can be centred on the target. */
@@ -224,6 +239,21 @@
    * Right, then left, then below, then above - and clamped to the window
    * either way, because a bubble half off screen says nothing.
    */
+  /** Does the group's box, placed here, sit on top of the target's? */
+  function overlaps(x: number, y: number, w: number, h: number, r: DOMRect): boolean {
+    return x < r.right && x + w > r.left && y < r.bottom && y + h > r.top;
+  }
+
+  /**
+   * Put the group beside the target, on whichever side has the most room.
+   *
+   * First-fit used to decide this - right, then left, then below, then
+   * above - which meant a target with barely enough space to its right got
+   * the bubble jammed into that sliver while half the window sat empty on
+   * the other side. Scoring by SLACK puts it where it is least in the way,
+   * and a placement that would still land on top of the target is skipped
+   * rather than clamped onto it.
+   */
   function measure() {
     if (!anchorEl || !document.contains(anchorEl)) {
       ring = null;
@@ -234,31 +264,64 @@
     const vh = window.innerHeight;
     // Scrolled out of the panel entirely: stop ringing empty space, but
     // leave the bubble where it is rather than snapping it about.
-    ring = r.bottom < 0 || r.top > vh ? null : { x: r.left, y: r.top, w: r.width, h: r.height };
+    if (r.bottom < 0 || r.top > vh) {
+      ring = null;
+      return;
+    }
+    // Clamped to the window, so the spotlight's four panels never take a
+    // negative size when the target is only partly on screen.
+    const top = clamp(r.top, 0, vh);
+    const bottom = clamp(r.bottom, 0, vh);
+    ring = { x: Math.max(0, r.left), y: top, w: Math.max(0, r.width), h: bottom - top };
 
     const groupW = BUBBLE_W + REMI_SIZE + 8;
     const h = Math.max(groupH, REMI_SIZE);
-    if (r.right + GAP + groupW + MARGIN <= vw) side = "right";
-    else if (r.left - GAP - groupW - MARGIN >= 0) side = "left";
-    else if (r.bottom + GAP + h + MARGIN <= vh) side = "below";
-    else side = "above";
+    const room: Record<Side, number> = {
+      right: vw - r.right - GAP - MARGIN,
+      left: r.left - GAP - MARGIN,
+      below: vh - r.bottom - GAP - MARGIN,
+      above: r.top - GAP - MARGIN,
+    };
+    const needs: Record<Side, number> = { right: groupW, left: groupW, below: h, above: h };
+    const ranked = SIDES.slice().sort((a, b) => room[b] - needs[b] - (room[a] - needs[a]));
 
-    let x: number;
-    let y: number;
-    if (side === "right") {
-      x = r.right + GAP;
-      y = r.top + r.height / 2 - h / 2;
-    } else if (side === "left") {
-      x = r.left - GAP - groupW;
-      y = r.top + r.height / 2 - h / 2;
-    } else if (side === "below") {
-      x = r.left + r.width / 2 - groupW / 2;
-      y = r.bottom + GAP;
-    } else {
-      x = r.left + r.width / 2 - groupW / 2;
-      y = r.top - GAP - h;
+    const place = (which: Side): { x: number; y: number } => {
+      let x: number;
+      let y: number;
+      if (which === "right") {
+        x = r.right + GAP;
+        y = r.top + r.height / 2 - h / 2;
+      } else if (which === "left") {
+        x = r.left - GAP - groupW;
+        y = r.top + r.height / 2 - h / 2;
+      } else if (which === "below") {
+        x = r.left + r.width / 2 - groupW / 2;
+        y = r.bottom + GAP;
+      } else {
+        x = r.left + r.width / 2 - groupW / 2;
+        y = r.top - GAP - h;
+      }
+      return {
+        x: clamp(x, MARGIN, vw - groupW - MARGIN),
+        y: clamp(y, MARGIN, vh - h - MARGIN),
+      };
+    };
+
+    // The best side that actually fits AND stays off the target. Clamping
+    // can drag a placement back over the thing it is pointing at, which is
+    // the one position a pointer must never take.
+    let chosen = ranked[0];
+    let at = place(chosen);
+    for (const cand of ranked) {
+      const p = place(cand);
+      if (room[cand] >= needs[cand] && !overlaps(p.x, p.y, groupW, h, r)) {
+        chosen = cand;
+        at = p;
+        break;
+      }
     }
-    moveTo(clamp(x, MARGIN, vw - groupW - MARGIN), clamp(y, MARGIN, vh - h - MARGIN));
+    side = chosen;
+    moveTo(at.x, at.y);
   }
 
   /** Bring the target into view before measuring, if it is off screen. */
@@ -378,12 +441,26 @@
 <svelte:window on:keydown={onKey} />
 
 {#if i !== null && step}
-  {#if mode === "walk"}
+  {#if mode === "walk" && !modalUp}
     <!-- ===== WALKING: a ring on the thing, Remi beside it, words in a
          bubble. The layer takes no pointer events so the app underneath
          stays fully usable; only the bubble itself takes them back. ===== -->
     <div class="tour-layer">
       {#if ring}
+        <!-- SPOTLIGHT: four panels around the target rather than one overlay
+             with a hole in it. A hole needs an SVG mask or a giant
+             box-shadow, and neither can blur what is behind it - four
+             plain boxes each get their own `backdrop-filter` and leave the
+             target completely untouched. All of them are pointer-transparent,
+             so the app underneath stays as clickable as it was: the tour
+             asks you to USE what it is pointing at, and dimming must never
+             become disabling. -->
+        <div class="tour-dim" aria-hidden="true">
+          <div style="left:0; top:0; right:0; height:{ring.y}px;"></div>
+          <div style="left:0; top:{ring.y}px; width:{ring.x}px; height:{ring.h}px;"></div>
+          <div style="left:{ring.x + ring.w}px; top:{ring.y}px; right:0; height:{ring.h}px;"></div>
+          <div style="left:0; top:{ring.y + ring.h}px; right:0; bottom:0;"></div>
+        </div>
         <div
           class="tour-ring"
           aria-hidden="true"
@@ -737,8 +814,20 @@
     z-index: 300;
     pointer-events: none;
   }
-  /* The thing being described. An outline rather than a dimmed cut-out,
-     because the tour asks you to USE what it is pointing at. */
+  /* Everything that is NOT the target, softened. Blur rather than a heavy
+     dim: the surroundings stay recognisable as context while stopping
+     being somewhere the eye can land. */
+  .tour-dim > div {
+    position: absolute;
+    background: color-mix(in srgb, var(--bg) 55%, transparent);
+    backdrop-filter: blur(2.5px);
+    transition:
+      left 220ms ease,
+      top 220ms ease,
+      width 220ms ease,
+      height 220ms ease;
+  }
+  /* The thing being described, ringed inside the gap in the blur. */
   .tour-ring {
     position: absolute;
     border: 2px solid var(--accent);
@@ -1142,7 +1231,8 @@
   @media (prefers-reduced-motion: reduce) {
     .tour-group,
     .tour-ring,
-    .tour-flip {
+    .tour-flip,
+    .tour-dim > div {
       transition: none !important;
     }
   }

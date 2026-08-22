@@ -13,6 +13,8 @@
   export let tags: string[];
   /** Every tag already in use, for the datalist. */
   export let suggestions: string[] = [];
+  /** `data-tour` value, so the guided tour can walk to this row. */
+  export let tourId: string | undefined = undefined;
 
   let draft = "";
   const listId = `tags-${Math.random().toString(36).slice(2, 8)}`;
@@ -24,7 +26,7 @@
   }
 </script>
 
-<div class="tagrow">
+<div class="tagrow" data-tour={tourId}>
   {#each tags as t (t)}
     <span class="tag">
       #{t}

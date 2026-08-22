@@ -179,6 +179,35 @@ describe("the guided tour script", () => {
     }
   });
 
+  it("only points at anchors that something actually marks", () => {
+    // The failure this catches is silent and ugly: a step names an anchor
+    // no element carries, `findAnchor` gives up after its frames, and the
+    // step quietly degrades to a centred card - so a walkthrough step about
+    // a specific control just stops pointing at it, and nothing errors.
+    // Vite's glob rather than node:fs - this project's tsconfig deliberately
+    // carries no node types, and the bundler resolves this at build time.
+    const sources = import.meta.glob("../components/**/*.svelte", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }) as Record<string, string>;
+
+    const marked = new Set<string>();
+    for (const src of Object.values(sources)) {
+      for (const m of src.matchAll(/data-tour="([^"{]+)"/g)) marked.add(m[1]);
+      // Dynamic forms (`data-tour={mine ? "plan-tag" : undefined}`) hide the
+      // name inside the expression, so take those spellings too.
+      for (const m of src.matchAll(/"((?:plan|today|cal|stats)-[a-z]+)"/g)) marked.add(m[1]);
+    }
+
+    for (const s of TOUR_STEPS) {
+      if (s.anchor) expect(marked, `step "${s.id}" anchor`).toContain(s.anchor);
+      for (const b of s.beats ?? []) {
+        if (b.anchor) expect(marked, `beat "${b.id}" anchor`).toContain(b.anchor);
+      }
+    }
+  });
+
   it("clamps an out-of-range index instead of returning undefined", () => {
     expect(stepAt(-5)).toBe(TOUR_STEPS[0]);
     expect(stepAt(9999)).toBe(TOUR_STEPS[TOUR_LENGTH - 1]);
