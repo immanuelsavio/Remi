@@ -36,6 +36,8 @@ let saveRefused = false;
 let refuseEvenOverMalformed = false;
 /** When set, the NEXT `notify` call rejects with this message. */
 let notifyShouldFail: string | null = null;
+/** Held open by a test that needs a command to still be in flight. */
+let invokeGate: Promise<void> | null = null;
 /** Which window Rust's effect lease is granting to; null means "whoever
  * asks". */
 let leaseGrantedTo: string | null = null;
@@ -69,6 +71,7 @@ let loadShouldFail: string | null = null;
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
     invoked.push({ cmd, args });
+    if (invokeGate && cmd === "open_popover") await invokeGate;
     switch (cmd) {
       case "load_app_state":
         onLoadEntered?.();
@@ -249,6 +252,9 @@ import {
   tourSandbox,
   tourHistory,
   planTaskDraft,
+  openTrayPreview,
+  trayPreview,
+  closePopoverToTour,
   tourView,
   startTourClock,
   completeTourEndDay,
@@ -296,6 +302,7 @@ async function reset(): Promise<void> {
   saveRefused = false;
   refuseEvenOverMalformed = false;
   notifyShouldFail = null;
+  invokeGate = null;
   leaseGrantedTo = null;
   authorizeDestructive = "allow";
   factoryResetCalls = 0;
@@ -3079,6 +3086,95 @@ describe("the tour's sandbox", () => {
     expect(sb.clockStartedAt).toBe(0);
     expect(sb.endDayDone).toBe(false);
     expect(sb.searched).toBe(false);
+  });
+
+  // --- the tray lesson -----------------------------------------------------
+
+  it("hands the other window exactly the title and the clock, nothing else", async () => {
+    startTour();
+    goToStep(planIdx());
+    planTaskDraft.set("Prepare customer notes");
+    tourNext();
+    tourNext();
+    tourNext();
+    tourNext(); // -> clock page
+    startTourClock();
+    goToStep(stepIdx("tray"));
+
+    await openTrayPreview();
+
+    const p = get(trayPreview)!;
+    expect(p, "no preview was raised").toBeTruthy();
+    expect(p.title).toBe("Prepare customer notes");
+    expect(p.startedAt).toBe(get(tourSandbox).clockStartedAt);
+    expect(p.runId).toBe(get(tourSession).runId);
+    // EXACTLY three fields cross the window boundary: no task object, no
+    // day, nothing that could be mistaken for state.
+    expect(Object.keys(p).sort()).toEqual(["runId", "startedAt", "title"]);
+  });
+
+  it("opens the panel rather than toggling it, and never closes the app", async () => {
+    startTour();
+    goToStep(stepIdx("tray"));
+    await openTrayPreview();
+    await openTrayPreview();
+    const opens = invoked.filter((c) => c.cmd === "open_popover");
+    expect(opens.length).toBeGreaterThanOrEqual(2);
+    expect(invoked.some((c) => c.cmd === "toggle_popover")).toBe(false);
+    expect(invoked.some((c) => c.cmd === "quit_app")).toBe(false);
+    expect(invoked.some((c) => c.cmd === "hide_dashboard_window")).toBe(false);
+    expect(get(trayPreview)).toBeTruthy();
+  });
+
+  it("Back while the panel is opening wins - the stale open is closed", async () => {
+    // open_popover crosses to the backend and back; in that time the user
+    // may have pressed Back. A result arriving afterwards must not raise a
+    // preview for a lesson nobody is on.
+    startTour();
+    goToStep(stepIdx("tray"));
+
+    let release!: () => void;
+    invokeGate = new Promise<void>((r) => (release = r));
+    const opening = openTrayPreview();
+    tourBack(); // ...while it is still in flight
+    release();
+    invokeGate = null;
+    const res = await opening;
+
+    expect(res.ok, "a superseded open reported success").toBe(false);
+    expect(get(trayPreview), "the stale open resurrected the preview").toBeNull();
+    expect(invoked.some((c) => c.cmd === "close_popover")).toBe(true);
+  });
+
+  it("leaving the tray lesson takes the preview down", async () => {
+    startTour();
+    goToStep(stepIdx("tray"));
+    await openTrayPreview();
+    expect(get(trayPreview)).toBeTruthy();
+
+    tourNext();
+    expect(get(trayPreview), "the preview outlived its lesson").toBeNull();
+    expect(invoked.some((c) => c.cmd === "close_popover")).toBe(true);
+  });
+
+  it("ending the tour takes the preview down too", async () => {
+    startTour();
+    goToStep(stepIdx("tray"));
+    await openTrayPreview();
+    endTour();
+    expect(get(trayPreview)).toBeNull();
+  });
+
+  it("the tray's Back closes only the panel and shows the dashboard", async () => {
+    // Never the quit path, never the dashboard's close handshake: both of
+    // those end with the app going away.
+    await closePopoverToTour();
+    const cmds = invoked.map((c) => c.cmd);
+    expect(cmds).toContain("close_popover");
+    expect(cmds).toContain("open_dashboard");
+    expect(cmds).not.toContain("quit_app");
+    expect(cmds).not.toContain("hide_dashboard_window");
+    expect(cmds).not.toContain("request_quit");
   });
 
   it("the first run knows it is the first run", () => {
