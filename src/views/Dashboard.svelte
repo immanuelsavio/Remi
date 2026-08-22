@@ -69,6 +69,7 @@
   import RoamingRemi from "../components/dashboard/RoamingRemi.svelte";
   import ReturningCard from "../components/dashboard/ReturningCard.svelte";
   import { mascotMood } from "../domain/mascot";
+  import { initialSplash, loaded, opened } from "../domain/splash";
   import RemindSheet from "../components/shared/RemindSheet.svelte";
   import WhatsNew from "../components/dashboard/WhatsNew.svelte";
   import Tour from "../components/dashboard/Tour.svelte";
@@ -96,6 +97,26 @@
   let tabRefs: HTMLButtonElement[] = [];
   let unlistenFocus: (() => void) | null = null;
   let unlistenClose: (() => void) | null = null;
+  let unlistenOpened: (() => void) | null = null;
+
+  /**
+   * Which OPENING this is.
+   *
+   * Closing the dashboard hides the window and keeps the webview warm, so
+   * reopening it is not a mount: without this, the splash would be a
+   * launch-only thing and every subsequent open would snap straight to
+   * whatever tab was last on screen. Bumping the id remounts `Splash`
+   * through a `{#key}` block, which restarts its own hold timer - the
+   * component owns that timer and clears it on destroy, so there is no
+   * separate timer here to leak or overlap.
+   *
+   * Driven by the native `dashboard-opened` event, which Rust emits only on
+   * a genuine hidden -> visible transition (`windows/dashboard.rs`).
+   * Regaining focus is NOT a reopen: alt-tabbing back to a window that was
+   * already up must not replay a three-second splash over the work the user
+   * was looking at.
+   */
+  let splash = initialSplash();
 
   let dataFolder = "";
   let autoUpdate = false;
@@ -151,6 +172,24 @@
       unlistenFocus = await win.onFocusChanged(({ payload }) => {
         if (payload) void reloadFromDisk();
       });
+
+      // A REOPEN - the window went from hidden to visible. Replay the
+      // opening, and refresh from disk while it plays: the popover has been
+      // running the whole time this window was hidden, so what is in memory
+      // here can be minutes stale. The two run concurrently and the splash
+      // lifts when the slower of them finishes.
+      //
+      // Rapid repeated opens collapse into one: each event bumps the run id,
+      // which remounts the splash (restarting its hold from that moment) and
+      // re-arms `ready`, so an open that lands mid-splash extends the same
+      // covering rather than stacking a second timer behind it.
+      unlistenOpened = await listen("dashboard-opened", () => {
+        splash = opened(splash);
+        const run = splash.run;
+        // `loaded` ignores a run a later open has superseded, so a slow
+        // reload resolving late cannot lift a newer splash early.
+        void reloadFromDisk().finally(() => (splash = loaded(splash, run)));
+      });
       // Rust no longer hides the window itself - it ASKS. Closing used to
       // hide immediately while this side separately flushed whatever was
       // in memory, and mid-tour that is the SAMPLE day: the demo became
@@ -185,6 +224,7 @@
     teardownSync();
     unlistenFocus?.();
     unlistenClose?.();
+    unlistenOpened?.();
   });
 
   $: s = $app;
@@ -313,8 +353,13 @@
 
   <!-- Remi's own logo while the day is read off disk. Over everything,
        including the header, so the first thing the window shows is the app
-       rather than a half-drawn one. -->
-  <Splash {ready} />
+       rather than a half-drawn one.
+
+       Keyed on the opening, so REOPENING the window replays it: the webview
+       is kept warm across a close, so there is no mount to hang this on. -->
+  {#key splash.run}
+    <Splash ready={ready && !splash.covered} />
+  {/key}
 
   <!-- Wanders the bottom edge. Self-gating on `roamOn`, and its layer is
        pointer-events:none so it can never swallow a click. -->

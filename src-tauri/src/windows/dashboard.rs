@@ -48,11 +48,38 @@ pub fn hide_dashboard(app: &AppHandle) {
 ///
 /// `set_focus()` here is correct and intentional - the opposite of the
 /// popover, which must never activate the app.
+///
+/// Emits `dashboard-opened` ONLY on a genuine hidden -> visible
+/// transition, so the frontend can replay its opening splash. Closing the
+/// dashboard hides the window and keeps the webview warm, so "the app was
+/// opened" is not something the frontend can observe on its own: it gets
+/// no mount, and focus is not the same event - the user alt-tabbing back
+/// to an already-open window has not reopened anything, and replaying a
+/// three-second splash over the work they were looking at would be a bug,
+/// not a flourish.
+///
+/// The visibility read happens BEFORE `show()`, which is the whole
+/// distinction; reading it after would report every call as already
+/// visible.
 pub fn show_dashboard(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(DASHBOARD_LABEL) {
+        let announce = should_announce_open(win.is_visible());
         let _ = win.show();
         let _ = win.set_focus();
+        if announce {
+            let _ = win.emit("dashboard-opened", ());
+        }
     }
+}
+
+/// Was this `show_dashboard` a genuine OPENING - hidden becoming visible?
+///
+/// Split out so the rule is testable without a window. An error reading
+/// visibility means we do not know it was already up; treat that as "was
+/// hidden", because a splash that plays once too often is a smaller
+/// failure than a window that reveals itself with no sign it was opening.
+fn should_announce_open(visible: tauri::Result<bool>) -> bool {
+    !visible.unwrap_or(false)
 }
 
 /// Closing the dashboard ASKS the frontend to close, rather than hiding the
@@ -101,5 +128,32 @@ pub fn register_dashboard_hide_on_close(app: &AppHandle) {
                 });
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_announce_open;
+
+    /// The distinction the splash depends on: reopening a hidden window is
+    /// an opening, and must replay it. Showing a window that is ALREADY up
+    /// (which is how focus, or a second click on an open dashboard, arrives
+    /// here) is not, and replaying three seconds of splash over the work
+    /// someone was looking at would be a bug, not a flourish.
+    #[test]
+    fn a_hidden_window_becoming_visible_is_an_opening() {
+        assert!(should_announce_open(Ok(false)));
+    }
+
+    #[test]
+    fn showing_an_already_visible_window_is_not_an_opening() {
+        assert!(!should_announce_open(Ok(true)));
+    }
+
+    #[test]
+    fn an_unreadable_visibility_is_treated_as_an_opening() {
+        // We do not know it was up. Playing the splash once too often is a
+        // smaller failure than revealing the window with no sign of it.
+        assert!(should_announce_open(Err(tauri::Error::WebviewNotFound)));
     }
 }

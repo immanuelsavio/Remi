@@ -13,7 +13,14 @@
    * JSON file - so without a floor this would strobe and nobody would see
    * anything. It is a minimum on screen, never an added wait on top of a
    * finished boot: the two run concurrently and the splash leaves on
-   * whichever finishes last. Short enough not to be a tax on every launch.
+   * whichever finishes last.
+   *
+   * Shown on launch AND on every reopen of the window. Closing the
+   * dashboard hides it rather than destroying the webview, so a reopen is
+   * not a mount - `Dashboard.svelte` remounts this component with a `{#key}`
+   * on a run id, driven by the native `dashboard-opened` event, which fires
+   * only on a real hidden -> visible transition. Regaining focus is not a
+   * reopen and must not replay this.
    *
    * Not a fake progress bar. There are no stages to report - the app either
    * has its state or it does not - and a bar that fills on a timer is a lie
@@ -25,8 +32,15 @@
 
   /** Flips true once boot is done; the splash still honours `hold`. */
   export let ready = false;
-  /** Minimum time on screen, ms. */
-  export let hold = 650;
+  /**
+   * Minimum time on screen, ms.
+   *
+   * Three seconds is a deliberate product decision, not a loading time:
+   * the data is ready long before that. It is the app's own opening, so it
+   * runs concurrently with whatever loading there is and the window is
+   * revealed when both are done.
+   */
+  export let hold = 3000;
 
   let held = true;
   let timer: ReturnType<typeof setTimeout> | null = null;
