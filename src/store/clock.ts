@@ -14,6 +14,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { get, writable } from "svelte/store";
 
 import { dueReminders } from "../domain/reminders";
@@ -40,62 +41,142 @@ export { wellnessNudge };
 export { wellnessCopy };
 
 let tickTimer: ReturnType<typeof setInterval> | null = null;
+/** Dropped when the clock stops, so a native tick cannot outlive it. */
+let unlistenTick: (() => void) | null = null;
 /** How often a running session is checkpointed to disk. */
 const CHECKPOINT_MS = 20_000;
 let lastCheckpoint = 0;
-/** Whether THIS window runs background effects. */
+/**
+ * Whether THIS window runs background effects.
+ *
+ * A LEASE now, not a constant. It used to be decided at the call site - the
+ * popover always, the dashboard never - which meant that when macOS
+ * suspended the hidden popover's timers, NOBODY ran reminders, wellness,
+ * break-end notifications or the tray title, while a perfectly awake
+ * dashboard sat there doing none of it on purpose. Rust holds the lease
+ * (`scheduler.rs`); this is the last answer it gave.
+ */
 let effectOwner = true;
+/** Which window this is, for the lease. */
+let leaseName = "popover";
+/** The window that PREFERS to own effects still asks first. */
+let preferOwner = true;
+let lastLeaseCheck = 0;
+/** How often to ask about the lease. Well inside its 5s expiry. */
+const LEASE_RENEW_MS = 2000;
+
+/**
+ * Ask Rust whether this window owns effects, and remember the answer.
+ *
+ * Both windows ask. The preferred owner (the popover) asks every renewal
+ * interval, so it keeps the lease while it is awake; the other asks too, and
+ * gets it only once the lease has EXPIRED - which is exactly the case where
+ * the preferred owner has stopped running.
+ */
+function renewLease(now: number): void {
+  if (now - lastLeaseCheck < LEASE_RENEW_MS) return;
+  lastLeaseCheck = now;
+  void invoke<boolean>("claim_effect_owner", { window: leaseName })
+    .then((mine) => {
+      effectOwner = mine;
+    })
+    .catch(() => {
+      // No backend (browser dev, or the command is unavailable): fall back
+      // to the static preference rather than leaving the app with no owner
+      // at all.
+      effectOwner = preferOwner;
+    });
+}
 
 /** Start the 1 Hz clock. */
 export function startClock(opts: { owner: boolean } = { owner: true }): void {
   if (tickTimer) return;
   effectOwner = opts.owner;
-  tickTimer = setInterval(() => {
-    const now = Date.now();
-    nowMs.set(now); // display time: always, in both windows
-    // DELIBERATELY ABOVE the effect-owner gate. Rolling the day is state
-    // CORRECTNESS, not a background effect: getting it wrong files today's
-    // work under yesterday's date. The owner is the POPOVER, which is
-    // hidden almost all the time, and a hidden WKWebView has its timers
-    // throttled or suspended by macOS - so gating this behind ownership
-    // meant an app left open overnight could silently never roll, while the
-    // visible dashboard ticked away doing nothing about it.
-    //
-    // Safe to run in both windows: `rolloverIfNewDay` no-ops once
-    // `dateISO === today`, and saves are compare-and-swap, so if both
-    // windows roll at once one write is rejected and that window reloads
-    // the already-rolled state rather than rolling again.
-    checkDayRollover(now);
-    if (!effectOwner) return;
-    // NOTHING that reaches outside the app may fire while the sample day is
-    // up. The tour swaps the user's tasks for demo ones, so a reminder
-    // would name a task nobody has, a check-in would ask about work nobody
-    // is doing, the tray would count time nobody spent - and the daily
-    // backup would preserve the demo instead of the day it exists to
-    // protect. The clock still TICKS - rollover above still runs, which is
-    // what keeps the date honest across midnight. (Recovering a demo
-    // interrupted by a quit comes from `enterDemo`'s own save, not from
-    // the checkpoint: that returns immediately with no active session, and
-    // entering the demo clears one.)
-    if (S().demoRestore) {
-      checkpoint(now);
-      return;
-    }
-    // Once a day, quietly. Owner-only: two windows racing would write the
-    // same snapshot twice and prune each other's.
-    void autoBackup();
-    checkReminders(now);
-    checkWellness(now);
-    checkCheckin(now);
-    checkBreakEnd(now);
+  preferOwner = opts.owner;
+  leaseName = opts.owner ? "popover" : "dashboard";
+  lastLeaseCheck = 0;
+  // A fresh clock beats immediately: the de-duplication below is about two
+  // SOURCES landing in the same second, not about a previous run.
+  lastTick = 0;
+
+  // The native heartbeat (`scheduler.rs`) is the primary tick: it runs on a
+  // real OS thread, and the IPC it delivers wakes a throttled webview
+  // promptly where its own coalesced timer would not. The interval below
+  // stays as a fallback for a browser dev build and for any moment the
+  // event bus is unavailable; `tick` is idempotent within a second, so both
+  // firing costs nothing.
+  void listen<number>("remi-tick", (ev) => tick(ev.payload || Date.now()))
+    .then((un) => {
+      unlistenTick = un;
+    })
+    .catch(() => {
+      /* no event bus - the interval below is the whole clock */
+    });
+
+  tickTimer = setInterval(() => tick(Date.now()), 1000);
+}
+
+/** One beat of the clock, from whichever source got here first. */
+let lastTick = 0;
+function tick(at: number): void {
+  // Two sources, one beat: the native heartbeat and the local interval both
+  // arrive about once a second, and doing the work twice would double-fire
+  // notifications.
+  if (at - lastTick < 500) return;
+  lastTick = at;
+  runTick(at);
+}
+
+function runTick(now: number): void {
+  renewLease(now);
+  nowMs.set(now); // display time: always, in both windows
+  // DELIBERATELY ABOVE the effect-owner gate. Rolling the day is state
+  // CORRECTNESS, not a background effect: getting it wrong files today's
+  // work under yesterday's date. The owner is the POPOVER, which is
+  // hidden almost all the time, and a hidden WKWebView has its timers
+  // throttled or suspended by macOS - so gating this behind ownership
+  // meant an app left open overnight could silently never roll, while the
+  // visible dashboard ticked away doing nothing about it.
+  //
+  // Safe to run in both windows: `rolloverIfNewDay` no-ops once
+  // `dateISO === today`, and saves are compare-and-swap, so if both
+  // windows roll at once one write is rejected and that window reloads
+  // the already-rolled state rather than rolling again.
+  checkDayRollover(now);
+  if (!effectOwner) return;
+  // NOTHING that reaches outside the app may fire while the sample day is
+  // up. The tour swaps the user's tasks for demo ones, so a reminder
+  // would name a task nobody has, a check-in would ask about work nobody
+  // is doing, the tray would count time nobody spent - and the daily
+  // backup would preserve the demo instead of the day it exists to
+  // protect. The clock still TICKS - rollover above still runs, which is
+  // what keeps the date honest across midnight. (Recovering a demo
+  // interrupted by a quit comes from `enterDemo`'s own save, not from
+  // the checkpoint: that returns immediately with no active session, and
+  // entering the demo clears one.)
+  if (S().demoRestore) {
     checkpoint(now);
-    updateTrayTitle(now);
-  }, 1000);
+    return;
+  }
+  // Once a day, quietly. Owner-only: two windows racing would write the
+  // same snapshot twice and prune each other's.
+  void autoBackup();
+  checkReminders(now);
+  checkWellness(now);
+  checkCheckin(now);
+  checkBreakEnd(now);
+  checkpoint(now);
+  updateTrayTitle(now);
 }
 
 export function stopClock(): void {
   if (tickTimer) clearInterval(tickTimer);
   tickTimer = null;
+  unlistenTick?.();
+  unlistenTick = null;
+  // Hand the lease back rather than making the other window wait for it to
+  // expire - a window that is going away is not "quiet for a moment".
+  void invoke("release_effect_owner", { window: leaseName }).catch(() => {});
 }
 
 /**

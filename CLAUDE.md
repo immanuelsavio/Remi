@@ -76,7 +76,19 @@ haven't checked.
 The popover calls `startClock({ owner: true })`; the dashboard calls
 `startClock({ owner: false })`. Only the owner fires reminders, wellness
 nudges, check-ins, break-end notifications, checkpoints, and the tray
-title. If you add a new background effect to the clock, gate it behind
+title.
+
+Ownership is a LEASE held by Rust (`scheduler.rs`), not a constant: the
+preferred owner renews it every 2s, and a lease unrenewed for 5s expires so
+the other window can take over — the case where macOS has suspended the
+hidden popover's timers, so it neither works nor yields. A live lease is
+never granted to a second claimant, so "exactly one owner" still holds.
+
+The 20s checkpoint has a native counterpart (`state_io::touch_saved_at`,
+`savedAt` only, no `_rev` bump) so that time is bounded even when both
+webviews are suspended. Do not extend the native side into domain logic:
+reminders, wellness, rollover and notification copy have one source of
+truth in `src/domain`. If you add a new background effect to the clock, gate it behind
 `effectOwner` the same way — both windows running effects means duplicate
 notifications and check-ins that can fire in a hidden window.
 

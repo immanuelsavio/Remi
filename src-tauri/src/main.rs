@@ -21,6 +21,7 @@
 mod commands;
 mod migration;
 mod paths;
+mod scheduler;
 mod settings;
 mod state_io;
 mod tray;
@@ -56,6 +57,7 @@ fn main() {
         .manage(DashboardCloseReadiness::default())
         .manage(CloseRequests::default())
         .manage(tray::QuitRequests::default())
+        .manage(scheduler::EffectLease::default())
         .invoke_handler(tauri::generate_handler![
             commands::load_app_state,
             commands::save_app_state,
@@ -79,6 +81,8 @@ fn main() {
             commands::dashboard_close_listener_unready,
             commands::quit_listener_unready,
             commands::quit_ack,
+            commands::claim_effect_owner,
+            commands::release_effect_owner,
             commands::quit_failed,
             commands::dashboard_close_listener_ready,
             commands::quit_app,
@@ -107,6 +111,10 @@ fn main() {
 
             let handle = app.handle();
             tray::build_tray(handle)?;
+            // The process's own heartbeat: it ticks, it banks a running
+            // session when no webview has, and it holds the effect lease.
+            // See `scheduler.rs` for why any of that is Rust's job.
+            scheduler::start(handle);
             register_autohide(handle);
             register_dashboard_hide_on_close(handle);
             // Give the popover its over-fullscreen treatment up front, so the

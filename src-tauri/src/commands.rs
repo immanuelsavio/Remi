@@ -23,6 +23,41 @@ use crate::windows::show_dashboard;
 /// flag, which cannot order writes between windows.
 static SAVE_LOCK: Mutex<()> = Mutex::new(());
 
+/// Run something with the save lock held.
+///
+/// The native scheduler's checkpoint writes the same file the webviews do,
+/// so it takes the same lock - a background durability measure must not be
+/// the one thing that interleaves with a save.
+pub fn with_save_lock<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = SAVE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    f()
+}
+
+/// Claim or renew the background-effect lease for `window`.
+///
+/// Returns whether the caller now owns effects. Ownership used to be a
+/// compile-time constant - the popover always, the dashboard never - so a
+/// popover whose timers macOS had suspended meant NOBODY ran reminders,
+/// wellness or the tray title while a perfectly awake dashboard sat there.
+#[tauri::command]
+pub async fn claim_effect_owner(app: AppHandle, window: String) -> Result<bool, String> {
+    let now = crate::scheduler::now_ms();
+    Ok(app
+        .try_state::<crate::scheduler::EffectLease>()
+        .map(|l| l.claim(&window, now))
+        .unwrap_or(true))
+}
+
+/// Give the lease up (a window tearing down), so the other window can take
+/// over at once rather than waiting for it to expire.
+#[tauri::command]
+pub async fn release_effect_owner(app: AppHandle, window: String) -> Result<(), String> {
+    if let Some(l) = app.try_state::<crate::scheduler::EffectLease>() {
+        l.release(&window);
+    }
+    Ok(())
+}
+
 /// Latched once a wipe begins, so a queued debounce or an unload flush cannot
 /// recreate the files we just deleted.
 static UNINSTALLING: AtomicBool = AtomicBool::new(false);

@@ -202,12 +202,51 @@ Rust serializes the writes themselves with a `SAVE_LOCK` mutex
 (`src-tauri/src/commands.rs`), because per-window JS `saving` flags cannot
 order writes _between_ windows.
 
-## Single effect owner
+## The native heartbeat, and what it does not do
+
+`src-tauri/src/scheduler.rs` runs a real OS thread. It does three things,
+and deliberately not a fourth:
+
+1. **Ticks** once a second (`remi-tick`). Arriving IPC wakes a throttled
+   webview promptly, where its own coalesced timer would not. The webview
+   keeps its `setInterval` as a fallback (browser dev, no event bus); the
+   two are de-duplicated inside one second.
+2. **Checkpoints natively.** `state_io::touch_saved_at` updates `savedAt`
+   and nothing else, under the same `SAVE_LOCK` every other write takes,
+   when a session has been running with no save for 30 s. It does **not**
+   bump `_rev` — this is not a new revision of the user's work, and bumping
+   it would make the frontend's next ordinary save stale and turn a
+   background durability measure into a "changed in another window"
+   message. A malformed file is left alone, as everywhere else. This is
+   what makes "a crash costs at most one interval" true even if BOTH
+   webviews are suspended.
+3. **Holds the effect lease.** See below.
+
+What it does **not** do: reminders, wellness timing, check-ins, break-end
+notifications, the day rollover, notification copy. Those are domain logic
+with one source of truth in `src/domain`, and a second implementation in
+Rust would be a second thing to keep correct forever. The heartbeat wakes
+the window that owns them instead.
+
+## Single effect owner — now a LEASE
 
 The popover runs `startClock({ owner: true })`; the dashboard
 `startClock({ owner: false })`. Both tick `nowMs` (display time), but
 **only the owner** runs reminders, wellness, check-ins, break-end
 notifications, checkpoints and the tray title.
+
+That preference is now a request, not a decree. Rust holds the lease
+(`EffectLease`): a window claims it every 2 s, a claim renews it, and a
+lease unrenewed for 5 s EXPIRES so the other window may take it. The
+failure a static owner could not express is the one that actually happens —
+the popover is still there, its module state intact, but macOS has
+suspended its timers, so it neither runs the effects nor gives them up, and
+the visible dashboard sits doing nothing on purpose. A window releases the
+lease explicitly when its clock stops, so the other does not have to wait
+out the expiry.
+
+Exactly one owner is still guaranteed: a LIVE lease is never handed to a
+second claimant.
 
 If both ran effects you would get duplicate notifications — and worse, a
 bounded check-in could fire in the **hidden** dashboard, advancing

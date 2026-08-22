@@ -237,6 +237,54 @@ pub fn write_state(folder: &Path, state: &serde_json::Value) -> Result<(), Strin
     write_state_reporting(folder, state).map(|_| ())
 }
 
+/// Bank a running session's time to disk WITHOUT changing anything else.
+///
+/// `savedAt` is the whole durability contract for live time: on the next
+/// launch a session that was still running is credited only up to the last
+/// save (`bankOrphanSession`), so the interval between saves is exactly how
+/// much work a crash can cost. The frontend checkpoints every 20 seconds -
+/// but the effect owner is a webview macOS is free to throttle or suspend
+/// while it is hidden, and a suspended timer bounds nothing.
+///
+/// So the process that cannot be suspended does it too: same file, same
+/// atomic write, `savedAt` only.
+///
+/// Two deliberate details:
+///
+/// - `_rev` is NOT bumped. This is not a new revision of the user's day -
+///   nothing about their work changed - and bumping it would make the
+///   frontend's next ordinary save stale, turning a background durability
+///   measure into a "Remi changed in another window" message and a reload.
+/// - a malformed file is left completely alone (`Ok(false)`), like every
+///   other write path here.
+///
+/// Returns whether it actually wrote.
+pub fn touch_saved_at(folder: &Path, now: u64, min_gap_ms: u64) -> Result<bool, String> {
+    let dest = state_path(folder);
+    let Ok(Some(mut state)) = try_read(&dest) else {
+        return Ok(false); // missing or malformed: nothing to bank, nothing to break
+    };
+    // Only while a session is genuinely running - `activeMainId` alone is
+    // not proof (a break keeps it while `startedAt` is 0).
+    let running = state.get("activeMainId").is_some_and(|v| !v.is_null())
+        && state.get("startedAt").and_then(|v| v.as_u64()).unwrap_or(0) > 0;
+    if !running {
+        return Ok(false);
+    }
+    // The frontend checkpoint is the primary; this only covers the case
+    // where it has stopped happening.
+    let saved_at = state.get("savedAt").and_then(|v| v.as_u64()).unwrap_or(0);
+    if now.saturating_sub(saved_at) < min_gap_ms {
+        return Ok(false);
+    }
+    let Some(obj) = state.as_object_mut() else {
+        return Ok(false);
+    };
+    obj.insert("savedAt".into(), serde_json::json!(now));
+    write_state_reporting(folder, &state)?;
+    Ok(true)
+}
+
 /// `write_state`, plus any non-fatal warning worth telling the user about.
 pub fn write_state_reporting(
     folder: &Path,
@@ -438,6 +486,81 @@ mod tests {
         let r = load_state(d.path());
         assert_eq!(r.kind, "recovered", "must not become a blank day");
         assert_eq!(r.state.unwrap()["dayNum"], 4);
+    }
+
+    #[test]
+    fn a_native_checkpoint_banks_time_for_a_running_session() {
+        let d = tempdir().unwrap();
+        write_state(
+            d.path(),
+            &v(r#"{"dayNum":1,"activeMainId":"m1","startedAt":1000,"savedAt":1000,"_rev":4}"#),
+        )
+        .unwrap();
+
+        let wrote = touch_saved_at(d.path(), 100_000, 20_000).unwrap();
+        assert!(wrote, "a running session was not checkpointed");
+
+        let after = load_state(d.path()).state.unwrap();
+        assert_eq!(after["savedAt"], 100_000);
+        // The user's day is untouched, and so is the revision: this is not
+        // a new version of their work, and bumping it would make the
+        // frontend's next save stale.
+        assert_eq!(
+            after["_rev"], 4,
+            "a background checkpoint bumped the revision"
+        );
+        assert_eq!(after["activeMainId"], "m1");
+        assert_eq!(after["startedAt"], 1000);
+    }
+
+    #[test]
+    fn a_native_checkpoint_does_nothing_when_no_session_is_running() {
+        let d = tempdir().unwrap();
+        write_state(
+            d.path(),
+            &v(r#"{"activeMainId":null,"startedAt":0,"savedAt":5}"#),
+        )
+        .unwrap();
+        assert!(!touch_saved_at(d.path(), 100_000, 20_000).unwrap());
+        assert_eq!(load_state(d.path()).state.unwrap()["savedAt"], 5);
+    }
+
+    #[test]
+    fn a_native_checkpoint_does_nothing_during_a_break() {
+        // A break keeps `activeMainId` so the same work can resume, while
+        // `startedAt` is 0 because nothing is accruing.
+        let d = tempdir().unwrap();
+        write_state(
+            d.path(),
+            &v(r#"{"activeMainId":"m1","startedAt":0,"savedAt":5}"#),
+        )
+        .unwrap();
+        assert!(!touch_saved_at(d.path(), 100_000, 20_000).unwrap());
+    }
+
+    #[test]
+    fn a_native_checkpoint_yields_to_a_frontend_that_is_still_saving() {
+        // It is a fallback, not a second scheduler: a recent save means the
+        // webview is doing its job.
+        let d = tempdir().unwrap();
+        write_state(
+            d.path(),
+            &v(r#"{"activeMainId":"m1","startedAt":1,"savedAt":95000}"#),
+        )
+        .unwrap();
+        assert!(!touch_saved_at(d.path(), 100_000, 20_000).unwrap());
+    }
+
+    #[test]
+    fn a_native_checkpoint_never_touches_a_malformed_file() {
+        // Rule 1 outranks everything, including durability of live time.
+        let d = tempdir().unwrap();
+        fs::write(state_path(d.path()), "{ not json").unwrap();
+        assert!(!touch_saved_at(d.path(), 100_000, 20_000).unwrap());
+        assert_eq!(
+            fs::read_to_string(state_path(d.path())).unwrap(),
+            "{ not json"
+        );
     }
 
     #[test]

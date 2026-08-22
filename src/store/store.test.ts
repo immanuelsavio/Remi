@@ -34,6 +34,9 @@ let saveRefused = false;
 /** When true, saves are refused even for a caller authorised to overwrite a
  * malformed file - the "the file is still unwritable" case. */
 let refuseEvenOverMalformed = false;
+/** Which window Rust's effect lease is granting to; null means "whoever
+ * asks". */
+let leaseGrantedTo: string | null = null;
 let factoryResetCalls = 0;
 /** When set, `factory_reset_app` rejects with this message, once. */
 let factoryResetShouldFail: string | null = null;
@@ -113,6 +116,11 @@ vi.mock("@tauri-apps/api/core", () => ({
         // either window compares against that.
         mockCurrentRev = 1;
         saved.push({ ...(args?.fresh as Record<string, unknown>), _rev: 1 });
+        return null;
+      case "claim_effect_owner":
+        // Rust owns the lease; the mock answers what the test set up.
+        return leaseGrantedTo === null || leaseGrantedTo === args?.window;
+      case "release_effect_owner":
         return null;
       case "get_standard_daily":
         return [];
@@ -264,6 +272,7 @@ async function reset(): Promise<void> {
   quitAppGate = null;
   saveRefused = false;
   refuseEvenOverMalformed = false;
+  leaseGrantedTo = null;
   factoryResetCalls = 0;
   factoryResetShouldFail = null;
   mockCurrentRev = 0;
@@ -3062,6 +3071,92 @@ describe("day rollover while the app is left running", () => {
     expect(s.dateISO).toBe(todayISO());
     expect(s.dayNum).toBe(2); // NOT 3
     expect(s.carrySeed).toHaveLength(before);
+  });
+
+  it("a window that Rust grants the lease to STARTS running effects", async () => {
+    // Ownership used to be decided at the call site - the popover always,
+    // the dashboard never - so when macOS suspended the hidden popover's
+    // timers, nobody ran reminders, wellness or the tray title while a
+    // perfectly awake dashboard sat there doing none of it on purpose.
+    vi.useFakeTimers();
+    const [a] = ids();
+    startTask(a);
+    setFlag("trayTimer", true);
+    leaseGrantedTo = "dashboard";
+
+    // The DASHBOARD - the window that would never have owned effects.
+    startClock({ owner: false });
+    tick();
+    await vi.advanceTimersByTimeAsync(1);
+    trayTitles.length = 0;
+    rewind(120_000);
+    tick();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(trayTitles.length, "the lease holder ran no effects").toBeGreaterThan(0);
+  });
+
+  it("a window Rust REFUSES the lease to runs no effects", async () => {
+    vi.useFakeTimers();
+    const [a] = ids();
+    startTask(a);
+    setFlag("trayTimer", true);
+    leaseGrantedTo = "popover"; // ...and we are the dashboard
+
+    startClock({ owner: false });
+    tick();
+    await vi.advanceTimersByTimeAsync(1);
+    trayTitles.length = 0;
+    rewind(120_000);
+    tick();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(trayTitles, "two windows ran effects at once").toHaveLength(0);
+  });
+
+  it("the NATIVE heartbeat alone drives the effects", async () => {
+    // The point of the heartbeat: it runs on a real OS thread, and the IPC
+    // it delivers wakes a throttled webview promptly - where the webview's
+    // own coalesced timer would not have run at all. So the effects must
+    // work with no local interval firing whatsoever.
+    vi.useFakeTimers();
+    const [a] = ids();
+    startTask(a);
+    setFlag("notifyReminders", true);
+    setRemind({ kind: "main", id: a }, "in", 1);
+    // ...and make it due: an absolute stamp in the past.
+    S().mains.find((m) => m.id === a)!.remind!.at = Date.now() - 1000;
+    notified.length = 0;
+
+    startClock({ owner: true });
+    // No `tick()` here: nothing but the native beat.
+    (listeners["remi-tick"] ?? []).forEach((h) => h({ payload: Date.now() }));
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(notified.filter((n) => n.body === "Alpha")).toHaveLength(1);
+  });
+
+  it("a beat from both sources in the same second does the work once", async () => {
+    // Every downstream effect is idempotent by construction (a reminder is
+    // marked delivered before it is sent, the tray only crosses the IPC
+    // when the title changes), so this is belt AND braces - but the belt is
+    // cheap and the next effect added here will not necessarily be.
+    vi.useFakeTimers();
+    const [a] = ids();
+    startTask(a);
+    setFlag("trayTimer", true);
+    startClock({ owner: true });
+    await vi.advanceTimersByTimeAsync(1);
+    trayTitles.length = 0;
+
+    rewind(60_000); // the title would change this beat
+    (listeners["remi-tick"] ?? []).forEach((h) => h({ payload: Date.now() }));
+    await vi.advanceTimersByTimeAsync(1);
+    const afterNative = trayTitles.length;
+    tick(); // the local interval, in the same second
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(trayTitles.length, "the same second was worked twice").toBe(afterNative);
   });
 
   it("rolls the day even in a window that does not own background effects", () => {
