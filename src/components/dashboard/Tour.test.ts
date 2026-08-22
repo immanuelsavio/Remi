@@ -25,6 +25,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 import Tour from "./Tour.svelte";
 import {
+  addMain,
   closeRemind,
   endTour,
   goToStep,
@@ -198,12 +199,10 @@ describe("the tour, on screen", () => {
     // Beat one is outstanding, so the ring is on the add-a-task box.
     expect(host.textContent).toContain("Type a task");
 
-    // Make the task the beat was waiting for.
-    const now = Date.now();
-    state.update((s) => {
-      const own = { ...demoMains(now)[0], id: "mine", subs: [], tags: [], remind: null };
-      return { ...s, mains: [...demoMains(now), own] };
-    });
+    // Make the task the beat was waiting for - through the action a
+    // person's typing goes through, which is what claims it as the task
+    // being practised on.
+    addMain("Mine");
     for (let f = 0; f < 8; f++) {
       await new Promise((r) => requestAnimationFrame(() => r(null)));
       await tick();

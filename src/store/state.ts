@@ -440,6 +440,46 @@ export function keepLocalView(next: State, cur: State): void {
   else if (cur.phase !== "active") next.phase = cur.phase;
 }
 
+/**
+ * Keep THIS window's tour on screen while adopting the other window's day.
+ *
+ * The demo is a view, projected out of everything that reaches disk - so a
+ * reload during the tour brings back the REAL day and would, applied
+ * plainly, replace the sample tasks the tour is pointing at with it: the
+ * anchors vanish mid-sentence and the practice task with them.
+ *
+ * The incoming day becomes what the tour is holding aside (`demoRestore`),
+ * so ending the tour hands back the OTHER window's newer day rather than
+ * the copy this window took before it started - which would quietly undo
+ * whatever they did over there.
+ *
+ * Only the day moves. Everything else on `next` - settings, history,
+ * metrics, `_rev` - is the incoming state, exactly as a reload intends.
+ */
+export function keepLocalDemo(next: State, cur: State): void {
+  if (!cur.demoRestore) return;
+  next.demoRestore = {
+    mains: next.mains,
+    interruptions: next.interruptions,
+    activeMainId: next.activeMainId,
+    activeSubId: next.activeSubId,
+    startedAt: next.startedAt,
+    phase: next.phase,
+    awaitingStart: next.awaitingStart,
+    dateISO: next.dateISO,
+    dayNum: next.dayNum,
+  };
+  next.mains = cur.mains;
+  next.interruptions = cur.interruptions;
+  // The demo runs no clock of its own; `enterDemo` banked whatever was
+  // running into the user's own task before the sample day went up.
+  next.activeMainId = null;
+  next.activeSubId = null;
+  next.startedAt = 0;
+  next.phase = cur.phase;
+  next.awaitingStart = false;
+}
+
 /** Drop active/return-stack references to things that no longer exist. */
 export function repairActiveRefs(s: State): void {
   const m = s.activeMainId ? s.mains.find((x) => x.id === s.activeMainId) : null;

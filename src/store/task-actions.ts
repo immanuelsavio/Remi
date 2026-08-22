@@ -17,10 +17,24 @@ import {
   showToast,
 } from "./state";
 
-export function addMain(title: string): void {
+/**
+ * Add a task, and RETURN its id.
+ *
+ * The id matters to exactly one caller: the tour, which has to know which
+ * task it just made so it can practise on that one. It used to find out by
+ * elimination - "the first task that is not in the baseline" - which a
+ * second task, an import, or an edit arriving from the other window could
+ * all satisfy first. The creating action is the only thing that knows for
+ * certain, so it says.
+ *
+ * `null` when the title was empty and nothing was created.
+ */
+export function addMain(title: string): string | null {
   const t = title.trim();
-  if (!t) return;
-  commit((s) => void s.mains.push(mkMain(t)));
+  if (!t) return null;
+  const m = mkMain(t);
+  commit((s) => void s.mains.push(m));
+  return m.id;
 }
 
 export function setMainTitle(id: string, title: string): void {

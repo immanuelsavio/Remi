@@ -206,6 +206,7 @@ import {
   tourStep,
   tourNext,
   tourBack,
+  tourPracticeId,
   endTour,
   TOUR_LENGTH,
   startDay,
@@ -224,6 +225,7 @@ import {
   welcomeBack,
 } from "./index";
 import { StaleWriteError } from "./persistence";
+import { effectivePracticeId } from "./tour";
 import { get } from "svelte/store";
 
 /**
@@ -2384,6 +2386,87 @@ describe("the tour's demo day", () => {
     expect(rolled.demoRestore?.mains.some((m) => m.id === a)).toBe(true);
   });
 
+  it("a task from an import cannot become the practice task", async () => {
+    // The old rule was "the first task that is not in the baseline this
+    // step began with", which an import satisfies just as well as the task
+    // the user typed - and imports arrive in bulk, so the tour would latch
+    // onto whichever happened to be first.
+    startTour();
+    const plan = TOUR_STEPS.findIndex((s) => s.id === "plan");
+    goToStep(plan);
+    expect(get(tourPracticeId)).toBeNull();
+
+    applyImport({
+      mains: [
+        { title: "Imported one", subs: [], remind: null },
+        { title: "Imported two", subs: [], remind: null },
+      ],
+      backlog: [],
+      errors: [],
+    });
+    expect(S().mains.some((m) => m.title === "Imported one")).toBe(true);
+    expect(get(tourPracticeId), "an import claimed the practice slot").toBeNull();
+
+    // The task they actually type is the one that claims it.
+    addMain("Mine");
+    const mine = S().mains.find((m) => m.title === "Mine")!;
+    expect(get(tourPracticeId)).toBe(mine.id);
+  });
+
+  it("a task arriving from the OTHER window cannot become the practice task", async () => {
+    // It never went through this window's addMain: it came off disk.
+    startTour();
+    goToStep(TOUR_STEPS.findIndex((s) => s.id === "plan"));
+
+    const theirs = JSON.parse(JSON.stringify(forPersist(S(), Date.now()))) as {
+      mains: unknown[];
+      _rev: number;
+    };
+    theirs.mains = [...(theirs.mains as object[]), { ...mkMain("Typed in the popover") }];
+    theirs._rev = S()._rev + 1;
+    loadResult = { kind: "loaded", state: theirs };
+    await reloadFromDisk();
+
+    expect(get(tourPracticeId)).toBeNull();
+  });
+
+  it("the FIRST task of a run stays the practice task", async () => {
+    // Adding a second task to try things out must not move the tour onto it
+    // halfway through explaining the first.
+    startTour();
+    goToStep(TOUR_STEPS.findIndex((s) => s.id === "plan"));
+    addMain("First");
+    const first = S().mains.find((m) => m.title === "First")!;
+    addMain("Second");
+    expect(get(tourPracticeId)).toBe(first.id);
+  });
+
+  it("deleting the practice task mid-tour leaves the tour without one, not pointing at a ghost", async () => {
+    startTour();
+    goToStep(TOUR_STEPS.findIndex((s) => s.id === "plan"));
+    addMain("Mine");
+    const mine = S().mains.find((m) => m.title === "Mine")!;
+    expect(get(tourPracticeId)).toBe(mine.id);
+
+    removeMain(mine.id);
+    // The recorded id survives, but nothing resolves to a deleted task - a
+    // beat asking "add a step to it" must not point at something gone.
+    expect(effectivePracticeId(S(), get(tourPracticeId))).toBeNull();
+  });
+
+  it("retaking the tour in the same process starts from a clean slate", async () => {
+    startTour();
+    goToStep(TOUR_STEPS.findIndex((s) => s.id === "plan"));
+    addMain("Mine");
+    expect(get(tourPracticeId)).not.toBeNull();
+    endTour();
+    expect(get(tourPracticeId)).toBeNull();
+
+    startTour();
+    expect(get(tourPracticeId), "the second run inherited the first's task").toBeNull();
+    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
+  });
+
   it("does not make a SECOND task when you go back onto a finished checklist", async () => {
     // The practice task's identity came from a baseline captured when the
     // step began. Turning the page re-baselined, so the task the user made
@@ -2518,14 +2601,15 @@ describe("the tour's demo day", () => {
   });
 
   it("does not restart the tour from page one after a mid-tour quit", async () => {
-    // Boot restored the real day but left `tourSeen` false, so the
-    // dashboard started the whole thing again over it - every launch,
-    // until someone happened to reach the end. Interrupting an onboarding
-    // is a decision; silently restarting it is not.
+    // `tourSeen` is marked when the tour STARTS. The demo is window-local,
+    // so a mid-tour quit strands nothing - but it also leaves no trace the
+    // tour ran, and the dashboard starts it whenever `tourSeen` is false.
+    // Interrupting an onboarding is a decision; silently restarting it on
+    // every launch is not.
     const [a] = ids();
     startTour();
     const stranded = JSON.parse(JSON.stringify(forPersist(S(), Date.now())));
-    expect(stranded.tourSeen).toBe(false);
+    expect(stranded.tourSeen).toBe(true);
 
     loadResult = { kind: "loaded", state: stranded };
     await boot();
@@ -2534,23 +2618,161 @@ describe("the tour's demo day", () => {
     expect(S().tourSeen, "the tour would have restarted from page one").toBe(true);
   });
 
-  it("recovers a day stranded by quitting mid-tour", async () => {
-    // The demo lives in real state, so a crash or a quit while it is up
-    // would otherwise leave the user booting into someone else's tasks
-    // with their own day nowhere in sight.
+  it("a mid-tour save persists the REAL day - there is nothing to recover", async () => {
+    // The demo used to be ordinary state: persisted, backed up, exported
+    // and synced to the popover, so a crash or quit while it was up left
+    // the user booting into someone else's tasks and needing a recovery
+    // path on the way back. It is a VIEW now, projected out at the persist
+    // boundary (`forPersist`/`realDay`), so quitting mid-tour writes the
+    // day they were actually working on.
     const [a] = ids();
     startTour();
     expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
 
-    // Persist mid-tour, then boot from exactly that.
-    const stranded = JSON.parse(JSON.stringify(forPersist(S(), Date.now())));
-    loadResult = { kind: "loaded", state: stranded };
+    const persisted = JSON.parse(JSON.stringify(forPersist(S(), Date.now())));
+    expect((persisted.mains as { id: string }[]).some((m) => isDemoId(m.id))).toBe(false);
+    expect((persisted.mains as { id: string }[]).some((m) => m.id === a)).toBe(true);
+    expect(persisted.demoRestore ?? null).toBeNull();
+
+    // Booting from exactly that lands on the real day, with no restore step
+    // involved at all.
+    loadResult = { kind: "loaded", state: persisted };
+    await boot();
+    const s = S();
+    expect(s.mains.some((m) => isDemoId(m.id))).toBe(false);
+    expect(s.mains.some((m) => m.id === a)).toBe(true);
+    expect(s.demoRestore).toBeNull();
+  });
+
+  it("still un-strands a demo written by an OLDER version", async () => {
+    // Files written before the demo became window-local really do hold the
+    // sample day, with the real one nested inside `demoRestore`. Boot's
+    // restore path stays for them.
+    const [a] = ids();
+    startTour();
+    const legacy = JSON.parse(
+      JSON.stringify({ ...S(), savedAt: Date.now(), tourSeen: false, _rev: S()._rev }),
+    );
+    expect((legacy.mains as { id: string }[]).some((m) => isDemoId(m.id))).toBe(true);
+
+    loadResult = { kind: "loaded", state: legacy };
     await boot();
 
     const s = S();
     expect(s.mains.some((m) => isDemoId(m.id))).toBe(false);
     expect(s.mains.some((m) => m.id === a)).toBe(true);
     expect(s.demoRestore).toBeNull();
+    expect(s.tourSeen).toBe(true);
+  });
+
+  it("every save during the tour writes the real day, wherever the tour is", async () => {
+    // Not just at the end: a checkpoint, a debounced save after a practice
+    // edit, an automatic backup - each one used to be a chance for the
+    // sample day to become authoritative.
+    const [a] = ids();
+    startTour();
+    for (let step = 0; step < Math.min(TOUR_LENGTH, 6); step++) {
+      goToStep(step);
+      tourNext();
+      await flushSave();
+      const onDisk = saved[saved.length - 1];
+      expect(
+        (onDisk.mains as { id: string }[]).some((m) => isDemoId(m.id)),
+        `step ${step} persisted a demo task`,
+      ).toBe(false);
+      expect((onDisk.mains as { id: string }[]).some((m) => m.id === a)).toBe(true);
+      expect(onDisk.demoRestore ?? null).toBeNull();
+    }
+  });
+
+  it("a practice task typed during the tour never reaches disk", async () => {
+    startTour();
+    goToStep(TOUR_STEPS.findIndex((t) => t.beats?.some((b) => b.fill?.kind === "task")));
+    tourNext(); // the beat that creates the practice task
+    const practice = S().mains.find((m) => !isDemoId(m.id) && m.title.length);
+    expect(practice, "the tour did not create a practice task").toBeTruthy();
+
+    await flushSave();
+    const onDisk = saved[saved.length - 1] as { mains: { id: string; title: string }[] };
+    expect(onDisk.mains.some((m) => m.title === practice!.title)).toBe(false);
+  });
+
+  it("a reload from the other window does not tear the tour off the screen", async () => {
+    // The demo is projected out of everything that reaches disk, so what
+    // comes back on a sync event is the REAL day. Applied plainly it would
+    // replace the sample tasks the tour is pointing at - the anchors vanish
+    // mid-sentence and the practice task with them.
+    const [a] = ids();
+    startTour();
+    goToStep(0);
+    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
+
+    // The other window added a task and saved.
+    const theirs = JSON.parse(JSON.stringify(forPersist(S(), Date.now()))) as {
+      mains: unknown[];
+      _rev: number;
+    };
+    theirs.mains = [...(theirs.mains as object[]), { ...mkMain("Typed in the popover") }];
+    theirs._rev = S()._rev + 1;
+    loadResult = { kind: "loaded", state: theirs };
+
+    await reloadFromDisk();
+
+    // The tour is still standing...
+    expect(S().mains.some((m) => isDemoId(m.id))).toBe(true);
+    // ...and the day it is holding aside is THEIRS now, not the copy this
+    // window took before the tour started - ending the tour must not undo
+    // what they did over there.
+    const held = S().demoRestore!;
+    expect(held.mains.some((m) => m.id === a)).toBe(true);
+    expect(held.mains.some((m) => m.title === "Typed in the popover")).toBe(true);
+  });
+
+  it("ending the tour after such a reload hands back the OTHER window's day", async () => {
+    startTour();
+    const theirs = JSON.parse(JSON.stringify(forPersist(S(), Date.now()))) as {
+      mains: unknown[];
+      _rev: number;
+    };
+    theirs.mains = [...(theirs.mains as object[]), { ...mkMain("Typed in the popover") }];
+    theirs._rev = S()._rev + 1;
+    loadResult = { kind: "loaded", state: theirs };
+    await reloadFromDisk();
+
+    endTour();
+
+    expect(S().demoRestore).toBeNull();
+    expect(S().mains.some((m) => isDemoId(m.id))).toBe(false);
+    expect(S().mains.some((m) => m.title === "Typed in the popover")).toBe(true);
+  });
+
+  it("the tour never runs a clock, so no demo time can be banked as real work", async () => {
+    const [a] = ids();
+    startTask(a);
+    rewind(120_000);
+    startTour();
+    // Entering the demo banked the running session into the user's OWN
+    // task (sessionTx), and the sample day starts with nothing running.
+    expect(S().activeMainId).toBeNull();
+    expect(S().startedAt).toBe(0);
+    const held = S().demoRestore!;
+    const theirs = held.mains.find((m) => m.id === a)!;
+    expect(theirs.accrued).toBeGreaterThanOrEqual(120_000);
+
+    // ...and what reaches disk carries that banked time, not a demo task.
+    const onDisk = forPersist(S(), Date.now()) as { mains: { id: string; accrued: number }[] };
+    expect(onDisk.mains.find((m) => m.id === a)!.accrued).toBeGreaterThanOrEqual(120_000);
+  });
+
+  it("the automatic backup holds the real day even mid-tour", async () => {
+    const [a] = ids();
+    startTour();
+    await autoBackup();
+    // The tour-time guard still refuses outright, and even if it did not,
+    // the payload itself is the real day.
+    const payload = forPersist(S(), Date.now()) as { mains: { id: string }[] };
+    expect(payload.mains.some((m) => isDemoId(m.id))).toBe(false);
+    expect(payload.mains.some((m) => m.id === a)).toBe(true);
   });
 });
 

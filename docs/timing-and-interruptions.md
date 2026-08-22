@@ -213,6 +213,15 @@ If both ran effects you would get duplicate notifications — and worse, a
 bounded check-in could fire in the **hidden** dashboard, advancing
 `ciStage` so the visible popover never shows it.
 
+## The tour never runs a clock
+
+`enterDemo()` goes through `sessionTx`, so whatever was running is banked
+into the user's OWN task before the sample day goes up, and the demo starts
+with nothing active. Demo tasks therefore accrue nothing that could be
+mistaken for worked time — and since the demo is projected out of every
+persisted payload (`realDay()`), no demo number can reach disk even if one
+did.
+
 ## Pitfalls, ranked
 
 1. **Bypassing `sessionTx`** for a mutation that touches the timed object.
@@ -238,5 +247,8 @@ bounded check-in could fire in the **hidden** dashboard, advancing
 14. **One toast per due reminder** — batch into one.
 15. **Writing `_last` when snoozing the lunch nudge** — use the separate
     `_snoozedUntil`.
-16. **A typed struct for `settings.json`** — erases unknown keys. Read-
+16. **Persisting the tour's demo day.** It is a view; `forPersist`
+    projects it out. A new write path that serialises `S()` directly
+    reopens this.
+17. **A typed struct for `settings.json`** — erases unknown keys. Read-
     modify-write a generic map (`src-tauri/src/settings.rs`).

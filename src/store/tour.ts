@@ -60,7 +60,8 @@ import { invoke } from "@tauri-apps/api/core";
  * `sessionTx` and the tag/reminder normalisers for reasons of their own.
  */
 export interface BeatCommands {
-  addMain: (title: string) => void;
+  /** Returns the id of the task it created - see `fill`. */
+  addMain: (title: string) => string | null;
   addSub: (mainId: string, title: string) => void;
   addTag: (mainId: string, tag: string) => void;
   setRemind: (target: { kind: "main"; id: string }, kind: "in", raw: number) => void;
@@ -85,16 +86,7 @@ const nav = writable<NavState>(INACTIVE);
  * task, an import or an edit from the other window could all defeat.
  */
 const practiceId = writable<string | null>(null);
-/**
- * The task ids that already existed when this step began.
- *
- * How a task the USER typed becomes the practice task, without going back
- * to guessing. Anything not in this set appeared during the exercise, so it
- * is what they are practising on - which is precise in a way that "the
- * first task that is not a demo one" never was: a second task, an import,
- * or an edit from the other window could all satisfy that.
- */
-let baseline = new Set<string>();
+
 /**
  * A sheet or overlay owns the screen: the tour stands aside and goes inert.
  *
@@ -133,14 +125,37 @@ function outstanding(step: TourStep | null, s: State, id: string | null): number
 }
 
 /**
- * The practice task's id: the one recorded, or the one they just made.
+ * The practice task's id, or null if there isn't one yet.
  *
- * Pure resolution, so it can be read from a derived store without side
- * effects. `fill` still records the id explicitly when Next makes the task.
+ * Nothing is inferred. It used to fall back to "the first task that is not
+ * in the baseline this step started with" - a guess that an import, or a
+ * task the popover added while the tour was open, could satisfy before the
+ * task the user actually typed. A task becomes the practice task by being
+ * CLAIMED (`claimPracticeTask`), which only ever happens for a task created
+ * in this window while the tour is running.
+ *
+ * A claimed task that has since been deleted stops being the practice task:
+ * a beat asking "add a step to it" must not point at something gone.
  */
 export function effectivePracticeId(s: State, recorded: string | null): string | null {
-  if (recorded) return recorded;
-  return s.mains.find((m) => !baseline.has(m.id))?.id ?? null;
+  if (!recorded) return null;
+  return s.mains.some((m) => m.id === recorded) ? recorded : null;
+}
+
+/**
+ * A task was created in THIS window while the tour is running: it is what
+ * the user is practising on.
+ *
+ * Called for both routes into a practice task - the beat that types one for
+ * them, and the person typing their own in the Plan tab - because both go
+ * through the same `addMain`. The FIRST claim of a run wins: pressing Next
+ * twice, or adding a second task to try things out, must not move the tour
+ * onto a different task halfway through explaining this one.
+ */
+export function claimPracticeTask(id: string): void {
+  if (get(nav).step === null) return; // no tour running - nothing to practise on
+  if (get(practiceId)) return;
+  practiceId.set(id);
 }
 
 function contextFor(n: NavState, s: State, id: string | null): NavContext {
@@ -233,8 +248,20 @@ function enterDemo(): void {
 
 export function startTour(): void {
   enterDemo();
+  // Mark it seen HERE, when it starts, not when it finishes.
+  //
+  // The demo is window-local and never persisted, so a quit or crash
+  // mid-tour strands nothing that needs recovering - but it also leaves no
+  // trace that the tour ran, and the dashboard starts the tour whenever
+  // `tourSeen` is false. Without this, interrupting an onboarding would
+  // silently restart it from page one on every launch until someone
+  // happened to reach the end. Interrupting is a decision; Settings -> Help
+  // is how to ask for it again.
+  //
+  // This is a real preference, not day state, so it persists normally even
+  // though the day around it does not.
+  commit((s) => void (s.tourSeen = true));
   practiceId.set(null);
-  rebaseline();
   const s = S();
   const first = 0;
   nav.set(enterStep(first, contextFor({ ...INACTIVE, step: first }, s, null)));
@@ -277,20 +304,11 @@ export function goToStep(step: number): void {
   goTo(step);
 }
 
-/** Remember what already existed, so a new task can be told apart. */
-function rebaseline(): void {
-  baseline = new Set(S().mains.map((m) => m.id));
-}
-
 function goTo(step: number): void {
-  // PROMOTE before re-baselining. A task the user typed themselves is
-  // identified by "not in the baseline this step started with" - so the
-  // moment a page turn takes a new baseline, their task falls inside it and
-  // the tour forgets which one it was. Coming back then showed "type a
-  // task" with their task already on screen, and Next built a second one.
-  const derivedId = effectivePracticeId(S(), get(practiceId));
-  if (derivedId) practiceId.set(derivedId);
-  rebaseline();
+  // The practice task is CLAIMED, not re-derived per step, so a page turn
+  // no longer has to promote anything before it forgets. Coming back to the
+  // step that makes a task finds it still claimed, and its beat already
+  // done, rather than offering to build a second one.
   const s = S();
   nav.set(
     enterStep(step, contextFor({ ...INACTIVE, step }, s, effectivePracticeId(s, get(practiceId)))),
@@ -377,10 +395,11 @@ function fill(f: BeatFill): void {
   const id = effectivePracticeId(S(), get(practiceId));
   switch (f.kind) {
     case "task": {
-      const before = new Set(S().mains.map((m) => m.id));
-      addMain(f.title);
-      const made = S().mains.find((m) => !before.has(m.id));
-      if (made) practiceId.set(made.id);
+      // The creating action says which task it made. Nothing is inferred:
+      // an import landing in the same instant, or the popover adding a
+      // task, cannot be mistaken for the one the tour just created.
+      const made = addMain(f.title);
+      if (made) practiceId.set(made);
       return;
     }
     case "step":

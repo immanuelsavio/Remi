@@ -32,7 +32,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { applyTheme } from "../domain/theme";
 import { hydrate } from "../domain/hydration";
-import { keepLocalView, mutationGeneration, S, state } from "./state";
+import { keepLocalDemo, keepLocalView, mutationGeneration, S, state } from "./state";
 
 /**
  * What actually happened, so a caller can tell the user the truth.
@@ -108,6 +108,11 @@ export async function reloadFromDisk(): Promise<ReloadOutcome> {
   if (sameDay) {
     keepLocalView(next, cur);
   }
+  // A tour running in THIS window survives the reload: the sample day stays
+  // on screen and the incoming real day becomes what it is holding aside.
+  // Applied after `keepLocalView` deliberately - the demo's phase is this
+  // window's, not the persisted one's. See `keepLocalDemo`.
+  keepLocalDemo(next, cur);
   state.set(next);
   applyTheme(next.mode, next.accent);
   return "applied";

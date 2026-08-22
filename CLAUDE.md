@@ -112,6 +112,31 @@ wrong?
   as an explicit parameter — this is what makes the domain tests
   deterministic with no fake timers.
 
+## The tour's demo day is a VIEW, never authoritative state
+
+`startTour()` puts a sample day on screen and holds the user's real one in
+`state.demoRestore`. That demo must never leave this window:
+
+- `forPersist()` (`src/domain/persistence-shape.ts`) projects it out via
+  `realDay()`. Every persisted payload goes through there — the save, the
+  automatic backup, a manual export, the factory-reset seed — so "sample
+  tasks never reach disk" is one rule, not a guard in each of them. Do not
+  add a new persist path that skips it.
+- `keepLocalDemo()` (`src/store/state.ts`) keeps a running tour on screen
+  across a cross-window reload, and re-parks the INCOMING day as what the
+  tour is holding aside — so ending the tour hands back the other window's
+  newer day, not a stale copy.
+- `tourSeen` is marked when the tour STARTS. Nothing is stranded by a
+  mid-tour quit any more, but nothing records that it ran either, and the
+  dashboard starts the tour whenever `tourSeen` is false.
+- The practice task is CLAIMED by the action that created it (the facade's
+  `addMain` → `claimPracticeTask`), never inferred from "the first task not
+  in a baseline". An import, or a task added in the popover, must not be
+  able to become it.
+
+Boot still un-strands a demo written by an OLDER version; that path is for
+legacy files, not for normal operation.
+
 ## Legacy migration
 
 `src-tauri/src/migration.rs` migrates data from the old Dopamigo MVP

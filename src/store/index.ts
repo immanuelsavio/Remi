@@ -1,5 +1,5 @@
-import { provideBeatCommands } from "./tour";
-import { addMain, addSub, addTag, setRemind } from "./task-actions";
+import { claimPracticeTask, provideBeatCommands } from "./tour";
+import { addMain as addMainAction, addSub, addTag, setRemind } from "./task-actions";
 
 /**
  * The store's public facade - the ONLY module Svelte components import
@@ -83,7 +83,6 @@ export {
   type SeedChoice,
 } from "./day";
 export {
-  addMain,
   addSub,
   completeMain,
   promoteSub,
@@ -192,3 +191,20 @@ export function resumeWelcomeBack(): void {
 // them are meant to meet. Wiring it here keeps the module graph a star and
 // keeps the tour off a second, divergent copy of those mutations.
 provideBeatCommands({ addMain, addSub, addTag, setRemind });
+
+/**
+ * Add a task - and, while the tour is running, let it claim the task as the
+ * one being practised on.
+ *
+ * Composed here rather than inside `task-actions.ts` for the usual reason:
+ * action modules import only `state.ts`, and this facade is where two of
+ * them meet. It is also the precise definition the tour needs - "a task
+ * created in THIS window, by this action" - which no amount of comparing
+ * task lists could reconstruct. A task arriving from an import, or from the
+ * popover, goes nowhere near here.
+ */
+export function addMain(title: string): string | null {
+  const id = addMainAction(title);
+  if (id) claimPracticeTask(id);
+  return id;
+}
