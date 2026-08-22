@@ -10,6 +10,7 @@ import { resetTrayTitleCache } from "./clock";
 import { flushSave, requestQuit, StaleWriteError } from "./persistence";
 import { S, commit, setState, showToast } from "./state";
 import { freshDay } from "../domain/defaults";
+import { forPersist } from "../domain/persistence-shape";
 
 export function setMode(mode: State["mode"]): void {
   commit((s) => void (s.mode = mode));
@@ -173,23 +174,26 @@ export async function quitApp(): Promise<void> {
  * demo day, exactly as a new user meets it.
  */
 export async function factoryReset(): Promise<void> {
-  try {
-    await invoke("factory_reset_app");
-  } catch (e) {
-    // Nothing was published yet, so the existing day is untouched and the
-    // user can retry or fix permissions. Saying so is the whole value.
-    showToast(`Couldn't reset: ${String(e)}`);
-    throw e;
-  }
   // A genuinely default State - not the current one with fields cleared,
   // which is how a reset quietly keeps whatever nobody remembered to list.
   const fresh = freshDay(1, []);
+  try {
+    // Rust deletes AND seeds in one latched step. Writing the seed from
+    // here instead would leave a window where `state.json` is absent and
+    // the OTHER window's debounced save - still holding the pre-reset day
+    // - recreates it from stale data; this window's write would then lose
+    // the compare-and-swap against it and reload the resurrected day, so
+    // the reset would silently un-do itself.
+    await invoke("factory_reset_app", { fresh: forPersist(fresh, Date.now()) });
+  } catch (e) {
+    // Nothing was published locally, so the day on screen is untouched and
+    // the user can retry or fix permissions. Saying so is the whole value.
+    showToast(`Couldn't reset: ${String(e)}`);
+    throw e;
+  }
   setState(fresh);
   applyTheme(fresh.mode, fresh.accent);
   resetTrayTitleCache();
-  await flushSave().catch(() => {
-    /* the files are already gone; the next save will land */
-  });
   showToast("Remi is factory fresh - reopen the dashboard for the tour");
 }
 

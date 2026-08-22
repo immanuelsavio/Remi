@@ -5,10 +5,12 @@ analytics service behind it.
 
 ## What leaves your machine
 
-Nothing, in normal use. Remi makes **no network requests** while you use it.
-There is no sign-in, no sync, no crash reporter and no phone-home check.
+Nothing about your work, ever. There is no sign-in, no sync, no crash
+reporter, and nothing that describes your tasks, notes or time leaves this
+machine.
 
-Two things reach the network, and both are things you start yourself:
+Three things touch the network. None of them carries anything about you, and
+two of the three can be switched off or avoided entirely:
 
 - **The installer and uninstaller** (`install.sh` / `uninstall.sh`) download a
   release from GitHub. They are separate shell scripts you run from a
@@ -16,13 +18,16 @@ Two things reach the network, and both are things you start yourself:
 - **Update checks.** Remi asks GitHub's public releases API whether a newer
   version exists — a single request that sends no identifier beyond a
   `remi-updater` user agent, and no information about you or your work. It
-  runs at startup and when you press _Check for updates_, and you can turn
-  the startup check off in Settings. Installing an update is always a button
-  you press.
+  runs at startup unless you turn that off in Settings, and whenever you
+  press _Check for updates_. Installing an update is always a button you
+  press.
 - **Web fonts.** The interface asks for the Fraunces and IBM Plex families
   from Google Fonts the first time a window opens, then the system caches
-  them. If that request fails, Remi falls back to system fonts and works
-  normally.
+  them. This one is automatic and has no switch: Google sees a request for a
+  stylesheet, which means it sees your IP address and roughly when you
+  opened the app — nothing about your tasks, and nothing that identifies you
+  to Remi. If the request fails, or you are offline, Remi falls back to
+  system fonts and works normally.
 
 ## What Remi stores, and where
 

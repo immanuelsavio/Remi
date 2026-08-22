@@ -73,8 +73,11 @@ vi.mock("@tauri-apps/api/core", () => ({
           factoryResetShouldFail = null;
           throw new Error(msg);
         }
-        // Rust deleted state.json, so the next save starts from scratch.
-        mockCurrentRev = 0;
+        // Rust deleted state.json AND wrote the seed, in one latched step -
+        // so the file exists again at revision 1, and the next save from
+        // either window compares against that.
+        mockCurrentRev = 1;
+        saved.push({ ...(args?.fresh as Record<string, unknown>), _rev: 1 });
         return null;
       case "get_standard_daily":
         return [];
@@ -1965,6 +1968,13 @@ describe("factory reset", () => {
     expect(s.awaitingStart).toBe(true);
     // Staying open is what separates this from uninstalling.
     expect(quitAppCalls).toBe(0);
+    // Rust seeded the file itself, so the reset is already on disk before
+    // this window saves anything - the window in which the OTHER window's
+    // stale save could recreate the old day never opens.
+    const onDisk = saved[saved.length - 1];
+    expect(onDisk.dayNum).toBe(1);
+    expect(onDisk.tourSeen).toBe(false);
+    expect(onDisk.history).toEqual([]);
   });
 
   it("leaves the day alone when the wipe fails", async () => {
