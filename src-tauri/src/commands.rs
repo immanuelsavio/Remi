@@ -330,6 +330,23 @@ pub async fn dashboard_closed() -> Result<(), String> {
     Ok(())
 }
 
+/// The dashboard has finished tidying up and its state is on disk.
+#[tauri::command]
+pub async fn hide_dashboard_window(app: AppHandle) -> Result<(), String> {
+    crate::windows::hide_dashboard(&app);
+    Ok(())
+}
+
+/// The dashboard's close listener is registered - see
+/// `DashboardCloseReadiness` for why this is a handshake and not a hope.
+#[tauri::command]
+pub async fn dashboard_close_listener_ready(app: AppHandle) -> Result<(), String> {
+    if let Some(r) = app.try_state::<crate::windows::DashboardCloseReadiness>() {
+        r.mark_ready();
+    }
+    Ok(())
+}
+
 /// Exiting via `app.exit(0)` rather than a kill lets the normal exit handler
 /// run. A tray-only app has no window chrome, so without this the only way
 /// out would be Activity Monitor / Task Manager.

@@ -62,6 +62,17 @@ export function startClock(opts: { owner: boolean } = { owner: true }): void {
     // the already-rolled state rather than rolling again.
     checkDayRollover(now);
     if (!effectOwner) return;
+    // NOTHING that reaches outside the app may fire while the sample day is
+    // up. The tour swaps the user's tasks for demo ones, so a reminder
+    // would name a task nobody has, a check-in would ask about work nobody
+    // is doing, the tray would count time nobody spent - and the daily
+    // backup would preserve the demo instead of the day it exists to
+    // protect. The clock still TICKS: rollover above, and the checkpoint
+    // below, are what make a demo interrupted by a quit recoverable.
+    if (S().demoRestore) {
+      checkpoint(now);
+      return;
+    }
     // Once a day, quietly. Owner-only: two windows racing would write the
     // same snapshot twice and prune each other's.
     void autoBackup();
@@ -277,14 +288,35 @@ function fireWellness(key: WellnessKey, now: number): void {
  * card. `nativeNotify` already swallows a refusal, so a denied permission
  * leaves the in-app nudge doing its job and nothing looks broken.
  */
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function previewNotifications(): void {
+  // One sequence at a time. Pressing the button twice used to queue a
+  // second delayed pair on top of the first.
+  cancelNotificationPreview();
   void nativeNotify("Draft the quarterly update", "This is what a deadline looks like.");
   // Staggered so they do not stack into one indistinguishable pile.
-  setTimeout(() => {
+  previewTimer = setTimeout(() => {
+    previewTimer = null;
     const c = WELLNESS_COPY.water;
     void nativeNotify(c.title, c.msg);
     wellnessNudge.set("water");
   }, 1400);
+}
+
+/**
+ * Drop a preview that has not fired yet, and any card it already raised.
+ *
+ * Leaving the tour is the obvious case: a wellness card appearing a second
+ * later, over an app that is no longer explaining anything, is a nudge the
+ * user never enabled.
+ */
+export function cancelNotificationPreview(): void {
+  if (previewTimer) {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+  }
+  if (get(wellnessNudge) === "water") wellnessNudge.set(null);
 }
 
 export function dismissWellness(): void {

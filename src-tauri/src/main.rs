@@ -30,7 +30,7 @@ mod windows;
 use tray::{QuitReadiness, TrayHandle};
 use windows::{
     prepare_popover_overlay, register_autohide, register_dashboard_hide_on_close, show_dashboard,
-    PopoverGuard, TrayAnchor,
+    DashboardCloseReadiness, PopoverGuard, TrayAnchor,
 };
 
 fn main() {
@@ -52,6 +52,7 @@ fn main() {
         .manage(TrayAnchor::default())
         .manage(PopoverGuard::default())
         .manage(QuitReadiness::default())
+        .manage(DashboardCloseReadiness::default())
         .invoke_handler(tauri::generate_handler![
             commands::load_app_state,
             commands::save_app_state,
@@ -69,6 +70,8 @@ fn main() {
             commands::open_dashboard,
             commands::open_popover,
             commands::dashboard_closed,
+            commands::hide_dashboard_window,
+            commands::dashboard_close_listener_ready,
             commands::quit_app,
             commands::factory_reset_app,
             commands::reset_and_uninstall_app,

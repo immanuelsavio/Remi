@@ -18,6 +18,7 @@
   import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { listen } from "@tauri-apps/api/event";
   import {
     app,
     boot,
@@ -49,6 +50,8 @@
     checkWhatsNew,
     loadAppVersion,
     startTour,
+    endTour,
+    showToast,
   } from "../store";
   import { fmtEst, nowMs, todayISO, todayTrackedMs } from "../view";
   import type { DashTab } from "../view";
@@ -148,14 +151,26 @@
       unlistenFocus = await win.onFocusChanged(({ payload }) => {
         if (payload) void reloadFromDisk();
       });
-      unlistenClose = await win.onCloseRequested(() => {
-        // Rust hides the window (keeping the webview warm); we just make sure the
-        // queued debounce lands now rather than up to 250ms later. Best-effort:
-        // the dashboard is display-only and not the effect owner, so it is
-        // never the quit-handshake's flush path (see Popover.svelte).
-        void flushSave().catch(() => {});
-        void invoke("dashboard_closed").catch(() => {});
+      // Rust no longer hides the window itself - it ASKS. Closing used to
+      // hide immediately while this side separately flushed whatever was
+      // in memory, and mid-tour that is the SAMPLE day: the demo became
+      // the authoritative state on disk and the popover, still running,
+      // synced it as the user's real day.
+      unlistenClose = await listen("dashboard-close-requested", async () => {
+        try {
+          // The real day back, and the tour marked as run, in one
+          // transaction - before anything is persisted or hidden.
+          if ($app.demoRestore) endTour();
+          await flushSave();
+          await invoke("hide_dashboard_window");
+          void invoke("dashboard_closed").catch(() => {});
+        } catch (e) {
+          // Hiding a window whose state could not be written is how work
+          // disappears. Stay open and say so.
+          showToast(`Couldn't save before closing: ${String(e)}. The window stayed open.`);
+        }
       });
+      await invoke("dashboard_close_listener_ready").catch(() => {});
     } catch {
       /* not in Tauri (browser dev) - live events still cover it */
     }

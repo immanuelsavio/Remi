@@ -29,5 +29,7 @@ mod panel {
 }
 
 pub use anchor::{PopoverGuard, TrayAnchor};
-pub use dashboard::{register_dashboard_hide_on_close, show_dashboard};
+pub use dashboard::{
+    hide_dashboard, register_dashboard_hide_on_close, show_dashboard, DashboardCloseReadiness,
+};
 pub use popover::{prepare_popover_overlay, register_autohide, show_popover, toggle_popover};

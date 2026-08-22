@@ -325,8 +325,24 @@ export function bankActive(s: State, now: number): void {
  * Safe to call when no demo is up, which is what lets both the boot path
  * and every tour exit share one route out.
  */
-export function restoreFromDemo(): void {
-  if (!S().demoRestore) return;
+/**
+ * Put the real day back, in ONE transaction.
+ *
+ * `markSeen` folds the "the tour has run" flag into the same commit rather
+ * than leaving it as a second, independent mutation. Separately they could
+ * half-apply - the day restored but the tour still unseen, or the reverse -
+ * and either leaves the next launch doing something nobody asked for.
+ *
+ * The day's IDENTITY comes back too. Rollover only re-dates while a demo is
+ * up, so the real tasks are still on the date they were parked from; the
+ * caller runs an ordinary rollover afterwards, which then archives them
+ * properly instead of silently adopting them into the new day.
+ */
+export function restoreFromDemo(markSeen = false): void {
+  if (!S().demoRestore) {
+    if (markSeen) commit((s) => void (s.tourSeen = true));
+    return;
+  }
   sessionTx((s) => {
     const d = s.demoRestore!;
     s.mains = d.mains;
@@ -335,11 +351,19 @@ export function restoreFromDemo(): void {
     s.activeSubId = d.activeSubId;
     s.phase = d.phase;
     s.awaitingStart = d.awaitingStart;
+    if (d.dateISO) s.dateISO = d.dateISO;
+    if (d.dayNum) s.dayNum = d.dayNum;
     s.demoRestore = null;
+    if (markSeen) s.tourSeen = true;
     // `sessionTx` re-stamps `startedAt` itself; handing back the old
     // absolute value would bank the whole tour as worked time.
     return d.activeMainId ? { mainId: d.activeMainId, subId: d.activeSubId } : null;
   });
+  // The real day may now be yesterday's. An ordinary rollover archives it,
+  // advances the day number and carries what was unfinished - all the
+  // things skipping it silently swallowed.
+  const rolled = rolloverIfNewDay(S());
+  if (rolled !== S()) setState(rolled);
 }
 
 /**
