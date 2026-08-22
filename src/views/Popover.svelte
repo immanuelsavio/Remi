@@ -44,6 +44,7 @@
   import EndDay from "../components/popover/overlays/EndDay.svelte";
   import Restart from "../components/popover/overlays/Restart.svelte";
   import Backlog from "../components/popover/overlays/Backlog.svelte";
+  import Quit from "../components/popover/overlays/Quit.svelte";
   import Wellness from "../components/popover/overlays/Wellness.svelte";
   import WelcomeBack from "../components/popover/overlays/WelcomeBack.svelte";
 
@@ -184,6 +185,8 @@
     <Restart />
   {:else if s.overlay === "backlog"}
     <Backlog bind:backlogDraft />
+  {:else if s.overlay === "quit"}
+    <Quit />
   {/if}
 
   <!-- The reminder picker layers above whatever else is open, since it is

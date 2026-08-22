@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { stepAt, TOUR_LENGTH, TOUR_STEPS } from "./tour";
+import { nextShown, stepAt, stepShown, TOUR_LENGTH, TOUR_STEPS, tourProgress } from "./tour";
+import { freshDay } from "./defaults";
 
 describe("the guided tour script", () => {
   it("covers the features someone has to be shown", () => {
@@ -44,30 +45,110 @@ describe("the guided tour script", () => {
   });
 
   it("ends on Settings, where the tour can be restarted", () => {
-    expect(TOUR_STEPS[TOUR_LENGTH - 1].id).toBe("settings");
+    expect(TOUR_STEPS[TOUR_LENGTH - 1].tab).toBe("settings");
   });
 
   it("asks for a name, for the look, and for the on/off preferences", () => {
     // These are the steps that WRITE something. If one disappears, a first
     // run silently stops asking and those settings are never seen.
     const asks = TOUR_STEPS.filter((s) => s.ask).map((s) => s.ask);
-    expect(asks).toContain("name");
-    expect(asks).toContain("look");
-    expect(asks).toContain("prefs");
+    for (const required of ["look", "nick", "fullname", "mascot", "mouse", "wellness", "prefs"]) {
+      expect(asks).toContain(required);
+    }
+  });
+
+  it("puts exactly ONE control on each page that asks", () => {
+    // The point of the split: a page holding four decisions is four
+    // decisions to hold at once. Nothing here enforces the markup, but
+    // pinning one `ask` per step stops two being merged back onto one page.
+    const asking = TOUR_STEPS.filter((s) => s.ask);
+    expect(new Set(asking.map((s) => s.ask)).size).toBe(asking.length);
   });
 
   it("asks for the name early, before the walkthrough proper", () => {
     // The name is used in the copy the rest of the tour shows, so asking
     // late means the tour addresses you by name only after it stops
-    // talking to you.
-    const nameAt = TOUR_STEPS.findIndex((s) => s.ask === "name");
-    expect(nameAt).toBe(0);
+    // talking to you. It is no longer step 0 - step 0 is the greeting - but
+    // it must still come before the first thing Remi walks to.
+    const nameAt = TOUR_STEPS.findIndex((s) => s.ask === "nick");
+    const firstWalk = TOUR_STEPS.findIndex((s) => s.anchor);
+    expect(nameAt).toBeGreaterThanOrEqual(0);
+    expect(nameAt).toBeLessThan(firstWalk);
+  });
+
+  it("asks about the theme immediately, before anything else is read", () => {
+    // It changes how every page after it looks. Asked at the end, the
+    // whole tour is read in a theme the user did not choose.
+    expect(TOUR_STEPS[1].ask).toBe("look");
+  });
+
+  it("says its piece in a line or two, never a wall", () => {
+    // The reason the tour is many small pages rather than a few big ones.
+    // A paragraph on a card is the thing that gets skipped, and a skipped
+    // page teaches nothing.
+    for (const s of TOUR_STEPS) {
+      expect(s.body.length).toBeLessThanOrEqual(2);
+      for (const para of s.body) expect(para.length).toBeLessThanOrEqual(150);
+      if (s.aside) expect(s.aside.length).toBeLessThanOrEqual(150);
+    }
   });
 
   it("stays short enough that people actually finish it", () => {
-    // It was sixteen pages and nobody would have. The cap is the point of
-    // the rewrite, so it is pinned rather than left to drift back.
-    expect(TOUR_LENGTH).toBeLessThanOrEqual(9);
+    // Sixteen pages was too many, but the fix was never "fewer pages" - it
+    // was less on each. The cap went back up when the fat ask pages were
+    // split one-control-per-page, which is easier to get through than the
+    // eight pages it replaced despite the higher number. What is pinned is
+    // that nobody re-merges pages to chase the old count, or lets it drift
+    // back towards sixteen.
+    expect(TOUR_LENGTH).toBeLessThanOrEqual(15);
+  });
+
+  it("walks for the walkthrough and uses a card for the questions", () => {
+    // The two shapes are not interchangeable: a speech bubble has nowhere
+    // to put a form, and a centred card has nothing to point at. Pinning
+    // the split stops a later edit from asking for a name inside a bubble.
+    for (const s of TOUR_STEPS) {
+      if (s.ask) expect(s.anchor).toBeUndefined();
+    }
+    const walking = TOUR_STEPS.filter((s) => s.anchor).map((s) => s.id);
+    expect(walking).toEqual(["plan", "work", "endday", "calendar", "evidence"]);
+  });
+
+  it("drops the pages about the mouse when there is no mouse", () => {
+    // A greyed-out "what should I wear" is still a question you have to
+    // read, decide is not for you, and dismiss. Off means gone.
+    const on = { ...freshDay(), mascotOn: true };
+    const off = { ...freshDay(), mascotOn: false };
+    const shown = (s: typeof on) => TOUR_STEPS.filter((st) => stepShown(st, s)).map((st) => st.id);
+
+    expect(shown(on)).toContain("mouse");
+    expect(shown(off)).not.toContain("mouse");
+    // The switch that causes it must survive, or it can never be undone.
+    expect(shown(off)).toContain("mascot");
+  });
+
+  it("walks navigation OVER a skipped page rather than landing on it", () => {
+    const off = { ...freshDay(), mascotOn: false };
+    const at = TOUR_STEPS.findIndex((s) => s.id === "mascot");
+    const forward = nextShown(at, 1, off);
+    expect(forward === null ? null : TOUR_STEPS[forward].id).toBe("plan");
+    // ...and back again, so turning the mouse on is still reachable.
+    const back = nextShown(
+      TOUR_STEPS.findIndex((s) => s.id === "plan"),
+      -1,
+      off,
+    );
+    expect(back === null ? null : TOUR_STEPS[back].id).toBe("mascot");
+  });
+
+  it("counts progress over the tour you are actually being given", () => {
+    // "Step 8 of 14" on the last page is a lie, and a bar that never
+    // reaches the end is worse than no bar.
+    const off = { ...freshDay(), mascotOn: false };
+    const last = TOUR_LENGTH - 1;
+    const p = tourProgress(last, off);
+    expect(p.total).toBe(TOUR_LENGTH - 1);
+    expect(p.pos).toBe(p.total);
   });
 
   it("clamps an out-of-range index instead of returning undefined", () => {

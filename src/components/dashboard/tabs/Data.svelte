@@ -20,6 +20,7 @@
   } from "../../../store";
   import ImportSheet from "../ImportSheet.svelte";
   import UpdateCard from "../UpdateCard.svelte";
+  import TagPicker from "../../shared/TagPicker.svelte";
   import type { ReportRange } from "../../../store";
   import { allTags } from "../../../view";
 
@@ -148,21 +149,18 @@
 
   {#if knownTags.length}
     <div class="grouplbl">Filter by tag</div>
-    <div class="tagpick">
-      {#each knownTags as t (t)}
-        <button
-          class="tagchip"
-          class:on={reportTags.includes(t)}
-          on:click={() =>
-            (reportTags = reportTags.includes(t)
-              ? reportTags.filter((x) => x !== t)
-              : [...reportTags, t])}>#{t}</button
-        >
-      {/each}
+    <TagPicker
+      tags={knownTags}
+      selected={reportTags}
+      onToggle={(t) =>
+        (reportTags = reportTags.includes(t)
+          ? reportTags.filter((x) => x !== t)
+          : [...reportTags, t])}
+    >
       {#if reportTags.length}
         <button class="tagchip clear" on:click={() => (reportTags = [])}>clear</button>
       {/if}
-    </div>
+    </TagPicker>
     <p class="imp-note">
       {#if reportTags.length}
         Only work tagged {reportTags.map((t) => `#${t}`).join(" and ")} - daily totals are recalculated
@@ -359,12 +357,9 @@
 <ImportSheet bind:open={importOpen} bind:text={importText} />
 
 <style>
-  .tagpick {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 4px;
-  }
+  /* Only the slotted "clear" button is styled here now - slot content
+     carries the PARENT's scope, so TagPicker's own chip rules never
+     reach it. The wrapper and the selected state moved with the chips. */
   .tagchip {
     font-family: var(--font-num);
     font-size: 11px;
@@ -379,11 +374,6 @@
   .tagchip:hover {
     border-color: var(--accent);
     color: var(--accent-ink);
-  }
-  .tagchip.on {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
   }
   .tagchip.clear {
     color: var(--danger);

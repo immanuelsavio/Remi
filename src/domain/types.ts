@@ -14,7 +14,7 @@ export type Phase = "startday" | "today" | "active" | "break" | "recovery";
 
 /** A modal layered over the current phase. */
 export type Overlay =
-  null | "checkin" | "switch" | "done-choose" | "restart" | "endday" | "backlog";
+  null | "checkin" | "switch" | "done-choose" | "restart" | "endday" | "backlog" | "quit";
 
 /** Dashboard sections, in tab-strip order. */
 export type DashTab = "plan" | "today" | "calendar" | "stats" | "data" | "notes" | "settings";
@@ -325,6 +325,16 @@ export interface DemoSnapshot {
   activeSubId: string | null;
   startedAt: number;
   phase: Phase;
+  /**
+   * Whether the real day had begun.
+   *
+   * The tour lifts the Start-day gate so the demo is actually reachable -
+   * a first launch sits behind that gate, and behind it every tab is
+   * disabled and the panel shows the gate instead of the sample day the
+   * tour is pointing at. Snapshotted so ending the tour puts the gate back
+   * and the user is still asked to start their own day.
+   */
+  awaitingStart: boolean;
 }
 
 export interface ResumableDay {
@@ -582,8 +592,18 @@ export interface State {
   pto: string[];
   /** Revive hearts held (0 or 1). */
   life: number;
-  /** Days rescued by spending a revive. */
+  /** Days a revive was spent on - marked, but never counted as worked. */
   revived: string[];
+  /**
+   * The streak length banked by the last revive (0 = none in play).
+   *
+   * A revive does NOT fill the missed days back in; the calendar keeps
+   * telling the truth about them. It stores the number the old streak had
+   * reached and adds it to whatever gets built from `reviveAnchor` on.
+   */
+  reviveCredit: number;
+  /** The day (YYYY-MM-DD) counting resumed from after that revive. */
+  reviveAnchor: string;
 
   // ---- live session ----
   activeMainId: string | null;

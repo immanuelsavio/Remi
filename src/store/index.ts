@@ -120,6 +120,7 @@ export {
   getDataFolder,
   openDataFolder,
   quitApp,
+  factoryReset,
   resetAndUninstall,
   setAccent,
   setCostume,

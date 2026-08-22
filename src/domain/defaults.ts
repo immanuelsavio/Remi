@@ -89,6 +89,8 @@ export function freshDay(dayNum = 1, carry: CarrySnapshot[] = []): State {
     pto: [],
     life: 1,
     revived: [],
+    reviveCredit: 0,
+    reviveAnchor: "",
     activeMainId: null,
     activeSubId: null,
     startedAt: 0,
