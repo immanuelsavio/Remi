@@ -179,16 +179,33 @@ pub fn write_state_cas(
     folder: &Path,
     state: &serde_json::Value,
     expected_rev: u64,
+    over_malformed: bool,
 ) -> Result<CasOutcome, String> {
     let dest = state_path(folder);
     let current_rev = match try_read(&dest) {
         Ok(Some(existing)) => rev_of(&existing),
-        // No file yet, or the live file is malformed (the LOAD path is
-        // what surfaces malformed-file recovery to the user; a save
-        // shouldn't itself get stuck deciding what a broken file's
-        // revision "really" was) - treat as revision 0, matching a fresh
-        // frontend's starting expectation.
-        Ok(None) | Err(_) => 0,
+        // No file yet: revision 0, matching a fresh frontend.
+        Ok(None) => 0,
+        // MALFORMED. This used to be revision 0 as well, and that was a
+        // hole big enough to lose a day through: a frontend that has just
+        // shown the recovery screen also sits at `_rev: 0`, so the
+        // compare-and-swap MATCHED and an ordinary background save wrote a
+        // blank day straight over the file the user was being told had
+        // been preserved.
+        //
+        // An ordinary save is now refused outright. `over_malformed` is
+        // for the one caller that genuinely means it - restoring a backup,
+        // which is the whole way out of this state - and nothing else may
+        // pass it.
+        Err(e) => {
+            if !over_malformed {
+                return Err(format!(
+                    "refusing to save over an unreadable state file ({e}) - restore a backup, \
+                     or move the file aside first"
+                ));
+            }
+            0
+        }
     };
     if expected_rev != current_rev {
         return Ok(CasOutcome::Stale { current_rev });
@@ -378,6 +395,38 @@ mod tests {
     }
 
     #[test]
+    fn an_ordinary_save_is_refused_over_an_unreadable_file() {
+        // THE HOLE. A malformed live file used to read as revision 0, and a
+        // frontend that has just shown the recovery screen also sits at
+        // revision 0 - so the compare-and-swap matched and a routine
+        // background save wrote a blank day over the file the user had just
+        // been told was preserved.
+        let d = tempdir().unwrap();
+        fs::create_dir_all(d.path()).unwrap();
+        fs::write(state_path(d.path()), "{not json at all").unwrap();
+
+        let err = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap_err();
+        assert!(err.contains("refusing to save"), "got: {err}");
+        // Untouched, byte for byte.
+        assert_eq!(
+            fs::read_to_string(state_path(d.path())).unwrap(),
+            "{not json at all"
+        );
+    }
+
+    #[test]
+    fn restoring_a_backup_may_deliberately_overwrite_an_unreadable_file() {
+        // The way OUT of that state. Refusing here too would leave the user
+        // stuck with a broken file and no in-app route past it.
+        let d = tempdir().unwrap();
+        fs::write(state_path(d.path()), "{not json at all").unwrap();
+
+        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":7}"#), 0, true).unwrap();
+        assert!(matches!(outcome, CasOutcome::Written(1)));
+        assert_eq!(load_state(d.path()).state.unwrap()["dayNum"], 7);
+    }
+
+    #[test]
     fn corrupt_live_never_becomes_the_backup() {
         let d = tempdir().unwrap();
         write_state(d.path(), &v(r#"{"dayNum":1}"#)).unwrap();
@@ -403,7 +452,7 @@ mod tests {
     #[test]
     fn cas_first_write_at_revision_zero_succeeds_and_stamps_rev_one() {
         let d = tempdir().unwrap();
-        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0).unwrap();
+        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap();
         assert_eq!(outcome, CasOutcome::Written(1));
         let on_disk = load_state(d.path()).state.unwrap();
         assert_eq!(on_disk["_rev"], 1);
@@ -412,8 +461,8 @@ mod tests {
     #[test]
     fn cas_write_matching_the_current_revision_succeeds_and_advances_it() {
         let d = tempdir().unwrap();
-        write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0).unwrap(); // rev -> 1
-        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":2}"#), 1).unwrap();
+        write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap(); // rev -> 1
+        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":2}"#), 1, false).unwrap();
         assert_eq!(outcome, CasOutcome::Written(2));
     }
 
@@ -424,12 +473,12 @@ mod tests {
         // the second one landing would silently discard whatever the
         // first one persisted, with no way to tell it happened.
         let d = tempdir().unwrap();
-        write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0).unwrap(); // rev -> 1 (window A)
-        write_state_cas(d.path(), &v(r#"{"dayNum":2}"#), 1).unwrap(); // rev -> 2 (window A again)
+        write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap(); // rev -> 1 (window A)
+        write_state_cas(d.path(), &v(r#"{"dayNum":2}"#), 1, false).unwrap(); // rev -> 2 (window A again)
 
         // Window B still thinks the revision is 1 (its last known-good
         // load) and tries to save its own edit on top of that stale view.
-        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":99}"#), 1).unwrap();
+        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":99}"#), 1, false).unwrap();
         assert_eq!(outcome, CasOutcome::Stale { current_rev: 2 });
 
         // Window A's dayNum:2 must be UNTOUCHED - not silently overwritten
@@ -441,16 +490,17 @@ mod tests {
     #[test]
     fn cas_retry_after_reloading_the_current_revision_succeeds() {
         let d = tempdir().unwrap();
-        write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0).unwrap(); // rev -> 1
+        write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap(); // rev -> 1
 
         // A stale attempt is rejected...
-        let stale = write_state_cas(d.path(), &v(r#"{"dayNum":99}"#), 0).unwrap();
+        let stale = write_state_cas(d.path(), &v(r#"{"dayNum":99}"#), 0, false).unwrap();
         let CasOutcome::Stale { current_rev } = stale else {
             panic!("expected Stale");
         };
 
         // ...but retrying with the ACTUAL current revision succeeds.
-        let retried = write_state_cas(d.path(), &v(r#"{"dayNum":99}"#), current_rev).unwrap();
+        let retried =
+            write_state_cas(d.path(), &v(r#"{"dayNum":99}"#), current_rev, false).unwrap();
         assert_eq!(retried, CasOutcome::Written(current_rev + 1));
         assert_eq!(load_state(d.path()).state.unwrap()["dayNum"], 99);
     }
@@ -459,7 +509,7 @@ mod tests {
     fn cas_treats_a_missing_file_as_revision_zero() {
         let d = tempdir().unwrap();
         // No prior write at all - the file doesn't exist yet.
-        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0).unwrap();
+        let outcome = write_state_cas(d.path(), &v(r#"{"dayNum":1}"#), 0, false).unwrap();
         assert_eq!(outcome, CasOutcome::Written(1));
     }
 }

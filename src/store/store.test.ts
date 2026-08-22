@@ -1221,6 +1221,24 @@ describe("recovery", () => {
     // Critically: it must NOT have written anything over the user's files.
     expect(saved).toEqual([]);
   });
+
+  it("STILL writes nothing once the save debounce has elapsed", async () => {
+    // The test above checks `saved` the instant boot returns, which is
+    // before the 250ms debounce fires - so it passed while the recovery
+    // path was quietly queueing a write over the very files it exists to
+    // preserve. Rust treats an unreadable live file as revision 0, and a
+    // fresh frontend sends `_rev: 0`, so the compare-and-swap MATCHES and
+    // the write goes through.
+    vi.useFakeTimers();
+    try {
+      loadResult = { kind: "damaged", message: "both files unreadable" };
+      await boot();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(saved, "recovery must never schedule a save").toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ===========================================================================

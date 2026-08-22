@@ -128,6 +128,23 @@ export function commit(patch?: (s: State) => void): void {
   scheduleSave();
 }
 
+/**
+ * Change what this window SHOWS, without scheduling a save.
+ *
+ * For the handful of changes that are about this window's view rather than
+ * the user's day - the recovery screen above all. Recovery means "we could
+ * not read your data", and `commit` would queue a write of a blank day
+ * over the very file the screen is promising has been preserved. The
+ * backend refuses that write too, but a UI state change should never have
+ * been asking for it in the first place.
+ */
+export function commitLocal(patch: (s: State) => void): void {
+  state.update((s) => {
+    patch(s);
+    return s;
+  });
+}
+
 /** Replace the whole state (day boundaries) and schedule a save. */
 export function setState(next: State): void {
   state.set(next);
