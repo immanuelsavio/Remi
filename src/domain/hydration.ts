@@ -366,6 +366,7 @@ export function hydrate(raw: unknown): State {
   s.overlay = null;
   s.switchReason = "";
   s.subsOpen = false;
+  s.tourSearched = false;
   s.ciStage = Math.max(0, num(s.ciStage));
   s.ciMutedDate = typeof s.ciMutedDate === "string" ? s.ciMutedDate : null;
 

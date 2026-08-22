@@ -38,6 +38,9 @@ install).
         elapsed time was banked only up to the last save (not credited
         for the time the app was closed), and the "Welcome back" offer
         appears if `welcomeBack` is on.
+        15a.[ ] Opening the dashboard shows Remi's own wordmark on a splash while
+        the day loads, not the word "Loading". It clears on its own and
+        never outstays a slow boot.
 16. [ ] The guided tour runs by itself on a genuinely fresh install,
         and does **not** run again on the next launch. Settings → Help →
         "Start the tour" brings it back. The walkthrough steps switch to
@@ -51,8 +54,18 @@ install).
         calendar grid, and the Stats headline. Scroll the panel — the ring
         and the bubble follow.
         16c.[ ] On the Plan step, type a task and press Enter: the tour STAYS on
-        that step so you can add a step and a tag to it. Enter in the
-        tour's own name field still advances.
+        that step and the instruction changes to "now add a step". Work
+        through step → tag → deadline and confirm each one is ticked off as
+        you actually do it, that the ring moves from the add box onto YOUR
+        task (never a demo one), and that Next still skips ahead if you
+        would rather not. Enter in the tour's own name field still advances.
+        16e.[ ] On the "Finding it again" step, press a tag chip or type in the
+        Calendar search — the beat ticks and the results appear.
+        16f.[ ] On the notification step, press "Send me a deadline and a water
+        nudge": macOS asks permission the first time, then TWO real banners
+        arrive about a second apart, and the water one also raises the
+        in-app nudge card. Deny permission and confirm the in-app card
+        still appears and nothing looks broken.
         16d.[ ] Turn "Show Remi" off on its tour page — the outfit/wander page
         disappears and the step counter shrinks to match, with the
         progress bar still reaching the end. Turning it back on restores

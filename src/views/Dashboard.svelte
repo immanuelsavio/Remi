@@ -69,6 +69,7 @@
   import RemindSheet from "../components/shared/RemindSheet.svelte";
   import WhatsNew from "../components/dashboard/WhatsNew.svelte";
   import Tour from "../components/dashboard/Tour.svelte";
+  import Splash from "../components/dashboard/Splash.svelte";
 
   /**
    * The strip is the DAY: places you go while working.
@@ -262,7 +263,10 @@
     <!-- Shown once, after an uninstall that kept the history. -->
     <ReturningCard />
     {#if !ready}
-      <div class="dsec-sub">Loading…</div>
+      <!-- Nothing until the day is actually loaded. The splash is what is
+           on screen here; mounting a tab against un-booted state just to
+           hide it behind one would run every tab's setup twice. -->
+      <div class="dsec-sub" aria-hidden="true"></div>
     {:else if s.awaitingStart && tab !== "settings"}
       <!-- The day has not begun. Nothing behind this gate is meaningful
            yet, and the carried tasks are the one thing that is.
@@ -291,6 +295,11 @@
       <Settings {autoUpdate} bind:routinesText bind:confirmWipe />
     {/if}
   </div>
+
+  <!-- Remi's own logo while the day is read off disk. Over everything,
+       including the header, so the first thing the window shows is the app
+       rather than a half-drawn one. -->
+  <Splash {ready} />
 
   <!-- Wanders the bottom edge. Self-gating on `roamOn`, and its layer is
        pointer-events:none so it can never swallow a click. -->

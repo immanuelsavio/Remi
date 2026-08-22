@@ -45,6 +45,7 @@ export {
 export { initSync, reloadFromDisk, teardownSync } from "./sync";
 export {
   dismissWellness,
+  previewNotifications,
   muteCheckins,
   snoozeWellness,
   startClock,
@@ -106,6 +107,7 @@ export {
   openRemind,
   remindTarget,
   setOverlay,
+  markSearched,
   setPhase,
   startTour,
   tourStep,

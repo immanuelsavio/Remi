@@ -140,6 +140,17 @@ export function endTour(): void {
   commit((s) => void (s.tourSeen = true));
 }
 
+/**
+ * Record that the Calendar search has been used at least once.
+ *
+ * Idempotent on purpose: it is called from a reactive statement that fires
+ * on every keystroke, and committing each time would be a save per letter.
+ */
+export function markSearched(): void {
+  if (S().tourSearched) return;
+  commit((s) => void (s.tourSearched = true));
+}
+
 export function setPhase(phase: Phase): void {
   commit((s) => void (s.phase = phase));
 }

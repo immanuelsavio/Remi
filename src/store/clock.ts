@@ -263,6 +263,30 @@ function fireWellness(key: WellnessKey, now: number): void {
   void nativeNotify(c.title, c.msg);
 }
 
+/**
+ * Send the user one of each notification, on request, from the tour.
+ *
+ * A real banner, not a drawing of one. Two reasons it has to be real: the
+ * first native notification is what triggers macOS's permission prompt, and
+ * onboarding is the honest moment to ask - the alternative is the request
+ * arriving unexplained, hours later, attached to something they actually
+ * needed to see. And a mock cannot tell them whether notifications work on
+ * THIS machine, which is the only thing worth knowing.
+ *
+ * Both halves fire, because both exist: the native banner and the in-app
+ * card. `nativeNotify` already swallows a refusal, so a denied permission
+ * leaves the in-app nudge doing its job and nothing looks broken.
+ */
+export function previewNotifications(): void {
+  void nativeNotify("Draft the quarterly update", "This is what a deadline looks like.");
+  // Staggered so they do not stack into one indistinguishable pile.
+  setTimeout(() => {
+    const c = WELLNESS_COPY.water;
+    void nativeNotify(c.title, c.msg);
+    wellnessNudge.set("water");
+  }, 1400);
+}
+
 export function dismissWellness(): void {
   wellnessNudge.set(null);
 }

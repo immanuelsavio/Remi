@@ -28,6 +28,7 @@
     toggleShowSubs,
   } from "../../../store";
   import { allTags, fmt, fmtEst, mainTotal, nowMs } from "../../../view";
+  import { isDemoId } from "../../../domain/demo";
   import RemindControl from "../../shared/RemindControl.svelte";
   import TagEditor from "../../shared/TagEditor.svelte";
   import ImportSheet from "../ImportSheet.svelte";
@@ -119,7 +120,11 @@
 
 <div class="setup-list">
   {#each s.mains as m, i (m.id)}
-    <div class="main-input-row">
+    <!-- The tour rings the user's OWN task while it walks them through
+         adding a step, a tag and a deadline. Only theirs: the demo tasks
+         already have all three, so ringing one would point at an answer
+         instead of the work. -->
+    <div class="main-input-row" data-tour={isDemoId(m.id) ? undefined : "plan-mine"}>
       <div class="idx">{i + 1}</div>
       <div class="col">
         <div style="display:flex; align-items:center; gap:7px;">
