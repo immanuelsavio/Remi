@@ -18,9 +18,10 @@ describe("the guided tour script", () => {
   it("covers the features someone has to be shown", () => {
     // A tour that silently loses a step is the kind of regression nobody
     // notices until a new user is confused, so the shape is pinned here.
-    // Updated deliberately when the tour was condensed from sixteen pages
-    // to eight: the SUBJECTS are what must survive, not the page count, so
-    // this pins the merged step that now covers each of them.
+    // The SUBJECTS are what must survive, not the page count - the script
+    // has been sixteen pages, then eight, then sixteen again as the fat
+    // pages were split one-control-per-page. This pins what has to be
+    // covered whatever the shape.
     const ids = TOUR_STEPS.map((s) => s.id);
     for (const required of [
       "welcome",
@@ -114,12 +115,9 @@ describe("the guided tour script", () => {
   });
 
   it("stays short enough that people actually finish it", () => {
-    // Sixteen pages was too many, but the fix was never "fewer pages" - it
-    // was less on each. The cap went back up when the fat ask pages were
-    // split one-control-per-page, which is easier to get through than the
-    // eight pages it replaced despite the higher number. What is pinned is
-    // that nobody re-merges pages to chase the old count, or lets it drift
-    // back towards sixteen.
+    // The fix for "too long" was never "fewer pages" - it was less on
+    // each. The cap is here so nobody re-merges pages to chase a lower
+    // count, and so it cannot drift upwards unnoticed either.
     expect(TOUR_LENGTH).toBeLessThanOrEqual(17);
   });
 

@@ -86,7 +86,7 @@ just the first small step,"_ never **OVERDUE**.
 - **Private notifications** — keep task names out of banners, so a screen share doesn't leak your day.
 - **In-app updates** — Remi checks GitHub for a newer release and offers it as a button. The
   download is checksum-verified before it replaces anything, and you see what changed afterwards.
-- **A guided tour** — fourteen steps through the whole app, run once on a first launch and re-runnable any time from **Settings → Help**. Pinned to a corner rather than shown as a modal, so it can point at a thing without covering it.
+- **A guided tour** — sixteen short steps through the whole app, run once on a first launch and re-runnable any time from **Settings → Help**. It walks to what it is describing and speaks from a bubble beside it, blurring everything else without disabling it, so it can point at a thing while you use it.
 - **Remi, animated** — the mouse from the icon, live: running while your clock runs, asleep through a break, waiting when nothing is timed, cheering once when today's list is clear. One switch in Settings turns it off, and `prefers-reduced-motion` stops it at the OS level regardless.
 - **Tell us what's wrong** — a feedback box in Data that travels with your exported logs.
 

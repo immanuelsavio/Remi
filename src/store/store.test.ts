@@ -25,6 +25,8 @@ let saveShouldFail: string | null = null;
 /** Number of `quit_app` invocations observed, so tests can assert a failed
  * save never reaches it. */
 let quitAppCalls = 0;
+/** Held open by a test that needs `quit_app` to still be in flight. */
+let quitAppGate: Promise<void> | null = null;
 let factoryResetCalls = 0;
 /** When set, `factory_reset_app` rejects with this message, once. */
 let factoryResetShouldFail: string | null = null;
@@ -66,6 +68,7 @@ vi.mock("@tauri-apps/api/core", () => ({
         }
       case "quit_app":
         quitAppCalls++;
+        if (quitAppGate) await quitAppGate;
         return null;
       case "factory_reset_app":
         factoryResetCalls++;
@@ -215,6 +218,7 @@ async function reset(): Promise<void> {
   trayTitles.length = 0;
   saveShouldFail = null;
   quitAppCalls = 0;
+  quitAppGate = null;
   factoryResetCalls = 0;
   factoryResetShouldFail = null;
   mockCurrentRev = 0;
@@ -1788,6 +1792,20 @@ describe("quit is a real persistence barrier", () => {
     expect(quitAppCalls).toBe(1);
   });
 
+  it("holds the lock across the QUIT itself, not just the save", async () => {
+    // The lock used to be released the moment the flush finished, before
+    // `quit_app` had even been called - so a second Quit arriving in that
+    // window started a whole second shutdown sequence.
+    let release!: () => void;
+    quitAppGate = new Promise<void>((r) => (release = r));
+    const first = quitApp();
+    await Promise.resolve();
+    const second = quitApp();
+    release();
+    await Promise.all([first, second]);
+    expect(quitAppCalls, "a second shutdown ran over the top of the first").toBe(1);
+  });
+
   it("multiple simultaneous quit requests do not trigger multiple overlapping shutdowns", async () => {
     const [a, b, c] = await Promise.all([quitApp(), quitApp(), quitApp()]);
     void a;
@@ -2269,6 +2287,23 @@ describe("the tour's demo day", () => {
     const onDisk = saved[saved.length - 1];
     expect(onDisk.demoRestore ?? null).toBeNull();
     expect((onDisk.mains as { id: string }[]).some((m) => isDemoId(m.id))).toBe(false);
+  });
+
+  it("does not restart the tour from page one after a mid-tour quit", async () => {
+    // Boot restored the real day but left `tourSeen` false, so the
+    // dashboard started the whole thing again over it - every launch,
+    // until someone happened to reach the end. Interrupting an onboarding
+    // is a decision; silently restarting it is not.
+    const [a] = ids();
+    startTour();
+    const stranded = JSON.parse(JSON.stringify(forPersist(S(), Date.now())));
+    expect(stranded.tourSeen).toBe(false);
+
+    loadResult = { kind: "loaded", state: stranded };
+    await boot();
+
+    expect(S().mains.some((m) => m.id === a)).toBe(true);
+    expect(S().tourSeen, "the tour would have restarted from page one").toBe(true);
   });
 
   it("recovers a day stranded by quitting mid-tour", async () => {

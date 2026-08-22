@@ -349,10 +349,11 @@ export function bankActive(s: State, now: number): void {
  * properly instead of silently adopting them into the new day.
  */
 export function restoreFromDemo(markSeen = false): void {
-  if (!S().demoRestore) {
-    if (markSeen) commit((s) => void (s.tourSeen = true));
-    return;
-  }
+  // No demo, nothing to restore - and crucially nothing to mark. `markSeen`
+  // means "a tour was interrupted", so applying it unconditionally would
+  // stamp every ordinary boot as having seen the tour, and a fresh install
+  // would never run it at all.
+  if (!S().demoRestore) return;
   sessionTx((s) => {
     const d = s.demoRestore!;
     s.mains = d.mains;

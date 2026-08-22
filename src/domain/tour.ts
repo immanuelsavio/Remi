@@ -222,7 +222,10 @@ export const TOUR_STEPS: TourStep[] = [
     pose: "idle",
     tab: "plan",
     title: "Build one, properly",
-    body: ["Four small things, one at a time. This is a real task - keep it if you like it."],
+    // NOT "keep it if you like it". The practice task is made inside the
+    // sample day and goes when the real one comes back, so that was a
+    // promise the tour could not keep.
+    body: ["Four small things, one at a time. Practice only - this all disappears after."],
     // Reading about steps and tags teaches nobody. Making one task carry
     // all four is ninety seconds and it sticks.
     beats: [
