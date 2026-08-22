@@ -51,6 +51,16 @@
   // Suggest tags already in use anywhere - today's tasks and the archive -
   // so a project gets labelled the same way each time.
   $: knownTags = allTags([...s.mains, ...s.history.flatMap((h) => h.completed)]);
+  /**
+   * The ONE task the tour is walking someone through, if they have made it.
+   *
+   * Must match `ownTask` in `domain/tour.ts` exactly - the beats read that
+   * task's state while these attributes decide what gets ringed, and if the
+   * two picked different rows the tour would point at one task and wait on
+   * another. Marking every non-demo row lit up a second task the moment
+   * anyone added one.
+   */
+  $: tourTaskId = s.mains.find((m) => !isDemoId(m.id))?.id ?? null;
 
   function commitTask() {
     if (!taskDraft.trim()) return;
@@ -124,7 +134,7 @@
          adding a step, a tag and a deadline. Only theirs: the demo tasks
          already have all three, so ringing one would point at an answer
          instead of the work. -->
-    {@const mine = !isDemoId(m.id)}
+    {@const mine = m.id === tourTaskId}
     <div class="main-input-row" data-tour={mine ? "plan-mine" : undefined}>
       <div class="idx">{i + 1}</div>
       <div class="col">

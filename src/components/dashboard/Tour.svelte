@@ -29,6 +29,7 @@
    * required: Next moves on whether or not anything was touched.
    */
   import { onDestroy, onMount } from "svelte";
+  import { get } from "svelte/store";
 
   import {
     app,
@@ -79,10 +80,53 @@
    */
   $: beats = (step?.beats ?? []) as TourBeat[];
   $: doneCount = beats.filter((b) => b.done(s)).length;
-  $: beat = beats.find((b) => !b.done(s)) ?? null;
-  $: allBeatsDone = beats.length > 0 && !beat;
+  /** Index of the first beat still outstanding, or past the end if none is. */
+  $: autoIdx = (() => {
+    const at = beats.findIndex((b) => !b.done(s));
+    return at < 0 ? beats.length : at;
+  })();
+  /**
+   * How far Next has been pressed past what has actually been done.
+   *
+   * Next used to jump the whole page mid-checklist, which made the other
+   * three things unreachable without doing the first. It moves ONE beat
+   * now, so the button means "show me the next one" while there is a next
+   * one, and only turns the page once the list is finished or skipped
+   * past. Reset on every step change.
+   */
+  let cursor = 0;
+  $: if (i !== null) {
+    void i;
+    cursor = 0;
+  }
+  $: beatIdx = Math.min(beats.length, Math.max(cursor, autoIdx));
+  $: beat = beats[beatIdx] ?? null;
+  /** Every beat genuinely DONE - not merely skipped past. */
+  $: allBeatsDone = beats.length > 0 && autoIdx >= beats.length;
   /** The last beat finished, so the acknowledgement has something to say. */
   $: lastDone = doneCount > 0 ? beats[doneCount - 1] : null;
+
+  /**
+   * Finishing the checklist turns the page by itself.
+   *
+   * Held briefly so the last acknowledgement is readable rather than
+   * flashing past - doing the final thing and being thrown to a new screen
+   * in the same instant reads as a misclick. Guarded on the step index so
+   * a re-render cannot fire it twice, and cancelled if the user moves on
+   * first.
+   */
+  let advanceTimer: ReturnType<typeof setTimeout> | null = null;
+  let advancedFrom: number | null = null;
+  $: {
+    if (allBeatsDone && i !== null && advancedFrom !== i) {
+      advancedFrom = i;
+      if (advanceTimer) clearTimeout(advanceTimer);
+      const at = i;
+      advanceTimer = setTimeout(() => {
+        if (get(tourStep) === at) tourNext();
+      }, 1400);
+    }
+  }
   /** A beat can point somewhere other than the step it belongs to. */
   $: liveAnchor = step?.ask ? undefined : (beat?.anchor ?? step?.anchor);
 
@@ -357,6 +401,28 @@
     }
     reveal(el);
     measure();
+    handOverFocus(el);
+  }
+
+  /**
+   * Put the caret where the current beat is asking you to type.
+   *
+   * Without this the tour walked people into a loop. Adding a task returns
+   * focus to the add-a-task box (right for someone entering five tasks in a
+   * row), so the very next Enter made ANOTHER task - while the bubble was
+   * asking for a step on the first one. Following the instruction produced
+   * a fresh task every time, and the checklist never moved.
+   *
+   * Inputs only. Focusing a button would arm Enter to press it, which for
+   * the deadline beat means a sheet opening at a keystroke nobody aimed.
+   * Only on steps that ASK for something - an ordinary walking step has no
+   * business taking the caret.
+   */
+  function handOverFocus(el: HTMLElement) {
+    if (!beats.length) return;
+    const field = el instanceof HTMLInputElement ? el : el.querySelector<HTMLInputElement>("input");
+    if (field) field.focus();
+    else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   }
 
   // Re-latch whenever the step changes. `i` is in the dependency list so
@@ -392,6 +458,7 @@
     window.removeEventListener("resize", measure);
     if (poll) clearInterval(poll);
     if (walkTimer) clearTimeout(walkTimer);
+    if (advanceTimer) clearTimeout(advanceTimer);
   });
 
   /** Is this element part of the tour's own card or bubble? */
@@ -530,8 +597,12 @@
             {#if i > 0}
               <button class="tf-ghost sm" on:click={tourBack}>Back</button>
             {/if}
-            <button class="tf-next sm" class:ready={allBeatsDone} on:click={tourNext}>
-              {lastStep ? "Finish" : "Next"}
+            <button
+              class="tf-next sm"
+              class:ready={allBeatsDone}
+              on:click={() => (beat ? (cursor = beatIdx + 1) : tourNext())}
+            >
+              {beat ? "Next" : lastStep ? "Finish" : "Next"}
             </button>
           </div>
           <div class="tf-bar" aria-hidden="true">

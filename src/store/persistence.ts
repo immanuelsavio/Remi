@@ -26,6 +26,7 @@ import {
   showToast,
   state,
   welcomeBack,
+  keepLocalView,
 } from "./state";
 
 /**
@@ -164,10 +165,7 @@ export async function flushSave(): Promise<void> {
               next.dayNum === cur.dayNum &&
               next.awaitingStart === cur.awaitingStart
             ) {
-              next.phase = cur.phase;
-              next.overlay = cur.overlay;
-              next.subsOpen = cur.subsOpen;
-              next.ciStage = cur.ciStage;
+              keepLocalView(next, cur);
             }
             state.set(next);
             applyTheme(next.mode, next.accent);

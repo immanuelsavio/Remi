@@ -305,6 +305,47 @@ export function restoreFromDemo(): void {
   });
 }
 
+/**
+ * Merge a state that came off disk with what THIS window is looking at.
+ *
+ * `phase` was being treated as purely window-local, and it is not. It
+ * carries two different facts at once: which screen this window sits on
+ * (local, and worth preserving - the popover being on its task list is no
+ * business of the dashboard's), and whether a task is on the clock
+ * (`"active"`), which is shared and belongs to the session.
+ *
+ * Preserving it wholesale corrupted the file. Start a task in the
+ * dashboard: disk gets `phase: "active"`. The popover reloads, re-imposes
+ * its own `"today"`, and now holds a running session on a screen that says
+ * nothing is running - and its next checkpoint WRITES that contradiction
+ * back over the truth. The visible symptom is a popover offering "Switch"
+ * on every row (the session is real) while showing the idle task list (the
+ * phase is not), and a `state.json` where `activeMainId` and `phase`
+ * disagree.
+ *
+ * So the clock wins, always: if a session came off disk, this is the
+ * active screen no matter where the window thought it was. That both
+ * prevents the contradiction and heals a file that already has one.
+ */
+export function keepLocalView(next: State, cur: State): void {
+  next.overlay = cur.overlay;
+  next.subsOpen = cur.subsOpen;
+  next.ciStage = cur.ciStage;
+
+  // Recovery is not a view of the day - it is "this window could not read
+  // your data". Nothing arriving off disk should pull a window out of it.
+  if (cur.phase === "recovery") {
+    next.phase = "recovery";
+    return;
+  }
+
+  const running = !!next.activeMainId && next.startedAt > 0;
+  if (running) next.phase = "active";
+  // Not running, and this window still says "active": its view is stale,
+  // so take the one from disk rather than re-imposing a stopped clock.
+  else if (cur.phase !== "active") next.phase = cur.phase;
+}
+
 /** Drop active/return-stack references to things that no longer exist. */
 export function repairActiveRefs(s: State): void {
   const m = s.activeMainId ? s.mains.find((x) => x.id === s.activeMainId) : null;
