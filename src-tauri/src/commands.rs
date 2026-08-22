@@ -417,6 +417,42 @@ fn uninstall_data(
 /// `UNINSTALLING` is reset so the app resumes normal saves and stays open
 /// - the caller sees the complete error and the user can retry, check
 /// permissions, or free up disk space. Only a genuinely clean wipe exits.
+/// FACTORY RESET: erase everything and stay open.
+///
+/// The same deletion as an uninstall, and deliberately a different command.
+/// Uninstalling ends with `app.exit(0)` because the point is to leave; a
+/// factory reset is someone saying "start me over", and quitting on them
+/// would make it look like a crash and leave them to relaunch a program
+/// they were in the middle of using.
+///
+/// So the latch is always released here, whether the wipe succeeded or
+/// not. The process keeps running and must be able to write the fresh
+/// state the frontend is about to hand it - a factory reset that leaves
+/// saves permanently rejected is a worse outcome than one that failed
+/// outright, because nothing afterwards would persist and nothing would
+/// say so.
+///
+/// Failures are still reported in full. A wipe that quietly leaves files
+/// behind is the one thing this must never do.
+#[tauri::command]
+pub async fn factory_reset_app() -> Result<(), String> {
+    // Latch FIRST so a save already queued in either webview cannot
+    // recreate what is about to be deleted.
+    UNINSTALLING.store(true, Ordering::SeqCst);
+    let errors = uninstall_data(&data_folder(), &settings_path(), false);
+    // ALWAYS un-latch: this process is staying, and it needs to be able to
+    // write the fresh state that follows.
+    UNINSTALLING.store(false, Ordering::SeqCst);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Some files couldn't be removed: {}",
+            errors.join("; ")
+        ))
+    }
+}
+
 #[tauri::command]
 pub async fn reset_and_uninstall_app(app: AppHandle, keep_history: bool) -> Result<(), String> {
     // Latch FIRST so any save already queued in either webview is rejected

@@ -69,6 +69,7 @@ fn main() {
             commands::open_dashboard,
             commands::dashboard_closed,
             commands::quit_app,
+            commands::factory_reset_app,
             commands::reset_and_uninstall_app,
             commands::quit_listener_ready,
             commands::get_app_version,

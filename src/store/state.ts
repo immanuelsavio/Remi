@@ -193,6 +193,8 @@ export function copyDurablePreferences(old: State, next: State): void {
   next.pto = old.pto;
   next.life = old.life;
   next.revived = old.revived;
+  next.reviveCredit = old.reviveCredit;
+  next.reviveAnchor = old.reviveAnchor;
   next.history = old.history;
   next.metrics = old.metrics;
 }
@@ -214,6 +216,16 @@ export function rolloverIfNewDay(s: State, todayOverride?: string): State {
   // empty `mains`, discarding everything the user marked "Tomorrow". Only
   // re-date it.
   if (s.awaitingStart) {
+    s.dateISO = today;
+    return s;
+  }
+
+  // MID-TOUR: `mains` is the sample day, and the user's real one is parked
+  // in `demoRestore`. A roll here would archive the DEMO as their history
+  // and rebuild from a fresh day whose `demoRestore` is null - so the day
+  // held aside would be gone for good. Re-date only; `restoreFromDemo` puts
+  // the real day back and the next check no-ops on the matching date.
+  if (s.demoRestore) {
     s.dateISO = today;
     return s;
   }
@@ -285,6 +297,7 @@ export function restoreFromDemo(): void {
     s.activeMainId = d.activeMainId;
     s.activeSubId = d.activeSubId;
     s.phase = d.phase;
+    s.awaitingStart = d.awaitingStart;
     s.demoRestore = null;
     // `sessionTx` re-stamps `startedAt` itself; handing back the old
     // absolute value would bank the whole tour as worked time.

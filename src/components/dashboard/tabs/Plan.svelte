@@ -228,8 +228,10 @@
     </div>
   {/each}
 
-  <!-- The always-present trailing box: type, Enter, keep going. -->
-  <div class="main-input-row">
+  <!-- The always-present trailing box: type, Enter, keep going.
+       `data-tour` is what the guided tour walks Remi over to - see
+       `domain/tour.ts`. Moving this row means moving the attribute with it. -->
+  <div class="main-input-row" data-tour="plan-add">
     <div class="idx">{s.mains.length + 1}</div>
     <div class="col">
       <input

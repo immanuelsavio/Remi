@@ -50,7 +50,7 @@
     loadAppVersion,
     startTour,
   } from "../store";
-  import { computeStreaks, fmtEst, nowMs, todayISO, todayTrackedMs } from "../view";
+  import { fmtEst, nowMs, todayISO, todayTrackedMs } from "../view";
   import type { DashTab } from "../view";
 
   import Plan from "../components/dashboard/tabs/Plan.svelte";
@@ -70,6 +70,14 @@
   import WhatsNew from "../components/dashboard/WhatsNew.svelte";
   import Tour from "../components/dashboard/Tour.svelte";
 
+  /**
+   * The strip is the DAY: places you go while working.
+   *
+   * Settings is deliberately not among them - it is somewhere you visit
+   * twice a year, and a seventh tab of equal weight said otherwise every
+   * time you looked at the header. It lives behind the gear on the right
+   * instead, which is where an app's preferences are looked for anyway.
+   */
   const TABS: { id: DashTab; label: string }[] = [
     // Plan then Today: the order you actually move through a day.
     { id: "plan", label: "Plan" },
@@ -78,7 +86,6 @@
     { id: "stats", label: "Stats" },
     { id: "data", label: "Data" },
     { id: "notes", label: "Notes" },
-    { id: "settings", label: "Settings" },
   ];
 
   let ready = false;
@@ -171,7 +178,6 @@
   $: activeSub = active?.subs.find((x) => x.id === s.activeSubId) ?? null;
   $: thing = activeSub ?? active;
   $: tracked = todayTrackedMs(s, $nowMs);
-  $: streaks = computeStreaks(s);
   $: breakLeft = Math.max(0, s.breakEndsAt - $nowMs);
   /**
    * The header mouse is the dashboard's equivalent of the menu-bar mark:
@@ -224,7 +230,6 @@
           aria-controls="panel"
           tabindex={tab === t.id ? 0 : -1}
           bind:this={tabRefs[i]}
-          disabled={s.awaitingStart}
           on:click={() => {
             dashTab.set(t.id);
             trackTab(t.id);
@@ -236,10 +241,20 @@
       {/each}
     </div>
     <span class="spacer"></span>
-    <span class="hm">
-      Day {s.dayNum} · {fmtEst(tracked)}
-      {#if streaks.current > 1}· 🔥 {streaks.current}{/if}
-    </span>
+    <!-- The day number and today's total used to sit here too. They are on
+         the Today tab, stated properly, so this was a second copy competing
+         with the tab that owns them. -->
+    <button
+      class="gear"
+      class:on={tab === "settings"}
+      aria-pressed={tab === "settings"}
+      on:click={() => {
+        dashTab.set("settings");
+        trackTab("settings");
+      }}
+    >
+      <span aria-hidden="true">⚙</span> Settings
+    </button>
     <span class="beta" title="Remi {$appVersion} - still in beta">BETA</span>
   </div>
 
@@ -248,9 +263,17 @@
     <ReturningCard />
     {#if !ready}
       <div class="dsec-sub">Loading…</div>
-    {:else if s.awaitingStart}
+    {:else if s.awaitingStart && tab !== "settings"}
       <!-- The day has not begun. Nothing behind this gate is meaningful
-           yet, and the carried tasks are the one thing that is. -->
+           yet, and the carried tasks are the one thing that is.
+           Settings is the deliberate exception: it is about the APP, not
+           about today, and nothing in it needs a day to exist. Locking
+           someone out of the theme, their name or the tour until they
+           commit to starting a day is a toll gate on the one screen that
+           was never about the day.
+           The tabs stay clickable either way - a dead tab strip says "this
+           app is broken", where a tab that answers with "start my day"
+           says what to do next. -->
       <StartDayGate />
     {:else if tab === "plan"}
       <Plan bind:stepDrafts bind:estDrafts />
@@ -427,13 +450,37 @@
   .spacer {
     flex: 1;
   }
-  /* Right-hand day summary in the header - the showcase's `.hist-head .hm`
-     treatment, reused so the mono/faint register matches. */
-  .hm {
-    font-family: var(--font-num);
-    font-size: 11px;
-    color: var(--ink-faint);
-    white-space: nowrap;
+  /* Settings' door. A bare 26px gear was the whole label, and at that size
+     the glyph is a smudge - the word carries it and the gear just marks it
+     as the app-level one. Grouped with the BETA pill beside it, apart from
+     the day's tabs. */
+  .gear {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink-soft);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    flex: none;
+  }
+  .gear:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .gear:hover {
+    color: var(--ink);
+    border-color: var(--accent);
+  }
+  .gear.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
   }
   /* Says "don't trust this with anything precious yet" without nagging. */
   .beta {

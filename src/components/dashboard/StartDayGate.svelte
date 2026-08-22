@@ -13,9 +13,14 @@
    * they had to make a decision about, and showed everything else. This
    * closes the gate and puts the decision behind it, matching the popover.
    *
-   * Deliberately NOT a modal: it replaces the tab body, and the tab strip
-   * is disabled alongside it, because a day that has not started has no
-   * Today to look at.
+   * Deliberately NOT a modal: it replaces the tab body, because a day that
+   * has not started has no Today to look at.
+   *
+   * The tab strip stays live, though, and Settings is exempt entirely. A
+   * disabled strip reads as a broken app; a tab that answers with this
+   * screen says what to do next. And Settings is about the APP, not about
+   * today - gating the theme, your name and the tour behind starting a day
+   * is a toll booth on the one screen that never needed one.
    */
   import { app, openDashboard, resumeDay, startDay } from "../../store";
   import type { SeedChoice } from "../../store";

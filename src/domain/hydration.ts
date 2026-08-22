@@ -271,6 +271,10 @@ export function hydrate(raw: unknown): State {
   s.dayTargetMins = Math.max(30, num(s.dayTargetMins, 480));
   s.pingMin = Math.max(0, num(s.pingMin, 15));
   s.life = Math.max(0, Math.min(1, num(s.life, 1)));
+  // Absent on every file written before revives banked a count. Zero credit
+  // with no anchor is exactly "no revive in play", so the default is silent.
+  s.reviveCredit = Math.max(0, Math.floor(num(s.reviveCredit, 0)));
+  s.reviveAnchor = /^\d{4}-\d{2}-\d{2}$/.test(String(s.reviveAnchor)) ? String(s.reviveAnchor) : "";
   s.trainerOn = s.trainerOn === true;
   s.avoidanceOn = s.avoidanceOn !== false;
   s.mode = s.mode === "dark" ? "dark" : "light";
@@ -307,6 +311,11 @@ export function hydrate(raw: unknown): State {
       activeSubId: typeof d.activeSubId === "string" ? d.activeSubId : null,
       startedAt: Math.max(0, num(d.startedAt)),
       phase: PHASES.includes(d.phase as State["phase"]) ? (d.phase as State["phase"]) : "today",
+      // Absent on a snapshot written before the tour lifted the gate. False
+      // is the safe read: it restores to a STARTED day, which shows the
+      // user their tasks rather than hiding them behind a gate they cannot
+      // now dismiss.
+      awaitingStart: d.awaitingStart === true,
     };
   } else {
     s.demoRestore = null;

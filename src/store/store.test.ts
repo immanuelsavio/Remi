@@ -24,6 +24,9 @@ let saveShouldFail: string | null = null;
 /** Number of `quit_app` invocations observed, so tests can assert a failed
  * save never reaches it. */
 let quitAppCalls = 0;
+let factoryResetCalls = 0;
+/** When set, `factory_reset_app` rejects with this message, once. */
+let factoryResetShouldFail: string | null = null;
 /** Mimics Rust's real compare-and-swap revision tracking in state_io.rs,
  * so tests can exercise the cross-window stale-write path without a real
  * second window. */
@@ -62,6 +65,16 @@ vi.mock("@tauri-apps/api/core", () => ({
         }
       case "quit_app":
         quitAppCalls++;
+        return null;
+      case "factory_reset_app":
+        factoryResetCalls++;
+        if (factoryResetShouldFail) {
+          const msg = factoryResetShouldFail;
+          factoryResetShouldFail = null;
+          throw new Error(msg);
+        }
+        // Rust deleted state.json, so the next save starts from scratch.
+        mockCurrentRev = 0;
         return null;
       case "get_standard_daily":
         return [];
@@ -107,6 +120,7 @@ import { todayISO } from "../domain/dates";
 import { isDemoId } from "../domain/demo";
 import { TOUR_STEPS } from "../domain/tour";
 import { forPersist } from "../domain/persistence-shape";
+import { rolloverIfNewDay, toast } from "./state";
 import type { State } from "../domain/types";
 import {
   S,
@@ -131,6 +145,7 @@ import {
   promoteSub,
   pruneEmpty,
   quitApp,
+  factoryReset,
   removeMain,
   removeSub,
   restartDay,
@@ -195,6 +210,8 @@ async function reset(): Promise<void> {
   trayTitles.length = 0;
   saveShouldFail = null;
   quitAppCalls = 0;
+  factoryResetCalls = 0;
+  factoryResetShouldFail = null;
   mockCurrentRev = 0;
   forceStaleOnce = false;
   writtenFileNames.length = 0;
@@ -882,6 +899,15 @@ describe("day lifecycle", () => {
 
 // ===========================================================================
 describe("streak revive", () => {
+  /** One archived day with a single completed task - enough to count. */
+  const dayRec = (day: number, dateISO: string) => ({
+    day,
+    dateISO,
+    completed: [{ title: "t", kind: "task" as const, ms: 1 }],
+    unfinished: [],
+    totalMs: 1,
+  });
+
   it("spends the heart on the most recent genuinely-missed day", () => {
     const s = S();
     s.dateISO = "2026-08-12"; // a Wednesday
@@ -907,9 +933,63 @@ describe("streak revive", () => {
     useRevive();
     const after = S();
     expect(after.life).toBe(0);
-    expect(after.revived).toContain("2026-08-11");
-    // The gap is now bridged, so the streak spans it.
+    // The MISSED day stays missed - a record that lies is worthless. What
+    // is marked is the anchor: where the banked count picks up again.
+    expect(after.revived).toContain("2026-08-12");
+    expect(after.revived).not.toContain("2026-08-11");
+    expect(after.reviveCredit).toBe(1);
+    expect(after.reviveAnchor).toBe("2026-08-12");
+    // old streak (1, banked) + the new one starting at the anchor (1).
     expect(computeStreaks(after).current).toBe(2);
+  });
+
+  it("adds the banked count to the new streak as it grows", () => {
+    const s = S();
+    s.dateISO = "2026-08-12";
+    s.history = [dayRec(1, "2026-08-10"), dayRec(2, "2026-08-11"), dayRec(3, "2026-08-12")];
+    s.life = 1;
+    s.reviveCredit = 4;
+    s.reviveAnchor = "2026-08-11";
+    // 4 banked + 11th + 12th. The days before the anchor are already inside
+    // the credit and must not be walked into a second time.
+    expect(computeStreaks(S()).current).toBe(6);
+  });
+
+  it("refuses once a new streak of two days has taken hold", () => {
+    const s = S();
+    s.dateISO = "2026-08-13"; // Thursday
+    s.history = [dayRec(1, "2026-08-10"), dayRec(2, "2026-08-12"), dayRec(3, "2026-08-13")];
+    s.life = 1;
+    // 11th is still the break, but the 12th and 13th are a streak of their own.
+    expect(computeStreaks(S()).broken).toBe("2026-08-11");
+    expect(computeStreaks(S()).offer).toBeNull();
+    useRevive();
+    expect(S().life).toBe(1);
+    expect(S().reviveCredit).toBe(0);
+  });
+
+  it("refuses a break older than the one-week window", () => {
+    const s = S();
+    s.dateISO = "2026-08-24"; // Monday
+    s.history = [dayRec(1, "2026-08-10"), dayRec(2, "2026-08-11")];
+    s.life = 1;
+    expect(computeStreaks(S()).offer).toBeNull();
+    useRevive();
+    expect(S().life).toBe(1);
+  });
+
+  it("still offers when only ONE day has been worked since the break", () => {
+    const s = S();
+    s.dateISO = "2026-08-13"; // Thursday, nothing done yet
+    s.history = [dayRec(1, "2026-08-10"), dayRec(2, "2026-08-12")];
+    s.life = 1;
+    const offer = computeStreaks(S()).offer;
+    expect(offer?.brokenISO).toBe("2026-08-11");
+    // Counting resumes at the worked day, not today, so it is not thrown away.
+    expect(offer?.anchorISO).toBe("2026-08-12");
+    expect(offer?.sinceBreak).toBe(1);
+    useRevive();
+    expect(computeStreaks(S()).current).toBe(offer!.credit + 1);
   });
 
   it("refuses when there is nothing to revive or no heart left", () => {
@@ -1852,6 +1932,56 @@ describe("uninstalling but keeping history", () => {
   });
 });
 
+describe("factory reset", () => {
+  it("puts back a first-launch state without quitting", async () => {
+    const [a] = ids();
+    startTask(a);
+    S().history.push({
+      day: 1,
+      dateISO: "2026-08-10",
+      completed: [{ title: "t", kind: "task", ms: 1 }],
+      unfinished: [],
+      totalMs: 1,
+    });
+    S().tourSeen = true;
+    S().userName = "Sam";
+    addBacklog("someday");
+
+    await factoryReset();
+
+    const s = S();
+    expect(factoryResetCalls).toBe(1);
+    // Everything the user accumulated is gone...
+    expect(s.mains).toEqual([]);
+    expect(s.history).toEqual([]);
+    expect(s.backlog).toEqual([]);
+    expect(s.dayNum).toBe(1);
+    // ...including the running clock, which must not survive into a state
+    // whose task list no longer holds what it was pointing at.
+    expect(s.activeMainId).toBeNull();
+    expect(s.startedAt).toBe(0);
+    // ...and the tour runs again, which is the whole point of the button.
+    expect(s.tourSeen).toBe(false);
+    expect(s.awaitingStart).toBe(true);
+    // Staying open is what separates this from uninstalling.
+    expect(quitAppCalls).toBe(0);
+  });
+
+  it("leaves the day alone when the wipe fails", async () => {
+    // Nothing is published until Rust confirms the deletion, so a refused
+    // wipe costs the user nothing - and says so rather than looking done.
+    const [a] = ids();
+    startTask(a);
+    S().userName = "Sam";
+    factoryResetShouldFail = "Permission denied";
+
+    await expect(factoryReset()).rejects.toThrow(/Permission denied/);
+    expect(S().userName).toBe("Sam");
+    expect(S().mains.some((m) => m.id === a)).toBe(true);
+    expect(get(toast)?.msg).toMatch(/Couldn't reset/);
+  });
+});
+
 describe("the tour's demo day", () => {
   it("puts the demo in front of you and holds your real day aside", () => {
     const [a] = ids();
@@ -1913,6 +2043,39 @@ describe("the tour's demo day", () => {
     const second = S().mains.map((m) => `${m.id}:${m.title}:${m.subs.length}`);
     endTour();
     expect(second).toEqual(first);
+  });
+
+  it("lifts the Start-day gate so the sample day can actually be used", () => {
+    // A first launch sits behind that gate, and behind it every tab is
+    // disabled and the panel shows the gate instead of any tab - so the
+    // demo the tour points at was on screen for nobody, and "try adding a
+    // step" was an instruction you could not follow.
+    const s0 = S();
+    s0.awaitingStart = true;
+    s0.phase = "startday";
+
+    startTour();
+    expect(S().awaitingStart).toBe(false);
+    expect(S().phase).toBe("today");
+
+    // ...and the gate comes back, so the user is still asked to start
+    // their OWN day rather than being dropped into one that never began.
+    endTour();
+    expect(S().awaitingStart).toBe(true);
+    expect(S().phase).toBe("startday");
+  });
+
+  it("does NOT roll the day while the demo is holding the real one aside", () => {
+    // A roll here would archive the DEMO as the user's history and rebuild
+    // from a fresh day whose `demoRestore` is null - so the real day parked
+    // behind the tour would be gone for good.
+    const [a] = ids();
+    startTour();
+    const rolled = rolloverIfNewDay(S(), "2099-01-01");
+    expect(rolled.dateISO).toBe("2099-01-01");
+    expect(rolled.dayNum).toBe(S().dayNum); // re-dated, not rolled
+    expect(rolled.history).toEqual(S().history); // nothing archived
+    expect(rolled.demoRestore?.mains.some((m) => m.id === a)).toBe(true);
   });
 
   it("recovers a day stranded by quitting mid-tour", async () => {

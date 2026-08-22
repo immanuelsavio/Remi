@@ -101,7 +101,7 @@
         · {fmt(mainTotal(active, s, $nowMs))} on “{active.title}” overall{/if}{#if active.estMs}
         · est {fmtEst(active.estMs)}{/if}
     </div>
-    <div class="gb-acts">
+    <div class="gb-acts" data-tour="today-start">
       <button class="bk-btn" on:click={() => completeMain(active.id)}>✓ Done</button>
       <button
         class="bk-btn ghost"
@@ -185,6 +185,7 @@
           {:else}
             <button
               class="startbtn"
+              data-tour="today-start"
               on:click={() => (timing ? switchToMain(m.id, true) : startTask(m.id))}
             >
               {timing ? "Switch" : "Start"} ▸
@@ -294,7 +295,9 @@
 
 <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
   <button class="bk-btn ghost" on:click={() => setOverlay("backlog")}>▤ Backlog</button>
-  <button class="bk-btn ghost" on:click={() => setOverlay("endday")}>Wrap up the day ›</button>
+  <button class="bk-btn ghost" data-tour="today-endday" on:click={() => setOverlay("endday")}>
+    Wrap up the day ›
+  </button>
 </div>
 
 <ConfirmSubSheet bind:pending={pendingRemove} />

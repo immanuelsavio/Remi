@@ -2,7 +2,7 @@
 
 import { mkMain, mkSub, freshDay } from "../domain/defaults";
 import { daySnapshot, enrichSnapshot, carrySnapshot } from "../domain/tasks";
-import { computeStreaks } from "../domain/streaks";
+import { computeStreaks, firstBrokenDayISO, reviveOffer } from "../domain/streaks";
 import { todayISO } from "../domain/dates";
 import { nid } from "../domain/ids";
 import type { BacklogItem, CarryChoice, CarrySnapshot, ResumableDay } from "../domain/types";
@@ -274,24 +274,43 @@ export function restartDay(): void {
   showToast("Fresh day");
 }
 
-/** Spend the revive heart to bridge the most recent genuinely-missed day. */
+/**
+ * Spend the revive heart to get a broken streak's COUNT back.
+ *
+ * It does not fill the missed days in - the calendar goes on saying you
+ * missed them, because it is a record and a record that lies is worthless.
+ * What it does is bank the number the old streak reached and stitch it onto
+ * a new one starting at the anchor day, so `old + new` is what the streak
+ * reads from here on. See `reviveOffer` in `domain/streaks.ts` for when
+ * that is still on the table (a week, and only until a new streak of two
+ * days has taken hold).
+ */
 export function useRevive(): void {
   const s = S();
-  const st = computeStreaks(s);
-  if (!st.broken) {
-    showToast("Nothing to revive");
+  const offer = reviveOffer(s);
+  if (!offer) {
+    showToast(
+      firstBrokenDayISO(s)
+        ? "That streak is past reviving - a new one has started"
+        : "Nothing to revive",
+    );
     return;
   }
   if ((s.life || 0) < 1) {
     showToast("No revive left - earn one with a 5-day streak");
     return;
   }
-  const day = st.broken;
+  const { anchorISO, credit } = offer;
   commit((d) => {
     d.life = 0;
-    if (!d.revived.includes(day)) d.revived.push(day);
+    d.reviveCredit = credit;
+    d.reviveAnchor = anchorISO;
+    // Marks the anchor on the calendar and bridges it, so a revive taken on
+    // a day you have not worked yet still holds the count until you do.
+    if (!d.revived.includes(anchorISO)) d.revived.push(anchorISO);
   });
-  showToast(`❤️ ${day} revived - your streak is safe`);
+  const now = computeStreaks(S()).current;
+  showToast(`❤️ ${credit}-day streak back - you're on ${now} and counting`);
 }
 
 /** Mark a day as time off, which bridges a streak gap. Today or future only. */

@@ -8,7 +8,8 @@ import { applyTheme } from "../domain/theme";
 import type { State, WellnessKey } from "../domain/types";
 import { resetTrayTitleCache } from "./clock";
 import { flushSave, requestQuit, StaleWriteError } from "./persistence";
-import { S, commit, showToast } from "./state";
+import { S, commit, setState, showToast } from "./state";
+import { freshDay } from "../domain/defaults";
 
 export function setMode(mode: State["mode"]): void {
   commit((s) => void (s.mode = mode));
@@ -150,6 +151,46 @@ export async function quitApp(): Promise<void> {
     }
     throw e;
   }
+}
+
+/**
+ * FACTORY RESET: back to the state of a first launch, without quitting.
+ *
+ * Split from `resetAndUninstall` because they are two different intentions
+ * that happened to share a deletion. Uninstalling ends by quitting, which
+ * is right when the point is to leave. "Start me over" is someone who is
+ * staying, and quitting on them reads as a crash.
+ *
+ * Order matters, and it is the opposite of the uninstall path's:
+ *
+ *   1. Delete the files FIRST, with saves latched off in Rust so nothing
+ *      queued can recreate them.
+ *   2. Only then publish the fresh state, so the save it triggers writes a
+ *      brand new `state.json` at revision 0 rather than racing the wipe.
+ *
+ * `tourSeen` going back to false is the whole point of the button: the
+ * next dashboard boot runs the first-launch path again - the tour, on the
+ * demo day, exactly as a new user meets it.
+ */
+export async function factoryReset(): Promise<void> {
+  try {
+    await invoke("factory_reset_app");
+  } catch (e) {
+    // Nothing was published yet, so the existing day is untouched and the
+    // user can retry or fix permissions. Saying so is the whole value.
+    showToast(`Couldn't reset: ${String(e)}`);
+    throw e;
+  }
+  // A genuinely default State - not the current one with fields cleared,
+  // which is how a reset quietly keeps whatever nobody remembered to list.
+  const fresh = freshDay(1, []);
+  setState(fresh);
+  applyTheme(fresh.mode, fresh.accent);
+  resetTrayTitleCache();
+  await flushSave().catch(() => {
+    /* the files are already gone; the next save will land */
+  });
+  showToast("Remi is factory fresh - reopen the dashboard for the tour");
 }
 
 export async function resetAndUninstall(keepHistory: boolean): Promise<void> {

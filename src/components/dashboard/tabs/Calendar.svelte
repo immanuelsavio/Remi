@@ -10,8 +10,9 @@
    * would silently un-break a broken streak - which is exactly the lie the
    * revive heart exists to make you pay for deliberately.
    */
-  import { app, showToast } from "../../../store";
+  import { app } from "../../../store";
   import PtoSheet from "../PtoSheet.svelte";
+  import TagPicker from "../../shared/TagPicker.svelte";
   import {
     allTags,
     canMarkPto,
@@ -90,24 +91,40 @@
    * person reviewing their own history could silently book a holiday by
    * clicking the wrong square. Marking time off now lives in its own sheet,
    * where a click cannot mean two things.
+   *
+   * "Reads a day back" used to mean a one-line toast - "2 done, 3h 10m" -
+   * which named the day's SIZE and nothing about its content, then took
+   * itself away before you could look twice. It opens the day below the
+   * grid instead: what was finished, what was left, and what interrupted
+   * it, staying put until you pick another day or close it.
    */
   let ptoOpen = false;
+  /** The day open below the grid, or null. */
+  let selected: string | null = null;
 
   function onDay(iso: string) {
-    const rec = byDate.get(iso);
-    if (rec) {
-      showToast(
-        `${iso} - ${rec.completed.length} done - ${hoursStr(rec.totalMs)}` +
-          (rec.unfinished.length ? ` - ${rec.unfinished.length} left open` : ""),
-      );
-      return;
-    }
-    if (s.pto.includes(iso)) {
-      showToast(`${iso} - time off`);
-      return;
-    }
-    showToast(`${iso} - nothing recorded`);
+    selected = selected === iso ? null : iso;
   }
+
+  /** Everything the panel needs about `selected`, or null when nothing is. */
+  $: detail = (() => {
+    if (!selected) return null;
+    const rec = byDate.get(selected) ?? null;
+    const intr = (rec?.interruptions ?? []).filter((x) => !x.open);
+    return {
+      iso: selected,
+      rec,
+      pto: s.pto.includes(selected),
+      revived: s.revived.includes(selected),
+      isToday: selected === s.dateISO,
+      intrCount: intr.length,
+      intrMs: intr.reduce((a, x) => a + Math.max(0, x.durationMs), 0),
+    };
+  })();
+
+  // Paging to another month closes the panel: the open day is no longer on
+  // screen, and a detail card for a date you can't see is a puzzle.
+  $: if (monthCursor) selected = null;
 </script>
 
 <div class="dsec-title">Calendar</div>
@@ -146,20 +163,12 @@
   </button>
 </div>
 
-{#if knownTags.length}
-  <div class="tagpick">
-    {#each knownTags as t (t)}
-      <button
-        class="tagchip"
-        class:on={searchTags.includes(t)}
-        on:click={() =>
-          (searchTags = searchTags.includes(t)
-            ? searchTags.filter((x) => x !== t)
-            : [...searchTags, t])}>#{t}</button
-      >
-    {/each}
-  </div>
-{/if}
+<TagPicker
+  tags={knownTags}
+  selected={searchTags}
+  onToggle={(t) =>
+    (searchTags = searchTags.includes(t) ? searchTags.filter((x) => x !== t) : [...searchTags, t])}
+/>
 
 {#if searching}
   <div class="dsec-sub" style="margin:12px 0 8px;">
@@ -202,7 +211,7 @@
     </div>
   </div>
 
-  <div class="cal-grid">
+  <div class="cal-grid" data-tour="cal-grid">
     {#each DOW as d (d)}
       <div class="cal-dow">{d}</div>
     {/each}
@@ -220,6 +229,8 @@
           class:done={!pto && !!rec && !unfinished && (!isToday || !!rec.completed.length)}
           class:unfinished={!pto && unfinished}
           class:today={isToday}
+          class:sel={selected === iso}
+          aria-pressed={selected === iso}
           title={rec
             ? `${rec.completed.length} done · ${fmtEst(rec.totalMs)}`
             : pto
@@ -243,9 +254,96 @@
     {/each}
   </div>
 
+  {#if detail}
+    {@const rec = detail.rec}
+    <div class="dayview">
+      <div class="dv-head">
+        <span class="dv-when">
+          {prettyDate(dateFromISO(detail.iso))}
+          {#if rec}<span class="k">Day {rec.day}</span>{/if}
+          {#if detail.isToday}<span class="k">today</span>{/if}
+          {#if detail.pto}<span class="k">day off</span>{/if}
+          {#if detail.revived}<span class="k">❤️ revived</span>{/if}
+        </span>
+        <button class="dv-x" aria-label="Close this day" on:click={() => (selected = null)}
+          >✕</button
+        >
+      </div>
+
+      {#if rec}
+        <div class="dv-sum">
+          <b>{hoursStr(rec.totalMs)}</b> tracked · {rec.completed.length} done{#if rec.unfinished.length}
+            · {rec.unfinished.length} left open{/if}{#if detail.intrCount}
+            · {detail.intrCount} interruption{detail.intrCount === 1 ? "" : "s"} costing {fmtEst(
+              detail.intrMs,
+            )}{/if}
+        </div>
+        <div class="hist-list">
+          {#each rec.completed as c, i (c.title + i)}
+            <div class="hist-item">
+              <span class="hi-t">
+                <span class="dv-tick">✓</span>
+                {c.title}
+                {#if c.kind === "step"}<span class="k">step</span>{/if}
+                {#each c.tags ?? [] as tg (tg)}<span class="k">#{tg}</span>{/each}
+              </span>
+              <span class="hi-m">
+                {fmtEst(c.ms)}{#if c.interruptedCount}
+                  · {c.interruptedCount}✕ interrupted{/if}
+              </span>
+            </div>
+          {/each}
+          {#each rec.unfinished as u, i (u.title + i)}
+            <div class="hist-item">
+              <span class="hi-t">
+                <span class="dv-open">○</span>
+                {u.title}
+                <span class="k">open</span>
+                {#each u.tags ?? [] as tg (tg)}<span class="k">#{tg}</span>{/each}
+              </span>
+              <span class="hi-m">
+                {#if u.subs.length}{u.subs.length} step{u.subs.length === 1 ? "" : "s"}{/if}
+              </span>
+            </div>
+          {/each}
+          {#if !rec.completed.length && !rec.unfinished.length}
+            <div class="hist-empty">The day was started, but nothing was recorded on it.</div>
+          {/if}
+        </div>
+        {#if detail.intrCount}
+          <!-- The interruptions are the point of this app, so they get named
+               here rather than left as a count in the summary line. -->
+          <div class="dv-sub">What took you away</div>
+          <div class="hist-list">
+            {#each (rec.interruptions ?? []).filter((x) => !x.open) as x (x.id)}
+              <div class="hist-item">
+                <span class="hi-t">{x.causeTitle || "Something"}</span>
+                <span class="hi-m">
+                  {fmtEst(x.durationMs)}{#if x.interruptedTitle}
+                    · off {x.interruptedTitle}{/if}
+                </span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {:else if detail.pto}
+        <div class="dv-sum">Time off. It bridges your streak rather than breaking it.</div>
+      {:else}
+        <div class="dv-sum">
+          Nothing recorded.
+          {#if detail.iso > today}
+            Not here yet.
+          {:else}
+            A day with no finished work doesn't count towards a streak.
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   <div class="dsec-sub" style="margin-top:14px;">
-    Tap a day with a record to see what it held. Tap today or a future day to mark a day off (PTO).
-    Past days can't be marked off - that's what the revive heart is for.
+    Tap any day to open it below. Time off is set from the button above - past days can't be marked
+    off, which is what the revive heart is for.
   </div>
 {/if}
 
@@ -262,32 +360,6 @@
     flex: 1;
     min-width: 0;
   }
-  .tagpick {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 4px;
-  }
-  .tagchip {
-    font-family: var(--font-num);
-    font-size: 11px;
-    font-weight: 600;
-    border: 1px solid var(--line);
-    background: var(--card);
-    color: var(--ink-soft);
-    border-radius: 999px;
-    padding: 4px 10px;
-    cursor: pointer;
-  }
-  .tagchip:hover {
-    border-color: var(--accent);
-    color: var(--accent-ink);
-  }
-  .tagchip.on {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-  }
 
   .cal-modes {
     display: flex;
@@ -299,5 +371,65 @@
   .cal-hint {
     font-size: 11.5px;
     color: var(--ink-soft);
+  }
+
+  /* The opened day, below the grid. Bordered in the accent so it reads as
+     belonging to the cell you pressed rather than as a new section. */
+  .dayview {
+    margin-top: 14px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 12px;
+    background: var(--card);
+    padding: 12px 14px 14px;
+  }
+  .dv-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .dv-when {
+    font-family: var(--font-serif);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-right: auto;
+  }
+  .dv-x {
+    border: none;
+    background: none;
+    color: var(--ink-faint);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 8px;
+  }
+  .dv-x:hover {
+    color: var(--ink);
+    background: var(--bg);
+  }
+  .dv-sum {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+  }
+  .dv-sub {
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 12px 0 4px;
+  }
+  .dv-tick {
+    color: var(--success-ink);
+  }
+  .dv-open {
+    color: var(--ink-faint);
+  }
+  /* The pressed cell, so the panel below is obviously about THIS square. */
+  .cal-cell.sel {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
 </style>

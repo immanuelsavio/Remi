@@ -6,7 +6,7 @@ import { get, writable } from "svelte/store";
 import type { DashTab, Overlay, Phase } from "../domain/types";
 import { S, commit, dashTab, restoreFromDemo, sessionTx } from "./state";
 import { demoDay } from "../domain/demo";
-import { TOUR_LENGTH, TOUR_STEPS } from "../domain/tour";
+import { nextShown, TOUR_STEPS } from "../domain/tour";
 
 /**
  * Which task/step/backlog item the reminder sheet is currently editing, or
@@ -69,12 +69,24 @@ function enterDemo(): void {
         activeSubId: s.activeSubId,
         startedAt: s.startedAt,
         phase: s.phase,
+        awaitingStart: s.awaitingStart,
       }),
     );
     s.mains = mains;
     s.interruptions = interruptions;
     s.activeMainId = null;
     s.activeSubId = null;
+    // Lift the Start-day gate for the duration.
+    //
+    // This is what makes the tour INTERACTIVE rather than a slideshow. On a
+    // first launch the day has not begun, and behind that gate the tab strip
+    // is disabled and the panel renders the gate instead of any tab - so the
+    // demo tasks the tour exists to point at were on screen for nobody, and
+    // every "try adding a step" was an instruction you could not follow.
+    // `restoreFromDemo` puts the gate back, so the user is still asked to
+    // start their own day when the tour ends.
+    s.awaitingStart = false;
+    s.phase = "today";
     return null;
   });
 }
@@ -85,11 +97,18 @@ export function startTour(): void {
   dashTab.set(TOUR_STEPS[0].tab ?? get(dashTab));
 }
 
+/**
+ * Move to the next step the user is actually being shown.
+ *
+ * Steps can opt out of a tour (see `skipWhen`), so this walks forward past
+ * any that no longer apply rather than landing on one and bouncing off it.
+ * Running out of steps forwards is what finishes the tour.
+ */
 export function tourNext(): void {
   const at = get(tourStep);
   if (at === null) return;
-  const next = at + 1;
-  if (next >= TOUR_LENGTH) {
+  const next = nextShown(at, 1, S());
+  if (next === null) {
     endTour();
     return;
   }
@@ -100,8 +119,9 @@ export function tourNext(): void {
 
 export function tourBack(): void {
   const at = get(tourStep);
-  if (at === null || at === 0) return;
-  const prev = at - 1;
+  if (at === null) return;
+  const prev = nextShown(at, -1, S());
+  if (prev === null) return;
   tourStep.set(prev);
   const tab = TOUR_STEPS[prev].tab;
   if (tab) dashTab.set(tab);

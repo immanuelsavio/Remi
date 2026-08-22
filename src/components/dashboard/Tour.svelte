@@ -1,26 +1,34 @@
 <script lang="ts">
   /**
-   * The guided tour, full screen.
+   * The guided tour: Remi WALKS to whatever it is describing.
    *
-   * A full-height panel docked to one side, with the app live beside it.
+   * Two kinds of step, and the difference is not decorative:
    *
-   * It was briefly a true full-screen overlay, which was a mistake: the
-   * tour seeds a demo day precisely so there is something real to point at,
-   * and covering the whole window hid the very thing being pointed at. It
-   * was also a corner box before that, which was too cramped to ask
-   * anything in.
+   *   1. A walkthrough step names an `anchor` - the `data-tour` value of a
+   *      real element. Remi scurries over to it, a ring marks it, and the
+   *      words come out of a bubble beside the mouse. Nothing is dimmed and
+   *      nothing is covered, so "add a task below, press Enter" is an
+   *      instruction you can actually carry out while it is on screen.
+   *   2. A step that ASKS (name, look, preferences) is a centred card. A
+   *      speech bubble is a bad container for a form: the controls need
+   *      room, a stable position and somewhere sensible for focus to land.
    *
-   * Docked full height is the resolution: room for the questions, and the
-   * demo tasks stay visible and clickable the whole way through, so "try
-   * adding a step" is an instruction you can actually follow.
+   * It was a docked full-height panel before this, which worked but shifted
+   * the whole app sideways to make space and pointed at nothing in
+   * particular. Before that it was a true full-screen overlay, which hid the
+   * demo day the tour exists to point at.
    *
-   * Two steps ASK instead of tell. Both bind straight to real settings, so
-   * they always show what is currently true - which is what makes retaking
-   * the tour a way to change your mind rather than a form that resets you.
-   * Nothing on those steps is required: Next moves on whether or not
-   * anything was touched.
+   * The anchor is best-effort by design. If the element cannot be found -
+   * wrong tab, still rendering, a list that happens to be empty - the step
+   * silently falls back to the centred card. A tour that strands itself
+   * pointing at empty space is worse than one that stops pointing.
+   *
+   * Both ask steps bind straight to real settings, so they always show what
+   * is currently true - which is what makes retaking the tour a way to
+   * change your mind rather than a form that resets you. Nothing on them is
+   * required: Next moves on whether or not anything was touched.
    */
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
 
   import {
     app,
@@ -32,20 +40,31 @@
     setFullName,
     setUserName,
     toggleWellness,
+    setWellnessEvery,
+    setWellnessHour,
     wellnessCopy,
     tourBack,
     tourNext,
     tourStep,
   } from "../../store";
   import { FULL_NAME_MAX, NAME_MAX } from "../../domain/name";
-  import { ACCENTS } from "../../view";
-  import { stepAt, TOUR_LENGTH } from "../../domain/tour";
+  import { ACCENTS, clockLabel } from "../../view";
+  import { stepAt, tourProgress } from "../../domain/tour";
   import { COSTUMES } from "../../domain/types";
   import Mascot from "../shared/Mascot.svelte";
 
   $: s = $app;
   $: i = $tourStep;
   $: step = i === null ? null : stepAt(i);
+  /**
+   * Position and length of the tour THIS user is getting.
+   *
+   * Some steps opt out (turning the mouse off drops the two pages about it),
+   * so counting against the whole script would say "step 8 of 14" on the
+   * last page and leave the bar short of the end.
+   */
+  $: prog = i === null ? { pos: 1, total: 1 } : tourProgress(i, s);
+  $: lastStep = prog.pos === prog.total;
   $: first = !s.tourSeen;
 
   /** A Svelte template cannot parse a TS `as` cast, so narrow here. */
@@ -53,16 +72,6 @@
     const found = COSTUMES.find(([k]) => k === v);
     if (found) setCostume(found[0]);
   }
-
-  // Shifts the dashboard clear of the docked panel while the tour is up, so
-  // the demo tasks stay visible instead of hiding underneath it.
-  $: if (typeof document !== "undefined") {
-    document.body.classList.toggle("touring", i !== null);
-  }
-
-  onDestroy(() => {
-    if (typeof document !== "undefined") document.body.classList.remove("touring");
-  });
 
   /** The switches worth deciding up front. Everything else lives in Settings. */
   const PREFS = [
@@ -90,16 +99,256 @@
 
   const WELLNESS = ["water", "stand", "walk", "lunch", "breakr"] as const;
 
-  function onKey(e: KeyboardEvent) {
-    if (i === null) return;
-    // Typing a name must not page the tour out from under you.
-    const el = e.target as HTMLElement | null;
-    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
-      if (e.key === "Enter") tourNext();
+  // ---- the walk ----------------------------------------------------------
+  /** Rendered width of the bubble, px. Fixed so the geometry is knowable. */
+  const BUBBLE_W = 330;
+  /** Rendered size of the mouse walking beside it. */
+  const REMI_SIZE = 62;
+  /** Gap between the target and the group, and from the window edge. */
+  const GAP = 16;
+  const MARGIN = 12;
+  /** Walking speed, px per second - the same constant the roaming mouse uses. */
+  const SPEED = 620;
+
+  /** The element this step is about, once found. */
+  let anchorEl: HTMLElement | null = null;
+  /** Group position (viewport px) and which side of the target it sits on. */
+  let gx = 0;
+  let gy = 0;
+  let side: "right" | "left" | "below" | "above" = "right";
+  /** The target's rectangle, for the ring. Null = nothing to ring. */
+  let ring: { x: number; y: number; w: number; h: number } | null = null;
+  /** Measured once rendered, so the group can be centred on the target. */
+  let groupH = REMI_SIZE;
+  /** True while an anchor search is in flight - see `mode` below. */
+  let searching = false;
+  /** First placement jumps; every later one walks. */
+  let placed = false;
+  let walking = false;
+  let walkMs = 0;
+  let walkTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Supersedes an in-flight anchor search.
+   *
+   * Pressing Next twice quickly starts a second search while the first is
+   * still waiting on frames; without this the older one wins whenever it
+   * finishes last and the bubble points at the previous step's element.
+   */
+  let findToken = 0;
+  let scroller: HTMLElement | null = null;
+  let poll: ReturnType<typeof setInterval> | null = null;
+
+  /** A walking step is one with an anchor that is not asking anything. */
+  $: wants = !!step && !!step.anchor && !step.ask;
+  /**
+   * Which of the two shapes this step is rendering right now.
+   *
+   * "none" is the gap while the anchor is being looked for - usually a
+   * single frame, after a tab switch has replaced the panel. Showing the
+   * card fallback during it would flash a full-screen scrim on every
+   * walking step and then yank it away, which looks like a bug.
+   */
+  $: mode = wants && anchorEl ? "walk" : wants && searching ? "none" : "card";
+
+  function reducedMotion(): boolean {
+    try {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      return false;
+    }
+  }
+
+  const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+
+  /**
+   * Wait for the element to exist AND be laid out.
+   *
+   * A tab switch re-creates the whole panel, so the element for the step we
+   * are moving to does not exist yet at the moment the step changes. Polling
+   * frames rather than guessing a delay means it is found the instant it is
+   * there, and gives up rather than hanging if it never appears.
+   */
+  async function findAnchor(key: string, token: number): Promise<HTMLElement | null> {
+    for (let f = 0; f < 40; f++) {
+      if (token !== findToken) return null;
+      const el = document.querySelector<HTMLElement>(`[data-tour="${key}"]`);
+      // offsetParent is null for a display:none ancestor - present in the
+      // DOM but not on screen, which is not something to point at.
+      if (el && el.offsetParent !== null && el.getBoundingClientRect().width > 0) return el;
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    }
+    return null;
+  }
+
+  /** Move the group, walking there if it is already somewhere. */
+  function moveTo(x: number, y: number) {
+    const dist = Math.hypot(x - gx, y - gy);
+    gx = x;
+    gy = y;
+    if (!placed || reducedMotion() || dist < 4) {
+      placed = true;
+      walking = false;
+      walkMs = 0;
       return;
     }
-    if (e.key === "Escape") endTour();
-    if (e.key === "ArrowRight" || e.key === "Enter") tourNext();
+    // Duration from DISTANCE, so speed is constant: a fixed duration makes
+    // short hops crawl and long ones teleport, which reads as broken.
+    walkMs = clamp((dist / SPEED) * 1000, 240, 900);
+    walking = true;
+    if (walkTimer) clearTimeout(walkTimer);
+    walkTimer = setTimeout(() => (walking = false), walkMs);
+  }
+
+  /**
+   * Put the group beside the target, preferring the side with room.
+   *
+   * Right, then left, then below, then above - and clamped to the window
+   * either way, because a bubble half off screen says nothing.
+   */
+  function measure() {
+    if (!anchorEl || !document.contains(anchorEl)) {
+      ring = null;
+      return;
+    }
+    const r = anchorEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // Scrolled out of the panel entirely: stop ringing empty space, but
+    // leave the bubble where it is rather than snapping it about.
+    ring = r.bottom < 0 || r.top > vh ? null : { x: r.left, y: r.top, w: r.width, h: r.height };
+
+    const groupW = BUBBLE_W + REMI_SIZE + 8;
+    const h = Math.max(groupH, REMI_SIZE);
+    if (r.right + GAP + groupW + MARGIN <= vw) side = "right";
+    else if (r.left - GAP - groupW - MARGIN >= 0) side = "left";
+    else if (r.bottom + GAP + h + MARGIN <= vh) side = "below";
+    else side = "above";
+
+    let x: number;
+    let y: number;
+    if (side === "right") {
+      x = r.right + GAP;
+      y = r.top + r.height / 2 - h / 2;
+    } else if (side === "left") {
+      x = r.left - GAP - groupW;
+      y = r.top + r.height / 2 - h / 2;
+    } else if (side === "below") {
+      x = r.left + r.width / 2 - groupW / 2;
+      y = r.bottom + GAP;
+    } else {
+      x = r.left + r.width / 2 - groupW / 2;
+      y = r.top - GAP - h;
+    }
+    moveTo(clamp(x, MARGIN, vw - groupW - MARGIN), clamp(y, MARGIN, vh - h - MARGIN));
+  }
+
+  /** Bring the target into view before measuring, if it is off screen. */
+  function reveal(el: HTMLElement) {
+    const r = el.getBoundingClientRect();
+    const vh = window.innerHeight;
+    if (r.top >= MARGIN && r.bottom <= vh - MARGIN) return;
+    try {
+      el.scrollIntoView({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
+    } catch {
+      el.scrollIntoView();
+    }
+  }
+
+  /** Latch onto the step's element (or give up and fall back to a card). */
+  async function attach(key: string | undefined) {
+    const token = ++findToken;
+    if (!key) {
+      searching = false;
+      anchorEl = null;
+      ring = null;
+      return;
+    }
+    searching = true;
+    anchorEl = null;
+    const el = await findAnchor(key, token);
+    if (token !== findToken) return;
+    searching = false;
+    anchorEl = el;
+    if (!el) {
+      ring = null;
+      return;
+    }
+    reveal(el);
+    measure();
+  }
+
+  // Re-latch whenever the step changes. `i` is in the dependency list so
+  // going back to a step with the same anchor still re-runs.
+  $: if (typeof document !== "undefined")
+    void attach(i !== null && step && !step.ask ? step.anchor : undefined);
+
+  // The first placement has to guess the bubble's height, because it is
+  // computed before the bubble exists. This corrects it the moment the real
+  // height is known, rather than leaving it half a step off centre until the
+  // next poll. `measure` writes nothing this statement reads, so it settles.
+  $: if (groupH && anchorEl) measure();
+
+  onMount(() => {
+    scroller = document.querySelector<HTMLElement>(".dash-body");
+    scroller?.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    // The page moves under the tour for reasons it does not see: a task is
+    // added, a card expands, the smooth scroll is still running. Cheap
+    // enough to just re-check, and far more reliable than trying to observe
+    // every cause.
+    poll = setInterval(() => {
+      if (anchorEl) measure();
+    }, 400);
+  });
+
+  onDestroy(() => {
+    findToken++;
+    scroller?.removeEventListener("scroll", measure);
+    window.removeEventListener("resize", measure);
+    if (poll) clearInterval(poll);
+    if (walkTimer) clearTimeout(walkTimer);
+  });
+
+  /** Is this element part of the tour's own card or bubble? */
+  function inTour(el: HTMLElement | null): boolean {
+    return !!el?.closest?.(".tourcard, .tour-bubble");
+  }
+
+  /**
+   * Keys, scoped by WHERE they were pressed.
+   *
+   * The tour sits over a live app it is actively telling you to use, so a
+   * global key handler is a trap. Enter used to page the tour forward from
+   * any input anywhere - including the demo task box the "add a task, press
+   * Enter" step points at, so following the instruction skipped the step
+   * that gave it and you never got to add a step or a tag to what you had
+   * just typed.
+   *
+   * So: Enter only means "next" from a text field in the tour's own card.
+   * In the app it belongs to the app, and the Next button is how you move
+   * on. Escape leaves an app field alone too - there it usually means
+   * "cancel what I am typing", not "abandon the tour".
+   */
+  function onKey(e: KeyboardEvent) {
+    if (i === null) return;
+    const el = e.target as HTMLElement | null;
+    const field = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+    // Anything with its own use for arrow keys.
+    const editing = field || (!!el && (el.tagName === "SELECT" || el.isContentEditable));
+    const mine = inTour(el);
+
+    if (e.key === "Enter") {
+      // Not from a button: the button's own click already fired, and
+      // advancing again would skip a page.
+      if (mine && field) tourNext();
+      return;
+    }
+    if (e.key === "Escape") {
+      if (mine || !editing) endTour();
+      return;
+    }
+    if (editing) return; // the caret has first claim on the arrows
+    if (e.key === "ArrowRight") tourNext();
     if (e.key === "ArrowLeft") tourBack();
   }
 </script>
@@ -107,209 +356,439 @@
 <svelte:window on:keydown={onKey} />
 
 {#if i !== null && step}
-  <div class="tourfull" role="dialog" aria-modal="true" aria-label="Guided tour">
-    <div class="tf-top">
-      <span class="tf-count">Step {i + 1} of {TOUR_LENGTH}</span>
-      <!-- A named way out at the top as well as the bottom. Someone who has
-           decided not to do this should not have to read to the end of the
-           page to find that out. -->
-      <button class="tf-skip" on:click={endTour}>Skip tour</button>
-      <button class="tf-x" aria-label="Close the tour" on:click={endTour}>✕</button>
-    </div>
+  {#if mode === "walk"}
+    <!-- ===== WALKING: a ring on the thing, Remi beside it, words in a
+         bubble. The layer takes no pointer events so the app underneath
+         stays fully usable; only the bubble itself takes them back. ===== -->
+    <div class="tour-layer">
+      {#if ring}
+        <div
+          class="tour-ring"
+          aria-hidden="true"
+          style="left:{ring.x}px; top:{ring.y}px; width:{ring.w}px; height:{ring.h}px;"
+        ></div>
+      {/if}
 
-    <div class="tf-body">
-      <div class="tf-card">
-        <!-- A different outfit and stance each page. `costume` falls
-             through to the user's own pick when a step does not set one,
-             which is what makes the "look" page show their choice live. -->
-        <Mascot
-          mood={step.pose ?? (step.ask ? "ready" : "idle")}
-          costume={step.costume ?? null}
-          size={120}
-        />
-        <h2>{step.title}</h2>
-        {#each step.body as para (para)}
-          <p>{para}</p>
-        {/each}
-
-        {#if step.ask === "name"}
-          <div class="tf-ask">
-            <label class="tf-lbl" for="tour-nick">What Remi should call you</label>
-            <!-- svelte-ignore a11y-autofocus -->
-            <input
-              id="tour-nick"
-              class="tf-name"
-              autofocus
-              type="text"
-              maxlength={NAME_MAX}
-              placeholder="a nickname"
-              value={s.userName}
-              on:input={(e) => setUserName(e.currentTarget.value)}
+      <div
+        class="tour-group"
+        class:on-left={side === "left"}
+        class:stacked={side === "below" || side === "above"}
+        bind:clientHeight={groupH}
+        style="transform: translate3d({gx}px, {gy}px, 0); transition-duration: {walking
+          ? walkMs
+          : 0}ms;"
+      >
+        <div class="tour-remi" aria-hidden="true">
+          <!-- Facing the thing it is talking about. It runs while it moves
+               and settles into the step's own pose when it arrives. -->
+          <div class="tour-flip" style="transform: scaleX({side === 'left' ? 1 : -1});">
+            <Mascot
+              mood={walking ? "run" : (step.pose ?? "idle")}
+              costume={step.costume ?? null}
+              size={REMI_SIZE}
             />
-            <p class="tf-note">
-              {#if s.userName}
-                Remi will say "Good morning, {s.userName}".
-              {:else}
-                Left empty, nothing anywhere says a name.
-              {/if}
-            </p>
-
-            <label class="tf-lbl" for="tour-full">Your full name</label>
-            <input
-              id="tour-full"
-              class="tf-name"
-              type="text"
-              maxlength={FULL_NAME_MAX}
-              placeholder="for exported reports"
-              value={s.fullName}
-              on:input={(e) => setFullName(e.currentTarget.value)}
-            />
-            <p class="tf-note">
-              Printed at the top of a work record. Someone else reads that page, so a nickname is
-              usually the wrong thing to put on it.
-            </p>
-
-            <label class="tf-lbl" for="tour-costume">What Remi wears</label>
-            <select
-              id="tour-costume"
-              class="tf-name"
-              disabled={!s.mascotOn}
-              value={s.mascotCostume}
-              on:change={(e) => pickCostume(e.currentTarget.value)}
-            >
-              {#each COSTUMES as [key, label] (key)}
-                <option value={key}>{label}</option>
-              {/each}
-            </select>
-            <p class="tf-note">
-              Changeable any time in Settings. The tour dresses itself regardless.
-            </p>
           </div>
-        {:else if step.ask === "look"}
-          <div class="tf-ask tf-prefs">
-            <div class="tf-row">
-              <span class="tp-l">Mode</span>
-              <span class="seg-inline">
-                <button class:on={s.mode === "light"} on:click={() => setMode("light")}>
-                  ☀ Light
-                </button>
-                <button class:on={s.mode === "dark"} on:click={() => setMode("dark")}>☾ Dark</button
-                >
-              </span>
-            </div>
-            <div class="tf-row">
-              <span class="tp-l">Colour</span>
-              <span class="tf-sw">
-                {#each ACCENTS as [name, hex] (name)}
-                  <button
-                    class="acc-sw"
-                    class:on={s.accent === name}
-                    style="background:{hex}"
-                    title={name}
-                    aria-label={name}
-                    on:click={() => setAccent(name)}
-                  ></button>
-                {/each}
-              </span>
-            </div>
-            <label class="tf-pref">
-              <input
-                type="checkbox"
-                checked={s.mascotOn}
-                on:change={() => setFlag("mascotOn", !s.mascotOn)}
-              />
-              <span>
-                <span class="tp-l">Show Remi</span>
-                <span class="tp-h">The mouse that reports what the app is doing.</span>
-              </span>
-            </label>
-          </div>
-        {:else if step.ask === "prefs"}
-          <div class="tf-ask tf-prefs">
-            {#each PREFS as pref (pref.key)}
-              <label class="tf-pref">
-                <input
-                  type="checkbox"
-                  checked={s[pref.key]}
-                  on:change={() => setFlag(pref.key, !s[pref.key])}
-                />
-                <span>
-                  <span class="tp-l">{pref.label}</span>
-                  <span class="tp-h">{pref.hint}</span>
-                </span>
-              </label>
-            {/each}
-            <p class="tf-sub">Wellness nudges</p>
-            {#each WELLNESS as key (key)}
-              {@const copy = wellnessCopy(key)}
-              <label class="tf-pref">
-                <input
-                  type="checkbox"
-                  checked={s.wellness[key].on}
-                  on:change={() => toggleWellness(key, !s.wellness[key].on)}
-                />
-                <span>
-                  <span class="tp-l">{copy.icon} {copy.title}</span>
-                  <span class="tp-h">{copy.msg}</span>
-                </span>
-              </label>
-            {/each}
-            <p class="tf-note">
-              {#if first}
-                All off unless you say otherwise. They never touch your task clock.
-              {:else}
-                These are your current settings. Change what you like, or leave them and carry on.
-              {/if}
-            </p>
-          </div>
-        {/if}
+        </div>
 
-        {#if step.aside}
-          <p class="tf-aside">{step.aside}</p>
-        {/if}
+        <div class="tour-bubble" role="dialog" aria-label="Guided tour">
+          <div class="tb-top">
+            <span class="tf-count">Step {prog.pos} of {prog.total}</span>
+            <button class="tf-x" aria-label="Close the tour" on:click={endTour}>✕</button>
+          </div>
+          <h2>{step.title}</h2>
+          {#each step.body as para (para)}
+            <p>{para}</p>
+          {/each}
+          {#if step.aside}
+            <p class="tf-aside">{step.aside}</p>
+          {/if}
+          <div class="tb-acts">
+            <button class="tf-ghost sm" on:click={endTour}>Skip</button>
+            <span class="tf-spacer"></span>
+            {#if i > 0}
+              <button class="tf-ghost sm" on:click={tourBack}>Back</button>
+            {/if}
+            <button class="tf-next sm" on:click={tourNext}>
+              {lastStep ? "Finish" : "Next"}
+            </button>
+          </div>
+          <div class="tf-bar" aria-hidden="true">
+            <span style="width:{(prog.pos / prog.total) * 100}%"></span>
+          </div>
+        </div>
       </div>
     </div>
+  {:else if mode === "card"}
+    <!-- ===== CARD: the steps that ask something, and the fallback for a
+         walking step whose element could not be found. ===== -->
+    <div class="tour-scrim">
+      <div class="tourcard" role="dialog" aria-modal="true" aria-label="Guided tour">
+        <div class="tf-top">
+          <span class="tf-count">Step {prog.pos} of {prog.total}</span>
+          <!-- A named way out at the top as well as the bottom. Someone who
+               has decided not to do this should not have to read to the end
+               of the page to find that out. -->
+          <button class="tf-skip" on:click={endTour}>Skip tour</button>
+          <button class="tf-x" aria-label="Close the tour" on:click={endTour}>✕</button>
+        </div>
 
-    <div class="tf-bar" aria-hidden="true">
-      <span style="width:{((i + 1) / TOUR_LENGTH) * 100}%"></span>
-    </div>
+        <!-- OUTSIDE the scrolling body on purpose. As the first child of the
+             scroller the mouse scrolled away the moment a page had any
+             height to it, so the costume picker was choosing an outfit for
+             something you had to scroll back up to see. `costume` falls
+             through to the user's own pick when a step does not set one,
+             which is what makes the costume page show the choice live. -->
+        <div class="tf-face">
+          <Mascot
+            mood={step.pose ?? (step.ask ? "ready" : "idle")}
+            costume={step.costume ?? null}
+            size={110}
+          />
+        </div>
 
-    <div class="tf-acts">
-      <!-- Kept alongside the one at the top on purpose. They are read at
-           different moments: the top one before you start reading a page,
-           this one after you have. -->
-      <button class="tf-ghost" on:click={endTour}>
-        {i === TOUR_LENGTH - 1 ? "Done" : "Skip the tour"}
-      </button>
-      <span class="tf-spacer"></span>
-      {#if i > 0}
-        <button class="tf-ghost" on:click={tourBack}>Back</button>
-      {/if}
-      <button class="tf-next" on:click={tourNext}>
-        {i === TOUR_LENGTH - 1 ? "Finish" : "Next"}
-      </button>
+        <div class="tf-body">
+          <div class="tf-card">
+            <h2>{step.title}</h2>
+            {#each step.body as para (para)}
+              <p>{para}</p>
+            {/each}
+
+            {#if step.ask === "nick"}
+              <div class="tf-ask">
+                <label class="tf-lbl" for="tour-nick">Nickname</label>
+                <!-- svelte-ignore a11y-autofocus -->
+                <input
+                  id="tour-nick"
+                  class="tf-name"
+                  autofocus
+                  type="text"
+                  maxlength={NAME_MAX}
+                  placeholder="Nickname"
+                  value={s.userName}
+                  on:input={(e) => setUserName(e.currentTarget.value)}
+                />
+                <p class="tf-note">
+                  {#if s.userName}
+                    Remi will say "Good morning, {s.userName}".
+                  {:else}
+                    Left empty, nothing anywhere says a name.
+                  {/if}
+                </p>
+              </div>
+            {:else if step.ask === "fullname"}
+              <div class="tf-ask">
+                <label class="tf-lbl" for="tour-full">Full Name</label>
+                <!-- svelte-ignore a11y-autofocus -->
+                <input
+                  id="tour-full"
+                  class="tf-name"
+                  autofocus
+                  type="text"
+                  maxlength={FULL_NAME_MAX}
+                  placeholder="Full Name"
+                  value={s.fullName}
+                  on:input={(e) => setFullName(e.currentTarget.value)}
+                />
+              </div>
+            {:else if step.ask === "mascot"}
+              <div class="tf-ask tf-prefs">
+                <!-- Answering "no" here drops the two pages that follow, so
+                     nobody is asked what an absent mouse should wear. -->
+                <label class="tf-pref">
+                  <input
+                    type="checkbox"
+                    checked={s.mascotOn}
+                    on:change={() => setFlag("mascotOn", !s.mascotOn)}
+                  />
+                  <span>
+                    <span class="tp-l">Show Remi</span>
+                    <span class="tp-h">
+                      {#if s.mascotOn}
+                        On. The next two pages are about the outfit and the wandering.
+                      {:else}
+                        Off. The app runs exactly the same, without the mouse.
+                      {/if}
+                    </span>
+                  </span>
+                </label>
+              </div>
+            {:else if step.ask === "mouse"}
+              <div class="tf-ask">
+                <label class="tf-lbl" for="tour-costume">Outfit</label>
+                <select
+                  id="tour-costume"
+                  class="tf-name"
+                  value={s.mascotCostume}
+                  on:change={(e) => pickCostume(e.currentTarget.value)}
+                >
+                  {#each COSTUMES as [key, label] (key)}
+                    <option value={key}>{label}</option>
+                  {/each}
+                </select>
+                <p class="tf-note">The mouse above is wearing it.</p>
+                <label class="tf-pref">
+                  <input
+                    type="checkbox"
+                    checked={s.roamOn}
+                    on:change={() => setFlag("roamOn", !s.roamOn)}
+                  />
+                  <span>
+                    <span class="tp-l">Let me wander the dashboard</span>
+                    <span class="tp-h">Clicks pass straight through me.</span>
+                  </span>
+                </label>
+              </div>
+            {:else if step.ask === "look"}
+              <div class="tf-ask tf-prefs">
+                <div class="tf-row">
+                  <span class="tp-l">Mode</span>
+                  <span class="seg-inline">
+                    <button class:on={s.mode === "light"} on:click={() => setMode("light")}>
+                      ☀ Light
+                    </button>
+                    <button class:on={s.mode === "dark"} on:click={() => setMode("dark")}>
+                      ☾ Dark
+                    </button>
+                  </span>
+                </div>
+                <div class="tf-row">
+                  <span class="tp-l">Colour</span>
+                  <span class="tf-sw">
+                    {#each ACCENTS as [name, hex] (name)}
+                      <button
+                        class="acc-sw"
+                        class:on={s.accent === name}
+                        style="background:{hex}"
+                        title={name}
+                        aria-label={name}
+                        on:click={() => setAccent(name)}
+                      ></button>
+                    {/each}
+                  </span>
+                </div>
+              </div>
+            {:else if step.ask === "wellness"}
+              <div class="tf-ask tf-prefs">
+                {#each WELLNESS as key (key)}
+                  {@const c = s.wellness[key]}
+                  {@const copy = wellnessCopy(key)}
+                  <!-- The interval appears the moment one is ticked. "Stand
+                       up" without "how often" is half an answer, and finding
+                       out it meant every 60 minutes only once it starts
+                       interrupting you is the wrong time to find out. -->
+                  <div class="tf-pref" class:on={c.on}>
+                    <label class="tf-prefmain">
+                      <input
+                        type="checkbox"
+                        checked={c.on}
+                        on:change={() => toggleWellness(key, !c.on)}
+                      />
+                      <span>
+                        <span class="tp-l">{copy.icon} {copy.title}</span>
+                        <span class="tp-h">{copy.msg}</span>
+                      </span>
+                    </label>
+                    {#if c.on && key === "lunch"}
+                      <select
+                        class="tf-when"
+                        aria-label="{copy.title} time"
+                        value={String(c.atHour ?? 13)}
+                        on:change={(e) => setWellnessHour(key, Number(e.currentTarget.value))}
+                      >
+                        {#each [11, 12, 13, 14] as h (h)}
+                          <option value={String(h)}>at {clockLabel(h, 0)}</option>
+                        {/each}
+                      </select>
+                    {:else if c.on}
+                      <select
+                        class="tf-when"
+                        aria-label="{copy.title} interval"
+                        value={String(c.everyMin ?? 60)}
+                        on:change={(e) => setWellnessEvery(key, Number(e.currentTarget.value))}
+                      >
+                        {#each [30, 45, 60, 90, 120] as o (o)}
+                          <option value={String(o)}>every {o < 60 ? `${o}m` : `${o / 60}h`}</option>
+                        {/each}
+                      </select>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {:else if step.ask === "prefs"}
+              <div class="tf-ask tf-prefs">
+                {#each PREFS as pref (pref.key)}
+                  <label class="tf-pref">
+                    <input
+                      type="checkbox"
+                      checked={s[pref.key]}
+                      on:change={() => setFlag(pref.key, !s[pref.key])}
+                    />
+                    <span>
+                      <span class="tp-l">{pref.label}</span>
+                      <span class="tp-h">{pref.hint}</span>
+                    </span>
+                  </label>
+                {/each}
+                <p class="tf-note">
+                  {#if first}
+                    All off unless you say otherwise.
+                  {:else}
+                    These are your current settings. Change what you like, or leave them and carry
+                    on.
+                  {/if}
+                </p>
+              </div>
+            {/if}
+
+            {#if step.aside}
+              <p class="tf-aside">{step.aside}</p>
+            {/if}
+          </div>
+        </div>
+
+        <div class="tf-bar" aria-hidden="true">
+          <span style="width:{(prog.pos / prog.total) * 100}%"></span>
+        </div>
+
+        <div class="tf-acts">
+          <!-- Kept alongside the one at the top on purpose. They are read at
+               different moments: the top one before you start reading a page,
+               this one after you have. -->
+          <button class="tf-ghost" on:click={endTour}>
+            {lastStep ? "Done" : "Skip the tour"}
+          </button>
+          <span class="tf-spacer"></span>
+          {#if i > 0}
+            <button class="tf-ghost" on:click={tourBack}>Back</button>
+          {/if}
+          <button class="tf-next" on:click={tourNext}>
+            {lastStep ? "Finish" : "Next"}
+          </button>
+        </div>
+      </div>
     </div>
-  </div>
+  {/if}
 {/if}
 
 <style>
-  .tourfull {
+  /* ================= WALKING ================= */
+  /* Takes NO pointer events: the tour points at things you are meant to be
+     able to press, so the layer must never stand between you and them. The
+     bubble takes them back for its own buttons. */
+  .tour-layer {
     position: fixed;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: min(420px, 46vw);
+    inset: 0;
     z-index: 300;
+    pointer-events: none;
+  }
+  /* The thing being described. An outline rather than a dimmed cut-out,
+     because the tour asks you to USE what it is pointing at. */
+  .tour-ring {
+    position: absolute;
+    border: 2px solid var(--accent);
+    border-radius: 12px;
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent),
+      0 8px 26px -12px rgba(0, 0, 0, 0.5);
+    transition:
+      left 220ms ease,
+      top 220ms ease,
+      width 220ms ease,
+      height 220ms ease;
+  }
+  .tour-group {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition-property: transform;
+    transition-timing-function: cubic-bezier(0.34, 0.02, 0.28, 1);
+    will-change: transform;
+  }
+  /* Standing on the far side, so the mouse is always between the bubble and
+     the thing it is pointing at. */
+  .tour-group.on-left {
+    flex-direction: row-reverse;
+  }
+  .tour-group.stacked {
+    align-items: flex-end;
+  }
+  .tour-remi {
+    flex: none;
+  }
+  .tour-flip {
+    transition: transform 160ms ease;
+  }
+  .tour-bubble {
+    pointer-events: auto;
+    width: 330px;
+    box-sizing: border-box;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 12px 14px 10px;
+    box-shadow: 0 18px 44px -18px rgba(0, 0, 0, 0.55);
+  }
+  .tb-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .tb-top .tf-count {
+    margin-right: auto;
+  }
+  .tour-bubble h2 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--ink);
+    margin: 0 0 6px;
+  }
+  .tour-bubble p {
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    margin: 0 0 8px;
+  }
+  .tb-acts {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 10px 0 8px;
+  }
+  .sm {
+    padding: 6px 11px !important;
+    font-size: 12px !important;
+  }
+  .tour-bubble .tf-bar {
+    margin: 0;
+  }
+
+  /* ================= CARD ================= */
+  /* Soft, not opaque: the demo day the tour is describing stays readable
+     behind the questions. */
+  .tour-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(20, 16, 12, 0.34);
+  }
+  .tourcard {
+    width: min(520px, 100%);
+    max-height: 100%;
     display: flex;
     flex-direction: column;
     background: var(--bg);
-    border-right: 1px solid var(--line);
-    box-shadow: 6px 0 26px rgba(0, 0, 0, 0.12);
-  }
-  /* Pushes the app clear of the panel so nothing important hides behind it,
-     while leaving it fully visible and clickable. */
-  :global(body.touring .dash-body) {
-    padding-left: min(444px, calc(46vw + 24px));
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
   }
   .tf-top {
     display: flex;
@@ -317,7 +796,7 @@
     gap: 8px;
     padding: 14px 18px 0;
   }
-  .tf-count {
+  .tf-top .tf-count {
     margin-right: auto;
   }
   .tf-skip {
@@ -354,8 +833,19 @@
     color: var(--ink);
     background: var(--card);
   }
+  /* Fixed height so the mouse does not jump between pages as the body
+     under it grows and shrinks. */
+  .tf-face {
+    flex: none;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    height: 118px;
+    padding-top: 6px;
+  }
   .tf-body {
     flex: 1;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -365,9 +855,6 @@
   .tf-card {
     width: 100%;
     text-align: center;
-  }
-  .tf-card :global(.mascot) {
-    margin: 0 auto 10px;
   }
   .tf-card h2 {
     font-family: var(--font-serif);
@@ -443,6 +930,31 @@
     margin-top: 2px;
     flex: none;
   }
+  /* A wellness row is a label AND a picker, so the label takes the click
+     and the row is the container. */
+  .tf-pref.on {
+    border-color: var(--accent);
+    flex-wrap: wrap;
+  }
+  .tf-prefmain {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+  }
+  .tf-when {
+    flex: none;
+    align-self: center;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-num);
+    font-size: 11.5px;
+    padding: 5px 7px;
+  }
   .tp-l {
     display: block;
     font-weight: 600;
@@ -513,11 +1025,12 @@
     gap: 5px;
     flex-wrap: wrap;
   }
-  .tf-sub {
-    font-size: 10.5px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--ink-faint);
-    margin: 12px 0 2px;
+
+  @media (prefers-reduced-motion: reduce) {
+    .tour-group,
+    .tour-ring,
+    .tour-flip {
+      transition: none !important;
+    }
   }
 </style>

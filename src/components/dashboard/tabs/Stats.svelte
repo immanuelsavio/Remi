@@ -11,10 +11,12 @@
   import { app, useRevive } from "../../../store";
   import {
     computeStreaks,
+    dateFromISO,
     fmtEst,
     hoursStr,
     interruptionStats,
     nowMs,
+    prettyDate,
     timeSense,
     todayAsRecord,
     todayTrackedMs,
@@ -31,7 +33,9 @@
   $: streaks = computeStreaks(s);
   $: ts = timeSense(s.estimateLog);
   $: intr = interruptionStats([...s.history, todayAsRecord(s, $nowMs)]);
-  $: canRevive = !!streaks.broken && streaks.life >= 1;
+  /** What the heart would actually buy, or null if it would buy nothing. */
+  $: offer = streaks.offer;
+  $: canRevive = !!offer && streaks.life >= 1;
 </script>
 
 <div class="dsec-title">Stats</div>
@@ -66,23 +70,32 @@
       <span style="color:var(--ink-faint)">Weekends and days off never break it.</span>
     </div>
     <div class="s-text" style="color:var(--ink-faint); margin-top:6px;">
-      {#if streaks.life >= 1}
-        ❤️ <b>1 revive ready.</b> Spend it to bridge a missed day and keep a streak going - your call
-        when it's worth it.
+      {#if streaks.life >= 1 && offer}
+        ❤️ <b>1 revive ready.</b> Your {offer.credit}-day streak broke on {prettyDate(
+          dateFromISO(offer.brokenISO),
+        )}. Spending the heart gives that count back and carries on from {offer.sinceBreak
+          ? "there"
+          : "today"} - the missed day stays missed.
+      {:else if streaks.life >= 1}
+        ❤️ <b>1 revive ready.</b> It buys back a streak that broke within the last week, as long as a
+        new one hasn't taken hold - your call when it's worth it.
       {:else}
         🤍 Revive spent. You earn one back after every 5-day streak.
       {/if}
     </div>
-    {#if canRevive}
+    {#if canRevive && offer}
+      <!-- The number is the whole decision: "save your streak" told you
+           nothing about whether it was worth a heart. -->
       <button class="set-btn" style="margin-top:10px;" on:click={useRevive}>
-        ❤️ Use revive to save your streak
+        ❤️ Get your {offer.credit}-day streak back
+        {#if offer.sinceBreak}(+{offer.sinceBreak} since){/if}
       </button>
     {/if}
   </div>
 {/if}
 
 <!-- ---------- time given back ---------- -->
-<div class="givenback">
+<div class="givenback" data-tour="stats-given">
   <div class="eyebrow">Time given back today</div>
   <div class="gb-v">{hoursStr(given)}</div>
   <div class="gb-l">
