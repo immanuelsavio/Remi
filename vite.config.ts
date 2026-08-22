@@ -33,6 +33,7 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     include: ["src/**/*.test.ts"],
+    setupFiles: ["src/test-setup.ts"],
     // Resolve Svelte's BROWSER build under test. Without it, a mounted
     // component runs the SSR path, where `onMount` never fires - so a
     // component whose behaviour lives in `onMount` (the splash's hold

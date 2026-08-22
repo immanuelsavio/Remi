@@ -39,6 +39,55 @@ jobs:
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 
+  # The Linux `rust` job above compiles a NO-OP shim for the macOS panel
+  # (`windows/panel.rs` is entirely `#[cfg(target_os = "macos")]`), so the
+  # code that actually decides whether the popover appears over a fullscreen
+  # app - the non-activating NSPanel, `CanJoinAllSpaces`,
+  # `FullScreenAuxiliary`, the window level - was never compiled by CI at
+  # all, let alone tested. This job compiles and tests the real thing.
+  #
+  # It still does not prove the popover BEHAVES correctly over a fullscreen
+  # Space: that needs a real session and a real display, and lives in
+  # `docs/manual-smoke-test.md`.
+  rust-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: macos
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+
+  # Dependency advisories, both ecosystems, reported on every PR rather than
+  # discovered at release time.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Anything that ships to a user is a hard failure. The build/test
+      # toolchain is reported but does not block a PR - a Vitest advisory
+      # is not a hole in the shipped app, and blocking every PR on one
+      # teaches people to ignore the job.
+      - name: Production dependency audit (blocking)
+        run: npm audit --omit=dev --audit-level=low
+      - name: Full audit (reported)
+        run: npm audit || true
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust advisory scan
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --file src-tauri/Cargo.lock
+
   # The installer and uninstaller are the parts that download code and
   # delete files, so their tests run on every PR - not only in the release
   # pipeline, where a failure is discovered far too late. macOS runner

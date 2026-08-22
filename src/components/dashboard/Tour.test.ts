@@ -13,7 +13,7 @@
  * would have put it.
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { tick } from "svelte";
+import { flushSync, mount, tick, unmount } from "svelte";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async (cmd: string) => (cmd === "load_app_state" ? { kind: "empty" } : null)),
@@ -46,6 +46,7 @@ import { demoMains } from "../../domain/demo";
 async function settle() {
   for (let f = 0; f < 6; f++) {
     await new Promise((r) => requestAnimationFrame(() => r(null)));
+    flushSync();
     await tick();
   }
 }
@@ -78,14 +79,17 @@ function anchor(key: string, top = 100): HTMLElement {
 const indexOf = (id: string) => TOUR_STEPS.findIndex((s) => s.id === id);
 
 let host: HTMLElement;
-let comp: Tour;
+let comp: ReturnType<typeof mount> | null = null;
 let cleanups: (() => void)[] = [];
 
 /** Mount the tour sitting on one step, with the DOM it expects. */
 async function showStep(id: string) {
   startTour();
   goToStep(indexOf(id));
-  comp = new Tour({ target: host });
+  comp = mount(Tour, { target: host });
+  // Svelte 5 runs effects asynchronously; nothing the component does on
+  // mount has happened yet when `mount` returns.
+  flushSync();
   // The anchor search polls animation frames before it settles.
   for (let f = 0; f < 8; f++) {
     await new Promise((r) => requestAnimationFrame(() => r(null)));
@@ -104,7 +108,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  comp?.$destroy();
+  if (comp) unmount(comp);
+  comp = null;
   cleanups.forEach((fn) => fn());
   cleanups = [];
   endTour();
@@ -125,8 +130,8 @@ describe("the tour, on screen", () => {
       await showStep(step.id);
       const shown = host.querySelector(".tour-bubble, .tourcard");
       expect(shown, `step "${step.id}" rendered nothing at all`).toBeTruthy();
-      comp.$destroy();
-      comp = undefined as unknown as Tour;
+      if (comp) unmount(comp);
+      comp = null;
     }
   });
 

@@ -63,6 +63,23 @@ jobs:
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 
+  # The real macOS panel code, compiled and tested - the Linux job above
+  # only ever sees its no-op shim. See the same job in ci.yml.
+  validate-rust-macos:
+    needs: guard-tag
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: macos
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+
   validate-scripts:
     needs: guard-tag
     runs-on: macos-14
@@ -85,7 +102,7 @@ jobs:
   # verify the x86_64 binary actually RUNS - only that it builds, is
   # correctly ad-hoc signed, and reports the right architecture.
   build:
-    needs: [validate, validate-rust, validate-scripts]
+    needs: [validate, validate-rust, validate-rust-macos, validate-scripts]
     runs-on: macos-14
     strategy:
       fail-fast: false

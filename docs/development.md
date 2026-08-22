@@ -104,3 +104,26 @@ refuses to run a dependency's install script without explicit approval.
 Run `npm install` again — current npm surfaces the exact command to
 approve it with in its own output; there's no longer a fixed
 `npm approve-scripts esbuild` incantation across all npm versions.
+
+## The frontend toolchain
+
+Svelte 5, Vite 7, Vitest 3. The components are written in Svelte 4 style
+(`export let`, `$:`, `on:click`) and compile in Svelte 5's legacy mode -
+this was a security upgrade, not a rewrite, and nothing was converted to
+runes.
+
+Two consequences worth knowing before writing a mounted test:
+
+- Components are mounted with `mount()` / `unmount()`; `new Component(...)`
+  and `$destroy`/`$set` were removed in Svelte 5.
+- Effects run ASYNCHRONOUSLY. `onMount` has not happened when `mount()`
+  returns, so a test that mounts and immediately asserts on what the
+  component did needs `flushSync()` first. `Splash.svelte.test.ts` is the
+  worked example, including the `.svelte.test.ts` suffix that lets a test
+  file use runes.
+
+`vite.config.ts` asks for the `browser` resolve condition under test:
+without it Vitest loads Svelte's SSR build, where `onMount` never runs and
+a component whose behaviour lives there tests as doing nothing at all.
+`src/test-setup.ts` stubs `ResizeObserver`, which jsdom lacks and Svelte 5
+uses internally for `bind:clientHeight`.
