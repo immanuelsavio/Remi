@@ -9,6 +9,7 @@
  * bad value would otherwise wedge the app on boot with no way back in.
  */
 
+import { classifyError, ERROR_KINDS, type ErrorKind } from "./error-kinds";
 import { freshDay, freshWellness, mkMain, mkSub } from "./defaults";
 import { todayISO } from "./dates";
 import { nid } from "./ids";
@@ -223,12 +224,23 @@ export function hydrate(raw: unknown): State {
     days,
     errors: arr<unknown>(rawM.errors)
       .filter(isObj)
-      .map((e) => ({
-        at: Math.max(0, num(e.at)),
-        day: Math.max(0, num(e.day)),
-        where: str(e.where).slice(0, 80),
-        msg: str(e.msg).slice(0, 200),
-      }))
+      .map((e) => {
+        // `kind` is a closed set; anything else off disk (including a file
+        // written before kinds existed) is classified from whatever message
+        // is there, and falls back to "unknown" rather than being trusted.
+        const kind = (ERROR_KINDS as readonly string[]).includes(str(e.kind))
+          ? (str(e.kind) as ErrorKind)
+          : classifyError(str(e.msg));
+        const where = str(e.where).slice(0, 80);
+        const msg = str(e.msg).slice(0, 200);
+        return {
+          at: Math.max(0, num(e.at)),
+          day: Math.max(0, num(e.day)),
+          kind,
+          ...(where ? { where } : {}),
+          ...(msg ? { msg } : {}),
+        };
+      })
       .slice(-50),
   };
   // Absent means ON (a fresh install during the beta); an explicit `false`

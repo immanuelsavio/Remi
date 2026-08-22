@@ -1944,20 +1944,61 @@ describe("usage logging", () => {
     expect(b.friction.undo_used).toBe(1);
   });
 
-  it("records errors even when logging is off, capped at 50", () => {
-    // An error the user can report is worth more than the privacy of its own
-    // stack location; only the COUNTER bump is opt-in.
+  it("records the KIND of error while logging is off, but never the raw text", () => {
+    // PRIVACY.md promises that turning logging off stops collection. An
+    // exception message is arbitrary text - a path with the user's account
+    // name in it, a URL, a fragment of whatever the code was handling,
+    // which can be their own task titles. Storing it regardless of consent
+    // broke that promise. The fixed KIND is a closed set we wrote, so it
+    // stays: enough to know something is breaking, nothing they typed.
+    setFlag("loggingOptIn", false);
+    trackError("Could not save /Users/someone/Remi/state.json: disk full", "/Users/someone/app.js");
+    const e = S().metrics.errors[S().metrics.errors.length - 1];
+    expect(e.kind).toBe("save");
+    expect(e.msg).toBeUndefined();
+    expect(e.where).toBeUndefined();
+    expect(JSON.stringify(e)).not.toContain("someone");
+  });
+
+  it("records the raw message and a REDACTED location once logging is on", () => {
+    setFlag("loggingOptIn", true);
+    trackError("TypeError: x is not a function", "http://localhost/assets/Dashboard-abc.js?v=1");
+    const e = S().metrics.errors[S().metrics.errors.length - 1];
+    expect(e.msg).toBe("TypeError: x is not a function");
+    // The file name only - not the directories around it.
+    expect(e.where).toBe("Dashboard-abc.js");
+  });
+
+  it("still records errors while logging is off, capped at 50", () => {
+    setFlag("loggingOptIn", false);
     for (let i = 0; i < 60; i++) trackError(`boom ${i}`, "somewhere");
     const errs = S().metrics.errors;
     expect(errs).toHaveLength(50);
-    expect(errs[errs.length - 1].msg).toBe("boom 59"); // newest kept
+    expect(errs[errs.length - 1].kind).toBe("unknown"); // newest kept
   });
 
   it("truncates error text rather than storing an essay", () => {
+    setFlag("loggingOptIn", true);
     trackError("x".repeat(500), "y".repeat(200));
     const e = S().metrics.errors[S().metrics.errors.length - 1];
     expect(e.msg).toHaveLength(200);
-    expect(e.where).toHaveLength(80);
+    expect(e.where!.length).toBeLessThanOrEqual(40);
+  });
+
+  it("an export is NOT called content-free while raw error text rides along", () => {
+    // `containsNoContent: true` used to depend on the feedback box alone,
+    // while the errors array could carry paths and message fragments.
+    setFlag("loggingOptIn", true);
+    trackError("Failed to parse /Users/someone/notes.json", "app.js");
+    expect(buildLogs(S()).containsNoContent).toBe(false);
+  });
+
+  it("an export with kind-only errors IS content-free", () => {
+    setFlag("loggingOptIn", false);
+    trackError("Failed to parse /Users/someone/notes.json", "app.js");
+    const logs = buildLogs(S());
+    expect(logs.containsNoContent).toBe(true);
+    expect(JSON.stringify(logs)).not.toContain("someone");
   });
 
   it("builds an export payload that contains NO task content", () => {

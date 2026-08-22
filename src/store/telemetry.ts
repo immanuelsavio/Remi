@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { buildLogs } from "../domain/usage-logs";
+import { classifyError, redactWhere } from "../domain/error-kinds";
 import { todayISO } from "../domain/dates";
 import { exportSuffix } from "../domain/ids";
 import type { State } from "../domain/types";
@@ -76,22 +77,34 @@ export function trackTab(tab: string): void {
  * Record a runtime error, so a crash shows up in the usage log instead of
  * only in a console nobody is watching.
  *
- * Message + location only, both truncated - never user content. Recorded
- * even when logging is off, because an error the user can report is worth
- * more than the privacy of its own stack location; the counter bump stays
- * opt-in.
+ * **What is recorded depends on consent**, because an exception message is
+ * arbitrary text: it routinely carries a file path (which contains the
+ * user's account name), a URL, or a fragment of whatever the code was
+ * handling - which can be their own task titles or notes. The old
+ * behaviour stored that raw text regardless of `loggingOptIn`, which
+ * contradicted PRIVACY.md's promise that turning logging off stops
+ * collection.
+ *
+ * - Logging OFF: the fixed KIND only (`domain/error-kinds.ts`), no raw
+ *   message, no location. That is a closed set written by us, not
+ *   anything the user typed - enough to know something is breaking
+ *   without recording what.
+ * - Logging ON: the kind plus the truncated message and a redacted
+ *   location (file name, no directories).
  */
 export function trackError(msg: string, where: string): void {
+  const kind = classifyError(msg);
   commit((s) => {
+    const optedIn = s.loggingOptIn;
     s.metrics.errors.push({
       at: Date.now(),
       day: s.dayNum,
-      where: String(where).slice(0, 80),
-      msg: String(msg).slice(0, 200),
+      kind,
+      ...(optedIn ? { where: redactWhere(where), msg: String(msg).slice(0, 200) } : {}),
     });
     // Cap it: an error loop must not grow the state file without bound.
     if (s.metrics.errors.length > 50) s.metrics.errors.shift();
-    if (s.loggingOptIn) {
+    if (optedIn) {
       const b = bucket(s);
       b.friction.error = (b.friction.error || 0) + 1;
     }

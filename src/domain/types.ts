@@ -9,6 +9,8 @@
  * wall clock.
  */
 
+import type { ErrorKind } from "./error-kinds";
+
 /** Where the popover is in the daily flow. */
 export type Phase = "startday" | "today" | "active" | "break" | "recovery";
 
@@ -313,7 +315,17 @@ export interface Metrics {
       friction: Record<string, number>;
     }
   >;
-  errors: { at: number; day: number; where: string; msg: string }[];
+  /**
+   * Runtime errors, as EVIDENCE not as prose.
+   *
+   * `kind` is a fixed category (`domain/error-kinds.ts`) and is always
+   * recorded. `msg`/`where` are the raw exception text and location, and
+   * are recorded ONLY while `loggingOptIn` is on: an exception message
+   * routinely carries a file path or a fragment of whatever the code was
+   * handling, which can be the user's own words. Both are optional
+   * because an error captured with logging off genuinely has neither.
+   */
+  errors: { at: number; day: number; kind: ErrorKind; where?: string; msg?: string }[];
 }
 
 /** A snapshot of the day End Day just closed, so it can be reopened. */

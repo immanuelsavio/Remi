@@ -81,6 +81,27 @@ The exported file says so about itself: its `containsNoContent` flag flips
 to `false` whenever a note is present, so nobody reading it has to guess
 whether it holds prose. Clear the box and the flag goes back to `true`.
 
+The same flag also accounts for **error text** (below): if any recorded
+error carries its raw message, the export is not content-free and does not
+claim to be.
+
+## Runtime errors
+
+If something in Remi throws, it is recorded so a bug report can carry the
+evidence. What is recorded depends on the logging switch, because an
+exception message is arbitrary text - it routinely contains a file path
+(which includes your account name) or a fragment of whatever was being
+handled at the time:
+
+- **Logging off**: only a fixed CATEGORY - `save`, `load`, `network`,
+  `permission`, and a handful more, written by us and never derived from
+  your data. No message, no location.
+- **Logging on**: that category, plus the error message (truncated) and
+  the file name it came from, with the directories stripped off.
+
+Turning logging off stops the collection of the message text immediately;
+it does not retroactively rewrite errors recorded while it was on.
+
 ## Notifications
 
 Remi can post native notifications for reminders and for the end of a break.

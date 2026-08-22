@@ -222,3 +222,32 @@ describe("looksLikeRemiState", () => {
     }
   });
 });
+
+describe("error records off disk", () => {
+  it("classifies a legacy error record that predates kinds", () => {
+    // Files written before `kind` existed hold `msg`/`where` only. They
+    // must still land in the closed set rather than arriving as undefined.
+    const s = hydrate({
+      metrics: { days: {}, errors: [{ at: 1, day: 2, where: "app.js", msg: "disk full" }] },
+    });
+    expect(s.metrics.errors[0].kind).toBe("save");
+  });
+
+  it("refuses a kind that is not one of ours", () => {
+    const s = hydrate({
+      metrics: {
+        days: {},
+        errors: [{ at: 1, day: 2, kind: "<script>", msg: "nothing recognisable here" }],
+      },
+    });
+    expect(s.metrics.errors[0].kind).toBe("unknown");
+  });
+
+  it("keeps a kind-only record kind-only - it does not invent empty strings", () => {
+    const s = hydrate({ metrics: { days: {}, errors: [{ at: 1, day: 2, kind: "network" }] } });
+    const e = s.metrics.errors[0];
+    expect(e.kind).toBe("network");
+    expect(e.msg).toBeUndefined();
+    expect(e.where).toBeUndefined();
+  });
+});

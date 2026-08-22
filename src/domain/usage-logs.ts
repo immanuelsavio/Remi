@@ -33,10 +33,13 @@ export function buildLogs(s: State) {
     app: "remi",
     kind: "usage-logs",
     schema: 3,
-    // The counters remain content-free. `feedback` is the single exception
-    // and is flagged rather than hidden, so whoever reads this file knows
-    // one field is the user's own prose.
-    containsNoContent: !s.feedback.trim(),
+    // The counters remain content-free. Two things are not counters:
+    // `feedback` (the user's own prose, deliberately included) and the raw
+    // text of any recorded error, which can carry a path or a fragment of
+    // whatever the code was handling. Claiming `containsNoContent: true`
+    // while raw error strings ride along was a promise this file could not
+    // keep, so both are accounted for here.
+    containsNoContent: !s.feedback.trim() && !s.metrics.errors.some((e) => e.msg || e.where),
     feedback: s.feedback.trim(),
     currentDay: s.dayNum,
     settings: {
