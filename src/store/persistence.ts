@@ -124,6 +124,21 @@ registerSaveScheduler(scheduleSave);
  * and awaits that same chain instead, so a failure in the QUEUED rewrite
  * still propagates to every caller awaiting this call.
  */
+/**
+ * Set for exactly one save, by the restore path.
+ *
+ * Restoring a backup is the one write that may deliberately overwrite an
+ * unreadable state file - it is the way OUT of that state. Every other
+ * save is refused there, so this is armed for a single flush and cleared
+ * as it is used.
+ */
+let overMalformedOnce = false;
+
+/** Arm the next save to overwrite an unreadable file. Restore only. */
+export function allowOverwritingMalformedOnce(): void {
+  overMalformedOnce = true;
+}
+
 export async function flushSave(): Promise<void> {
   const existing = getSaveTimerHandle();
   if (existing) {
@@ -146,7 +161,10 @@ export async function flushSave(): Promise<void> {
         stale?: boolean;
         currentRev?: number;
         warning?: string | null;
-      }>("save_app_state", { state: payload });
+      }>("save_app_state", { state: payload, overMalformed: overMalformedOnce });
+      // One-shot: only the restore path may overwrite an unreadable file,
+      // and only for the write it asked for.
+      overMalformedOnce = false;
       if (res?.stale) {
         // The OTHER window saved a newer revision first. Rust rejected
         // this write rather than silently overwriting it - reload from
