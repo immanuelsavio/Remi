@@ -13,6 +13,7 @@ import {
   S,
   bankOrphanSession,
   commit,
+  commitLocal,
   damagedPaths,
   getSaveTimerHandle,
   loadKind,
@@ -267,7 +268,7 @@ export async function boot(): Promise<void> {
     // look exactly like "all my work vanished".
     loadKind.set("damaged");
     loadMessage.set(`Couldn't read your data: ${String(e)}`);
-    commit((s) => void (s.phase = "recovery"));
+    commitLocal((s) => void (s.phase = "recovery"));
     return;
   }
 
@@ -278,7 +279,7 @@ export async function boot(): Promise<void> {
   if (res.kind === "damaged") {
     // Rust preserved the user's files; show the recovery screen, not a
     // blank day.
-    commit((s) => void (s.phase = "recovery"));
+    commitLocal((s) => void (s.phase = "recovery"));
     return;
   }
 

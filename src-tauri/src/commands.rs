@@ -52,7 +52,10 @@ pub async fn load_app_state() -> Result<LoadResult, String> {
 /// `state_io::write_state_cas` and `docs/data-durability.md`'s
 /// cross-window section.
 #[tauri::command]
-pub async fn save_app_state(state: serde_json::Value) -> Result<serde_json::Value, String> {
+pub async fn save_app_state(
+    state: serde_json::Value,
+    over_malformed: Option<bool>,
+) -> Result<serde_json::Value, String> {
     if UNINSTALLING.load(Ordering::SeqCst) {
         // Going away; not an error the UI should shout about. `rev: 0` is
         // a harmless placeholder - nothing further will be saved anyway.
@@ -60,7 +63,12 @@ pub async fn save_app_state(state: serde_json::Value) -> Result<serde_json::Valu
     }
     let expected_rev = state.get("_rev").and_then(|r| r.as_u64()).unwrap_or(0);
     let _guard = SAVE_LOCK.lock().map_err(|e| e.to_string())?;
-    match write_state_cas(&data_folder(), &state, expected_rev)? {
+    match write_state_cas(
+        &data_folder(),
+        &state,
+        expected_rev,
+        over_malformed.unwrap_or(false),
+    )? {
         CasOutcome::Written(rev) => Ok(serde_json::json!({ "rev": rev })),
         CasOutcome::Stale { current_rev } => {
             Ok(serde_json::json!({ "stale": true, "currentRev": current_rev }))
