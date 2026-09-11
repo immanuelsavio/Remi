@@ -24,7 +24,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-dirs = "6"
+dirs = "7"
 
 # Windows-only: a true single-step atomic file replace (MoveFileExW). The
 # naive remove-then-rename would leave a window where the live state file is
